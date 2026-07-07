@@ -1,6 +1,6 @@
 # FastAPI Project Structure — Django-style Active App Discovery
 
-`app/domains/*`를 스캔해 **앱을 자동 발견(active app discovery)** 하는 FastAPI 프로젝트 템플릿입니다. 폴더만 추가하면 컨벤션으로 결선되며, Repository 패턴과 도메인별 Unit of Work 패턴을 적용했습니다.
+`app/domains/*`를 스캔해 **앱을 자동 발견(active app discovery)** 하는 FastAPI 프로젝트 템플릿입니다. 폴더만 추가하면 컨벤션으로 결선되며, Repository 패턴과 **기능 의존성 기반 트랜잭션 경계**(UnitOfWork 미사용)를 적용했습니다.
 
 > 자매 저장소: 앱을 `config.INSTALLED_APPS` 목록으로 명시적 등록하는 [passive-style](https://github.com/bluebamus/bluebamus-fastapi-project-structure-django-passive-style) 버전도 있습니다. 두 저장소는 **앱 목록의 출처만 다르고** 결선 로직은 동일합니다.
 
@@ -29,8 +29,8 @@
 
 - **자동 앱 발견(active)**: `app/domains/*`를 스캔해 언더스코어로 시작하지 않는 서브패키지를 앱으로 자동 등록(알파벳순) — 폴더만 추가하면 결선, 별도 등록 불필요
 - **계층 분리 아키텍처**: Router → Service → Repository → Database
-- **도메인별 UnitOfWork**: 각 도메인이 독립적인 UnitOfWork를 가지며, 기존 코드 수정 없이 확장 가능
-- **트랜잭션 관리**: Unit of Work 패턴으로 일관된 트랜잭션 처리
+- **의존성 기반 트랜잭션 경계**: 기능 의존성(`get_<name>_service`)이 세션으로 Service를 구성하고 요청 성공 시 커밋(UnitOfWork 미사용)
+- **트랜잭션 관리**: 요청 성공 시 의존성이 커밋, 예외 시 `get_session` teardown이 롤백
 - **N+1 문제 해결**: Eager Loading 전략 내장 (selectin, joined, subquery)
 - **유연한 설정**: Pydantic Settings 기반 환경 변수 관리
 - **구조화된 로깅**: 콘솔/파일 로그 분리, 자동 로그 로테이션
@@ -90,30 +90,18 @@
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 도메인별 Unit of Work 패턴
+### 요청 처리 & 트랜잭션 경계 (UnitOfWork 미사용)
 
 ```
-              app/core/db/  +  app/core/repositories/
-              ┌──────────────────────────────────────────┐
-              │ BaseUnitOfWork(session=None, *, background)│  세션·트랜잭션 (선언형 repositories 맵)
-              │ BaseRepository / crud_base                 │  제네릭 CRUD
-              └──────────────────────────────────────────┘
-                              ^
-                              │ 상속
-                              │
-    ┌─────────────────────────┼─────────────────────────┐
-    │                         │                         │
-    v                         v                         v
-app/domains/home/       app/domains/user/       app/domains/blog/
-┌───────────────┐       ┌───────────────┐       ┌───────────────┐
-│HomeUnitOfWork │       │UserUnitOfWork │       │BlogUnitOfWork │
-│ repositories= │       │ repositories= │       │ repositories= │
-│ {user_access_ │       │ {users: ...}  │       │ {posts: ...}  │
-│  logs: ...}   │       │               │       │               │
-└───────────────┘       └───────────────┘       └───────────────┘
+Router(view) → Depends(get_<name>_service) → Service(session) → Repository → DB
 ```
 
-각 도메인은 자신만의 UnitOfWork를 가지며, `repositories` 맵에 해당 도메인의 Repository만 선언합니다. 백그라운드 전용 풀은 별도 클래스가 아니라 `background=True` 플래그로 선택합니다. 새로운 도메인 추가 시 기존 코드를 수정할 필요가 없습니다.
+트랜잭션 경계는 **기능 의존성**이 담당합니다. `app/domains/<name>/dependencies/` 의 `get_<name>_service` 가
+`get_session` 으로 주입받은 세션으로 Service를 구성해 뷰에 주입하고, 요청이 성공하면 `await session.commit()`
+으로 커밋합니다(예외 시 `get_session` teardown 이 롤백). 요청 밖(백그라운드/Celery)에서는 `background_session()`
+컨텍스트(별도 풀)를 사용해 메인 API 풀 고갈을 방지합니다.
+
+각 도메인은 자신만의 `dependencies/` 패키지를 가지며, 새로운 도메인 추가 시 기존 코드를 수정할 필요가 없습니다(자동 발견).
 
 ---
 
@@ -135,26 +123,25 @@ fastapi-project-structure-django-active-style/
 │   │       ├── schemas/         # Pydantic 스키마
 │   │       ├── services/        # 비즈니스 로직
 │   │       ├── repositories/    # 데이터 접근 계층
-│   │       ├── unit_of_work/    # 도메인 전용 UnitOfWork
-│   │       ├── worker/          # Celery 태스크 (선택)
+│   │       ├── dependencies/    # 기능 의존성 (서비스 구성 + 트랜잭션 경계)
 │   │       ├── admin.py         # SQLAdmin 뷰 (선택)
 │   │       └── tests/           # 테스트
 │   │
 │   ├── core/                    # 프레임워크 인프라 (도메인이 의존)
 │   │   ├── bootstrap.py         # create_app() 팩토리
+│   │   ├── registry.py          # AppRegistry (app/domains/* 자동발견)
 │   │   ├── exception.py         # 공통 예외 계층
-│   │   ├── db/                  # 세션, BaseUnitOfWork, Redis
-│   │   ├── celery/              # Celery 앱 + run_async 브릿지
+│   │   ├── db/                  # 세션, 커넥션 풀, background_session, Redis
 │   │   ├── models/              # SQLAlchemy Base
 │   │   ├── repositories/        # BaseRepository (제네릭 CRUD)
 │   │   ├── services/            # BaseService
 │   │   └── middlewares/         # CORS, UserInfo, AccessLogSink
 │   │
-│   └── shared/                  # 순수 유틸리티 (외부 의존 없음)
-│       ├── logging/             # 구조화 로깅
-│       └── pagination/          # 페이지네이션 헬퍼
+│   ├── celery/                  # 중앙 Celery 앱 + tasks.py + run_async 브릿지
+│   ├── shared/pagination/       # 페이지네이션 헬퍼
+│   └── utils/                   # logs(구조화 로깅), authenticator(스텁)
 │
-├── migrations/                  # Alembic (env.py가 register_models()로 메타데이터 수집)
+├── migrations/                  # Alembic (env.py가 각 앱 models import로 메타데이터 수집)
 └── docs/
     ├── ARCHITECTURE.md          # 아키텍처 공식 문서 (SSOT)
     ├── concepts/                # 개념·패턴 심화 해설
@@ -167,11 +154,11 @@ fastapi-project-structure-django-active-style/
 |------|------|
 | `main.py` | `create_app()` 호출 한 줄 — 모든 조립은 `create_app()`이 수행 |
 | `app/core/registry.py` | `AppRegistry` — `app/domains/*`를 스캔해 앱을 자동 발견하고 라우터/모델/Admin을 컨벤션으로 결선 |
-| `app/core/bootstrap.py` | `create_app()` — register_models → routers → admin_views 등록 |
-| `app/core/db/session.py` | SQLAlchemy 엔진, 세션 팩토리, 커넥션 풀 |
-| `app/core/db/unit_of_work.py` | `BaseUnitOfWork` (세션 관리·트랜잭션만, 도메인 무관) |
+| `app/core/bootstrap.py` | `create_app()` — registry.discover → import_models → routers → admin_views 등록 |
+| `app/core/db/session.py` | SQLAlchemy 엔진, 세션 팩토리, 커넥션 풀, `background_session` |
+| `app/domains/<name>/dependencies/` | 기능 의존성 — Service 구성 + 요청 성공 시 커밋(트랜잭션 경계) |
 | `app/core/exception.py` | 커스텀 예외 계층 (4xx, 5xx, 비즈니스 예외) |
-| `migrations/env.py` | `register_models()`로 모든 도메인 모델 수집 → Alembic autogenerate |
+| `migrations/env.py` | `AppRegistry.discover()` + `import_models()`로 모든 도메인 모델 수집 → Alembic autogenerate |
 
 ### `app/` 구현 규칙 (Conventions)
 
@@ -184,8 +171,8 @@ domains → core → shared
 | 영역 | 역할 | 규칙 |
 |------|------|------|
 | `app/domains/<name>/` | 기능 단위 앱(도메인) | 비즈니스 코드는 전부 여기. `core`를 사용하고 다른 도메인은 import하지 않음 |
-| `app/core/` | 프레임워크 인프라 (Base*, 부트스트랩, db, celery, 미들웨어) | **절대 `domains`를 import하지 않음**. 도메인은 `core`의 Base 클래스를 상속 |
-| `app/shared/` | 순수 유틸리티 (로깅, 페이지네이션) | 외부·상위 계층 의존 없음. 누구나 import 가능 |
+| `app/core/` | 프레임워크 인프라 (Base*, 부트스트랩, registry, db, 미들웨어) | **절대 `domains`를 import하지 않음**. 도메인은 `core`의 Base 클래스를 상속 |
+| `app/shared/`, `app/utils/` | 순수 유틸리티 (페이지네이션, 로깅) | 외부·상위 계층 의존 없음. 누구나 import 가능 |
 
 > 핵심 규칙: **`core`는 도메인을 모른다.** 도메인이 `core`의 미들웨어 등에 자신을 연결해야 할 때는 직접 import가 아니라 등록 훅(예: `access_log_sink.register_sink()`)을 통한다.
 
@@ -203,13 +190,13 @@ app/domains/<name>/
 ├── schemas/                   # Pydantic 요청/응답 스키마 — 필수
 ├── repositories/              # BaseRepository 확장 (데이터 접근) — 필수
 ├── services/                  # BaseService 확장 (비즈니스 로직) — 필수
-├── unit_of_work/              # BaseUnitOfWork 확장 (repositories 맵) — 필수
-│   └── <name>_unit_of_work.py
+├── dependencies/              # 기능 의존성 (Service 구성 + 트랜잭션 경계) — 필수
+│   └── <name>_dependencies.py
 ├── tests/                     # pytest — 필수
 ├── exceptions.py              # 도메인 예외 — 선택
-├── dependencies.py            # FastAPI Depends 헬퍼 — 선택
-├── admin.py                   # SQLAdmin ModelView — 선택
-└── worker/tasks.py            # Celery 태스크 — 선택
+└── admin.py                   # SQLAdmin ModelView — 선택
+
+# Celery 태스크는 도메인이 아니라 중앙 app/celery/tasks.py 에 정의한다.
 ```
 
 **파일 네이밍 표준 (반드시 준수):**
@@ -219,24 +206,24 @@ app/domains/<name>/
 | 도메인 예외 | `exceptions.py` | `<name>_exception.py` |
 | FastAPI 의존성 | `dependencies.py` | `dependency.py` |
 | SQLAdmin 뷰 | `admin.py` | `api/<name>_admin.py` |
-| Celery 태스크 | `worker/tasks.py` | `worker/<name>_task.py` |
-| UnitOfWork | `unit_of_work/` 패키지 | 단일 `unit_of_work.py`도 허용 |
+| Celery 태스크 | 중앙 `app/celery/tasks.py` | 도메인별 `worker/` |
+| 기능 의존성 | `dependencies/` 패키지 | 단일 `dependencies.py`도 허용 |
 
 #### 계층별 책임과 호출 규칙
 
 ```
-Router  →  Service(uow)  →  uow.<repository>  →  DB
- (API)     (비즈니스 로직)    (데이터 접근)
+Router  →  Depends(get_<name>_service)  →  Service(session)  →  Repository  →  DB
+ (API)         (트랜잭션 경계)              (비즈니스 로직)     (데이터 접근)
 ```
 
 | 계층 | 하는 일 | 하지 말 것 |
 |------|---------|-----------|
-| **Router** | 입력 검증(Pydantic), `Depends(get_session)`로 세션 주입, `async with <Name>UnitOfWork(session)` 생성, Service 호출 | 직접 ORM 쿼리·트랜잭션 제어 |
-| **Service** | `BaseService[UoW]` 상속, `self.uow.<repo>`로 데이터 접근, `self.commit()`로 트랜잭션 제어 | Repository를 직접 인스턴스화 (UoW가 결선함) |
+| **Router** | 입력 검증(Pydantic), `Depends(get_<name>_service)`로 Service 주입, Service 호출 → 응답 변환 | 직접 ORM 쿼리·트랜잭션 제어 |
+| **Dependency** | `get_session`으로 세션 주입 → `Service(session)` 구성 → yield → 성공 시 `session.commit()` | 비즈니스 로직 |
+| **Service** | `BaseService` 상속, `self.session`/Repository로 데이터 접근·비즈니스 로직 | 커밋(의존성이 담당) |
 | **Repository** | `BaseRepository` 상속, 쿼리 캡슐화, N+1 회피(`get_all_with`) | 비즈니스 로직·커밋 |
-| **UnitOfWork** | `repositories` 맵 선언만 — `__aenter__`가 자동 결선. 트랜잭션 경계 | 도메인 로직 |
 
-> **주의 (자주 틀리는 부분):** `BaseService`는 **Repository가 아니라 UoW를 주입받습니다.** `Service(uow)`로 생성하고 내부에서 `self.uow.user_access_logs.create(...)`처럼 접근하세요.
+> **주의:** `Service`는 세션을 주입받아 구성됩니다(`Service(session)`). 트랜잭션 커밋은 Service가 아니라 **기능 의존성**(`get_<name>_service`)이 요청 성공 시 수행합니다.
 
 #### 마지막 단계 — 없음 (자동 발견)
 
@@ -251,87 +238,48 @@ Router  →  Service(uow)  →  uow.<repository>  →  DB
 ```
 1. HTTP 요청 수신
        ↓
-2. 미들웨어 처리
-   - CORS 검증
-   - User-Agent 파싱
-   - 접속 로그 수집
+2. 미들웨어 처리 (CORS 검증 · User-Agent 파싱 · 접속 로그 수집)
        ↓
-3. Router 진입
-   - 요청 파라미터 파싱 (Query, Path, Body)
-   - Pydantic 스키마 유효성 검사
-   - 세션 의존성 주입 (Depends(get_session))
+3. Router 진입 (파라미터 파싱 · Pydantic 검증 · Depends(get_<name>_service)로 Service 주입)
        ↓
-4. 도메인별 UnitOfWork 생성
-   - 트랜잭션 경계 시작
-   - 해당 도메인의 Repository 인스턴스 초기화
+4. Service 실행 (비즈니스 로직 · Repository 호출 · ORM 객체 반환)
        ↓
-5. Service 호출
-   - 비즈니스 로직 실행
-   - 데이터 변환 및 검증
+5. 응답 반환 (Pydantic 직렬화)
        ↓
-6. Repository 호출
-   - 데이터베이스 쿼리 실행
-   - ORM 객체 반환
-       ↓
-7. 응답 반환
-   - Pydantic 스키마로 직렬화
-   - UnitOfWork 커밋 또는 롤백
-   - HTTP 응답 전송
+6. 의존성 teardown — 성공 시 session.commit(), 예외 시 get_session 이 rollback()
 ```
 
 ### 코드 예시
 
 ```python
-# Router (API Layer)
-from app.domains.home.unit_of_work import HomeUnitOfWork
+# dependencies — Service 구성 + 트랜잭션 경계
+async def get_access_log_service(
+    session: AsyncSession = Depends(get_session),
+) -> AsyncGenerator[UserAccessLogService, None]:
+    service = UserAccessLogService(session)
+    yield service
+    await session.commit()          # 요청 성공 시 커밋
 
+
+# Router(view) — HTTP 역할만: 파라미터 → Service 호출 → 응답 변환
 @router.get("/access-logs")
 async def get_access_logs(
     skip: int = 0,
     limit: int = 50,
-    session: AsyncSession = Depends(get_session),
+    service: UserAccessLogService = Depends(get_access_log_service),
 ):
-    # 1. 도메인별 UnitOfWork 생성 (트랜잭션 시작)
-    async with HomeUnitOfWork(session) as uow:
-        # 2. Service 생성 (UoW 주입 — Service가 uow.<repo>로 데이터 접근)
-        service = UserAccessLogService(uow)
-
-        # 3. 비즈니스 로직 실행
-        logs, total = await service.get_access_logs(skip, limit)
-
-    # 4. 응답 반환
+    logs, total = await service.get_access_logs(skip, limit)
     return UserAccessLogListResponse(
         items=[UserAccessLogResponse.model_validate(log) for log in logs],
-        total=total,
-        skip=skip,
-        limit=limit,
+        total=total, skip=skip, limit=limit,
     )
 ```
 
-### 트랜잭션 관리
+### 트랜잭션 & 롤백
 
-```python
-# 단일 트랜잭션 내 여러 작업 (도메인별 UnitOfWork 사용)
-async with HomeUnitOfWork(session) as uow:
-    # Repository를 통한 데이터 조작
-    log = await uow.user_access_logs.create({"ip_address": "127.0.0.1", ...})
-
-    # 모든 작업 커밋 (원자적)
-    await uow.commit()
-```
-
-### 예외 발생 시 자동 롤백
-
-```python
-async with HomeUnitOfWork(session) as uow:
-    await uow.user_access_logs.create({"ip_address": "127.0.0.1", ...})
-
-    # 예외 발생 시 __aexit__에서 자동 롤백
-    raise BusinessException("처리 실패")
-
-    # 이 코드는 실행되지 않음
-    await uow.commit()
-```
+- **성공**: 뷰가 정상 반환 → `get_<name>_service` 가 `session.commit()`.
+- **예외**: 뷰/Service 에서 예외 발생 → 커밋이 실행되지 않고 `get_session` teardown 이 `session.rollback()`.
+- **요청 밖(Celery/백그라운드)**: `async with background_session() as session:` 컨텍스트로 커밋/롤백을 직접 관리(별도 풀).
 
 ---
 
@@ -391,92 +339,60 @@ class UserAccessLogRepository(BaseRepository[UserAccessLog]):
         return {row[0]: row[1] for row in result.all()}
 ```
 
-### 2. Unit of Work 패턴 (도메인별 분리)
+### 2. 트랜잭션 경계 — 기능 의존성 (UnitOfWork 대체)
 
-인프라 계층에는 세션 관리만 담당하는 기반 클래스를 두고, 각 도메인에서 이를 상속하여 자신만의 Repository를 정의합니다.
-
-```python
-# app/core/db/unit_of_work.py - 기반 클래스 (세션 관리만 담당)
-class BaseUnitOfWork:
-    """세션 관리와 트랜잭션 제어만 담당하는 기반 클래스 (선언형)"""
-
-    repositories: dict[str, type] = {}   # 하위 클래스가 선언 → __aenter__에서 자동 초기화
-
-    def __init__(self, session: AsyncSession | None = None, *, background: bool = False):
-        self._session = session
-        self._owns_session = session is None
-        self._background = background      # True면 BackgroundSessionLocal 풀 사용
-
-    async def __aenter__(self) -> Self:
-        if self._owns_session:
-            factory = BackgroundSessionLocal if self._background else AsyncSessionLocal
-            self._session = factory()
-        for attr, repo_cls in self.repositories.items():   # Repository 자동 결선
-            setattr(self, attr, repo_cls(self._session))
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        if exc_type is not None:
-            await self.rollback()  # 예외 시 자동 롤백
-        if self._owns_session and self._session:
-            await self._session.close()
-
-    async def commit(self) -> None:
-        await self.session.commit()
-
-    async def rollback(self) -> None:
-        await self.session.rollback()
-```
+UnitOfWork 대신 **기능 의존성**이 세션으로 Service를 구성하고 요청 성공 시 커밋합니다.
+트랜잭션 경계가 요청 수명주기와 일치해 예측 가능합니다.
 
 ```python
-# app/domains/home/unit_of_work/home_unit_of_work.py - 도메인별 UnitOfWork
-class HomeUnitOfWork(BaseUnitOfWork):
-    """Home 도메인 전용 UnitOfWork (선언형 repositories 맵)"""
-
-    user_access_logs: UserAccessLogRepository
-    repositories = {"user_access_logs": UserAccessLogRepository}
-
-# 백그라운드 풀이 필요하면 별도 클래스가 아니라 플래그로:
-#   async with HomeUnitOfWork(background=True) as uow: ...
+# app/domains/home/dependencies/access_log_dependencies.py
+async def get_access_log_service(
+    session: AsyncSession = Depends(get_session),
+) -> AsyncGenerator[UserAccessLogService, None]:
+    service = UserAccessLogService(session)
+    yield service
+    await session.commit()          # 요청 성공 시 커밋 (예외 시 get_session 이 롤백)
 ```
 
-이 설계의 핵심 장점:
-
-- **의존성 방향 정상화**: 인프라(database)는 도메인을 모르고, 도메인이 인프라를 사용
-- **도메인 독립성**: 각 도메인은 자신만의 Repository만 포함
-- **확장성**: 새 도메인 추가 시 기존 코드 수정 불필요
+- 요청 밖(Celery/백그라운드)에서는 `async with background_session() as session:` 컨텍스트로
+  커밋/롤백을 직접 관리합니다(별도 풀 → 메인 API 풀 고갈 방지).
+- 인프라(`core`)는 도메인을 모르고, 도메인이 `get_session`/`background_session` 을 사용합니다. 새 도메인 추가 시 기존 코드 수정이 필요 없습니다(자동 발견).
 
 ### 3. Service 패턴
 
-비즈니스 로직을 캡슐화하고 Repository를 조율합니다.
+세션을 주입받아 Repository를 구성하고 비즈니스 로직을 캡슐화합니다(커밋은 의존성이 담당).
 
 ```python
 # app/core/services/services_base.py - 공통 기반 클래스
-class BaseService(Generic[UoW]):
-    """제네릭 기본 Service — UoW를 주입받아 트랜잭션과 Repository에 접근"""
+class BaseService(LoggerMixin):
+    """세션 주입 기반 Service. 커밋/롤백 경계는 의존성/컨텍스트가 책임진다."""
 
-    def __init__(self, uow: UoW):
-        self.uow = uow
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
 
 
 # app/domains/home/services/user_access_log_service.py - 도메인 Service
-class UserAccessLogService(BaseService["HomeUnitOfWork"]):
-    """접속 로그 비즈니스 로직"""
+class UserAccessLogService(BaseService):
+    """접속 로그 비즈니스 로직 (세션 기반)."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        super().__init__(session)
+        self.repository = UserAccessLogRepository(session)
 
     async def get_access_logs(
         self, skip: int = 0, limit: int = 50
     ) -> tuple[Sequence[UserAccessLog], int]:
-        """접속 로그 목록 조회 (uow.<repo>로 데이터 접근)"""
-        logs = await self.uow.user_access_logs.get_all(skip=skip, limit=limit)
-        total = await self.uow.user_access_logs.count()
+        """접속 로그 목록 조회 (self.repository 로 데이터 접근)"""
+        logs = await self.repository.get_all(skip=skip, limit=limit)
+        total = await self.repository.count()
         return logs, total
 
     async def get_stats(self) -> AccessLogStats:
         """접속 통계 조회"""
-        total = await self.uow.user_access_logs.count()
-        device_stats = await self.uow.user_access_logs.count_by_device_type()
-        os_stats = await self.uow.user_access_logs.count_by_os()
-        browser_stats = await self.uow.user_access_logs.count_by_browser()
+        total = await self.repository.count()
+        device_stats = await self.repository.count_by_device_type()
+        os_stats = await self.repository.count_by_os()
+        browser_stats = await self.repository.count_by_browser()
 
         return AccessLogStats(
             total_count=total,
@@ -595,7 +511,7 @@ uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
                               ↓
 ┌─────────────────────────────────────────────────────────────┐
 │                        get_logger()                          │
-│          app/shared/logging/ (캐싱된 로거 반환)               │
+│          app/utils/logs/ (캐싱된 로거 반환)                   │
 └─────────────────────────────────────────────────────────────┘
                               ↓
               ┌───────────────┴───────────────┐
@@ -640,7 +556,7 @@ DEBUG=false → 로그 레벨: INFO (INFO 이상만 출력)
 #### 1. 기본 사용법
 
 ```python
-from app.shared.logging import get_logger
+from app.utils.logs import get_logger
 
 # 모듈별 로거 생성 (이름으로 로그 출처 구분)
 logger = get_logger("my_module")
@@ -717,20 +633,21 @@ logs/
 [2024-01-15 10:30:02] ERROR    [database:connect:23] 연결 실패: timeout
 ```
 
-### 미리 정의된 로거 상수
+### 클래스 로거 — LoggerMixin (방식 C)
+
+클래스에서는 `LoggerMixin` 을 상속하면 `self.log` 로 클래스명이 자동 주입된 로거를 사용할 수 있습니다.
+(`BaseService` 가 이미 `LoggerMixin` 을 상속하므로 모든 도메인 Service 는 `self.log` 를 바로 씁니다.)
 
 ```python
-# app/shared/logging/logger.py에 정의된 상수 (app.shared.logging에서 re-export)
-from app.shared.logging import (
-    HOME_LOGGER,      # "home"
-    LYRIC_LOGGER,     # "lyric"
-    SONG_LOGGER,      # "song"
-    VIDEO_LOGGER,     # "video"
-    CELERY_LOGGER,    # "celery"
-    APP_LOGGER,       # "app"
-)
+from app.utils.logs import LoggerMixin
 
-logger = get_logger(HOME_LOGGER)
+
+class UserAccessLogService(LoggerMixin):
+    def do_work(self) -> None:
+        # 로그 헤더에 클래스명이 자동으로 포함됨
+        self.log.info("작업 시작")
+
+# 비클래스 코드는 get_logger + ContextFilter(방식 A)가 호출 프레임에서 컨텍스트를 자동 추출합니다.
 ```
 
 ---
@@ -919,7 +836,7 @@ suspicious = [log for log in logs if log.is_bot and log.response_status == 403]
 
 1. **Non-blocking 저장**: 접속 로그는 `asyncio.create_task()`로 백그라운드에서 저장되어 API 응답 시간에 영향을 주지 않습니다.
 
-2. **분리된 커넥션 풀**: 접속 로그 sink는 `HomeUnitOfWork(background=True)`로 메인 API 풀과 분리된 백그라운드 풀을 사용하여 풀 고갈을 방지합니다.
+2. **분리된 커넥션 풀**: 접속 로그 sink는 `background_session()`(별도 백그라운드 풀)을 사용하여 메인 API 풀 고갈을 방지합니다.
 
 3. **제외 설정 최적화**: 헬스체크, 정적 파일 등 빈번한 요청은 기본적으로 제외됩니다.
 
@@ -950,17 +867,19 @@ async def dispatch(self, request: Request, call_next: Callable):
 > 상세 아키텍처 및 각 파일의 역할은 **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** 를 참고하세요.
 
 새 앱은 스캐폴딩으로 디렉토리/파일을 생성하면 **`app/domains/*` 스캔으로 자동 발견**됩니다.
-별도 등록 단계가 없으며, 컨벤션(패키지명·`<name>_router` 등)만 지키면 라우터/모델/Admin/태스크가 연결됩니다.
+별도 등록 단계가 없으며, 컨벤션(패키지명·`<name>_router` 등)만 지키면 라우터/모델/Admin이 연결됩니다.
 
 ### 스캐폴딩 생성기 사용 (권장)
 
 ```bash
-# 기본 구조 생성 (router + unit_of_work)
+# 기본 구조 생성 (router + dependencies)
 uv run python -m scripts.new_app <name>
 
-# Celery 워커 + SQLAdmin 포함
-uv run python -m scripts.new_app <name> --with-worker --with-admin
+# SQLAdmin 포함
+uv run python -m scripts.new_app <name> --with-admin
 ```
+
+> Celery 태스크는 도메인이 아니라 중앙 `app/celery/tasks.py` 에 정의합니다(스캐폴딩 대상 아님).
 
 ### 최소 절차 (3단계)
 
@@ -979,13 +898,13 @@ uv run python -m scripts.new_app <name> --with-worker --with-admin
 - [ ] `app/domains/<name>/` 패키지 생성 (자동 발견 — 별도 등록 불필요)
 - [ ] `models/` — SQLAlchemy ORM 모델
 - [ ] `repositories/` — BaseRepository 확장
-- [ ] `unit_of_work/` — BaseUnitOfWork 선언형 repositories 맵
+- [ ] `dependencies/` — 기능 의존성(Service 구성 + 트랜잭션 경계)
 - [ ] `services/` — 비즈니스 로직
 - [ ] `schemas/` — Pydantic 요청/응답 스키마
 - [ ] `api/routers/router.py` + `v1/` — 엔드포인트 정의
 - [ ] `tests/` — pytest 테스트
-- [ ] `worker/tasks.py` (선택 — `--with-worker`)
 - [ ] `admin.py` (선택 — `--with-admin`)
+- [ ] Celery 태스크가 필요하면 중앙 `app/celery/tasks.py` 에 추가 (선택)
 
 ---
 
