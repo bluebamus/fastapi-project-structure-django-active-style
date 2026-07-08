@@ -214,5 +214,6 @@ module = [
     "aiomysql.*",
     "scalar_fastapi.*",
     "sqladmin.*",
+    "celery.*",
 ]
 ignore_missing_imports = true

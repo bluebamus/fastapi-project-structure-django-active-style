@@ -34,6 +34,12 @@ class Base(DeclarativeBase):
         datetime: DateTime(timezone=True),
     }
 
+    # 모든 도메인 모델은 각 models.py 에서 String(36) UUID `id` 기본키를 선언한다.
+    # 제네릭 BaseRepository / pagination 계약이 `model.id` 를 참조하므로, 타입
+    # 체커가 이 불변식을 인식하도록 베이스에 선언만 둔다. Base 는 테이블이 없어
+    # 매핑되지 않으므로(추상 선언 베이스) 런타임 스키마에는 영향이 없다.
+    id: Mapped[Any]
+
     def to_dict(self) -> dict[str, Any]:
         """모델을 딕셔너리로 변환합니다."""
         return {c.name: getattr(self, c.name) for c in self.__table__.columns}
