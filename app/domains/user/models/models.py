@@ -5,43 +5,33 @@ User 도메인 데이터베이스 모델
 """
 
 from datetime import datetime
-from uuid import uuid4
 
 from sqlalchemy import Boolean, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db.session import Base
+from app.core.models.models_base import TimestampMixin, UUIDMixin
 from config import timezone_settings
 
 
-class User(Base):
+class User(Base, UUIDMixin, TimestampMixin):
     """사용자.
 
     Attributes:
-        id: UUID 기본키
+        id: UUID 기본키 (UUIDMixin)
         username: 사용자명(고유)
         email: 이메일
         is_active: 활성 여부
-        created_at: 생성 시각
+        created_at: 생성 시각 (TimestampMixin)
         updated_at: 수정 시각
     """
 
     __tablename__ = "users"
 
-    id: Mapped[str] = mapped_column(
-        String(36),
-        primary_key=True,
-        default=lambda: str(uuid4()),
-    )
     username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     email: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: timezone_settings.now(),
-        nullable=False,
-    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: timezone_settings.now(),

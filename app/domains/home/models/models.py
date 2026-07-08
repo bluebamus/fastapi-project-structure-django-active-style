@@ -4,17 +4,14 @@ Home 모듈 데이터베이스 모델
 접속자 정보를 저장하는 UserAccessLog 모델을 정의합니다.
 """
 
-from datetime import datetime
-from uuid import uuid4
-
-from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text
+from sqlalchemy import Boolean, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db.session import Base
-from config import timezone_settings
+from app.core.models.models_base import TimestampMixin, UUIDMixin
 
 
-class UserAccessLog(Base):
+class UserAccessLog(Base, UUIDMixin, TimestampMixin):
     """
     사용자 접속 정보 모델
 
@@ -59,13 +56,6 @@ class UserAccessLog(Base):
         Index("ix_user_access_logs_country", "country"),
         Index("ix_user_access_logs_session_id", "session_id"),
         Index("ix_user_access_logs_user_id", "user_id"),
-    )
-
-    # 기본키
-    id: Mapped[str] = mapped_column(
-        String(36),
-        primary_key=True,
-        default=lambda: str(uuid4()),
     )
 
     # 네트워크 정보
@@ -183,13 +173,6 @@ class UserAccessLog(Base):
     accept_language: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
-    )
-
-    # 타임스탬프
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: timezone_settings.now(),
-        nullable=False,
     )
 
     def __repr__(self) -> str:

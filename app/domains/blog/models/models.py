@@ -5,43 +5,33 @@ Blog 도메인 데이터베이스 모델
 """
 
 from datetime import datetime
-from uuid import uuid4
 
 from sqlalchemy import DateTime, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db.session import Base
+from app.core.models.models_base import TimestampMixin, UUIDMixin
 from config import timezone_settings
 
 
-class Post(Base):
+class Post(Base, UUIDMixin, TimestampMixin):
     """블로그 게시글.
 
     Attributes:
-        id: UUID 기본키
+        id: UUID 기본키 (UUIDMixin)
         title: 제목
         content: 본문
         author: 작성자(선택)
-        created_at: 생성 시각
+        created_at: 생성 시각 (TimestampMixin)
         updated_at: 수정 시각
     """
 
     __tablename__ = "blog_posts"
 
-    id: Mapped[str] = mapped_column(
-        String(36),
-        primary_key=True,
-        default=lambda: str(uuid4()),
-    )
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     author: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: timezone_settings.now(),
-        nullable=False,
-    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: timezone_settings.now(),
