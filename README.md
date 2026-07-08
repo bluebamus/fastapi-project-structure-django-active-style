@@ -138,8 +138,7 @@ fastapi-project-structure-django-active-style/
 │   │   └── middlewares/         # CORS, UserInfo, AccessLogSink
 │   │
 │   ├── celery/                  # 중앙 Celery 앱 + tasks.py + run_async 브릿지
-│   ├── shared/pagination/       # 페이지네이션 헬퍼
-│   └── utils/                   # logs(구조화 로깅), authenticator(스텁)
+│   └── utils/                   # pagination(페이지네이션), logs(구조화 로깅), authenticator(스텁)
 │
 ├── migrations/                  # Alembic (env.py가 각 앱 models import로 메타데이터 수집)
 └── docs/
@@ -165,14 +164,14 @@ fastapi-project-structure-django-active-style/
 `app/` 아래는 **3개 영역**으로 나뉘며, 의존은 한 방향으로만 흐릅니다.
 
 ```
-domains → core → shared
+domains → core → utils
 ```
 
 | 영역 | 역할 | 규칙 |
 |------|------|------|
 | `app/domains/<name>/` | 기능 단위 앱(도메인) | 비즈니스 코드는 전부 여기. `core`를 사용하고 다른 도메인은 import하지 않음 |
 | `app/core/` | 프레임워크 인프라 (Base*, 부트스트랩, registry, db, 미들웨어) | **절대 `domains`를 import하지 않음**. 도메인은 `core`의 Base 클래스를 상속 |
-| `app/shared/`, `app/utils/` | 순수 유틸리티 (페이지네이션, 로깅) | 외부·상위 계층 의존 없음. 누구나 import 가능 |
+| `app/utils/` | 순수 유틸리티 (페이지네이션, 로깅, 인증) | 외부·상위 계층 의존 없음(구조적 타입으로 결합 회피). 누구나 import 가능 |
 
 > 핵심 규칙: **`core`는 도메인을 모른다.** 도메인이 `core`의 미들웨어 등에 자신을 연결해야 할 때는 직접 import가 아니라 등록 훅(예: `access_log_sink.register_sink()`)을 통한다.
 
