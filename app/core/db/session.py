@@ -143,7 +143,7 @@ async def create_db_tables() -> None:
 
     registry = AppRegistry()
     registry.discover()
-    registry.import_models()   # imports every app's models package -> Base.metadata
+    registry.import_models()  # imports every app's models package -> Base.metadata
 
     logger.info("Creating database tables...")
 

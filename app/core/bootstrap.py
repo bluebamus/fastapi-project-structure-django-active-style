@@ -216,6 +216,7 @@ def _add_health_and_docs(app: FastAPI) -> None:
 
     # Scalar API 문서 (DEBUG 모드에서만 활성화)
     if app_settings.DEBUG:
+
         @app.get("/docs", include_in_schema=False)
         async def scalar_docs():
             """
@@ -240,8 +241,8 @@ def create_app() -> FastAPI:
     Returns:
         구성이 완료된 FastAPI 앱 인스턴스
     """
-    registry.discover()          # app/domains/* 컨벤션 스캔(디렉터리=앱)
-    registry.import_models()     # Base.metadata 채움 (create_db_tables/Alembic 공용)
+    registry.discover()  # app/domains/* 컨벤션 스캔(디렉터리=앱)
+    registry.import_models()  # Base.metadata 채움 (create_db_tables/Alembic 공용)
 
     app = FastAPI(
         title=app_settings.PROJECT_NAME,
@@ -250,8 +251,8 @@ def create_app() -> FastAPI:
         openapi_tags=tags_metadata,
         lifespan=lifespan,
         default_response_class=ORJSONResponse,
-        docs_url=None,      # Swagger UI 비활성화 (Scalar 사용)
-        redoc_url=None,     # ReDoc 비활성화 (Scalar 사용)
+        docs_url=None,  # Swagger UI 비활성화 (Scalar 사용)
+        redoc_url=None,  # ReDoc 비활성화 (Scalar 사용)
         openapi_url="/openapi.json" if app_settings.DEBUG else None,
     )
 

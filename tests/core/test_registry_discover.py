@@ -6,6 +6,6 @@ def test_discover_finds_direct_subpackages_alphabetically():
     reg = AppRegistry()
     apps = reg.discover(package="tests.core._fakeapps")
     names = [a.name for a in apps]
-    assert names == ["alpha", "beta"]          # 알파벳 정렬(언더스코어 디렉터리 제외)
+    assert names == ["alpha", "beta"]  # 알파벳 정렬(언더스코어 디렉터리 제외)
     assert reg.enabled_apps == apps
     assert all(a.package.startswith("tests.core._fakeapps.") for a in apps)

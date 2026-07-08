@@ -14,6 +14,7 @@
     - main(수동):    discover() 가 config.INSTALLED_APPS 목록을 읽는다.
 결선(install_routers/import_models/install_admin)은 두 브랜치가 동일하게 공유한다.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -115,7 +116,9 @@ class AppRegistry:
         for module in self._apps:
             router = module.load_router()
             if router is None:
-                logger.warning("앱 '%s' 에 %s 라우터가 없어 건너뜀", module.name, module.router_attr)
+                logger.warning(
+                    "앱 '%s' 에 %s 라우터가 없어 건너뜀", module.name, module.router_attr
+                )
                 continue
             app.include_router(router, prefix=module.prefix)
             count += 1

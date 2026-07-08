@@ -10,7 +10,7 @@ def test_install_routers_mounts_by_convention():
 
     app = FastAPI()
     count = reg.install_routers(app)
-    assert count == 1                          # alpha 만 라우터 보유
+    assert count == 1  # alpha 만 라우터 보유
     paths = {route.path for route in app.routes}
     assert "/api/ping" in paths
 
@@ -19,7 +19,7 @@ def test_import_models_skips_apps_without_models():
     """models 패키지가 없어도 예외 없이 통과한다."""
     reg = AppRegistry()
     reg.discover(package="tests.core._fakeapps")
-    assert reg.import_models() is None         # 예외 없이 None 반환
+    assert reg.import_models() is None  # 예외 없이 None 반환
 
 
 def test_install_admin_collects_admin_views():
@@ -36,5 +36,5 @@ def test_install_admin_collects_admin_views():
     reg.discover(package="tests.core._fakeapps")
     stub = _StubAdmin()
     count = reg.install_admin(stub)
-    assert count == 2                          # beta 가 ViewA, ViewB 제공
+    assert count == 2  # beta 가 ViewA, ViewB 제공
     assert len(stub.collected) == 2

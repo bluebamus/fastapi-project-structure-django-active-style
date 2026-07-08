@@ -33,9 +33,7 @@ class User(Base):
         primary_key=True,
         default=lambda: str(uuid4()),
     )
-    username: Mapped[str] = mapped_column(
-        String(100), unique=True, nullable=False, index=True
-    )
+    username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     email: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
