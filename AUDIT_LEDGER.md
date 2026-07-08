@@ -126,5 +126,28 @@
 
 **최종 상태**: ruff clean · mypy **3**(SQLAdmin formatter 스텁 부정확, 상류 한계) · bandit(비테스트) 0 · tests **69 passed**. 보류 잔여 2건(배포 HOST env 주입, 템플릿 방향) = 소유자 결정.
 
+---
+
+## 실행 #1 (후속 2) — 2026-07-08 · 남은 보류 처리 + 최종 bandit 감사
+
+소유자 지시: "알려준 내용 진행 + 모든 단계 후 bandit 감사, **nginx 설정 가능 항목 제외**".
+- **item 1(HOST 바인딩/외부 노출)** = nginx 리버스 프록시 계층 항목 → **제외**(기존 B104 안전 기본값 유지, 코드 변경 없음).
+- **item 2(템플릿 정합성)** = 진행. 미사용 믹스인은 **동작 보존이 검증되는 범위(정의 정확 일치)** 에서 채택. BaseRepository 재사용 스캐폴딩은 템플릿 가치상 제거하지 않음(유지).
+
+**작업 L-3 · `7880165` refactor(models): 믹스인 채택**
+- 변경 전: `UUIDMixin`/`TimestampMixin` 정의만 되고 미사용, 5개 모델이 동일 `id`/`created_at` 인라인 중복 선언(불일치).
+- 결정: 인라인 정의가 믹스인과 **정확 일치**함을 5개 모델 전부 확인 후 상속 전환. `id` 는 UUIDMixin, `created_at` 은 TimestampMixin, `updated_at`(믹스인 없음)은 인라인 유지. home 은 updated_at 없음.
+- 회귀 위험 검수: `Base.id: Mapped[Any]` 타입 선언(1-B)과 믹스인 상속의 상호작용을 user 모델 1개로 선검증(9 tests) 후 확산 → SQLAlchemy 매핑 충돌 없음.
+- 변경 후: **동작 보존**(컬럼 타입/PK/default/nullable 동일, 물리 컬럼 순서만 변경·ORM 무영향). tests **69 passed**, mypy 3 유지, ruff clean.
+- 관계: 보완(L-3 해소). 회귀 없음.
+
+**최종 bandit 감사 (nginx 계층 제외)**
+- 전체: Low 68 / Medium 0 / High 0. **68건 전부 테스트 파일 B101(assert) = 오탐**.
+- **비테스트 실이슈 0건**. B104(host bind)는 (a)이미 안전 기본값으로 수정됨 + (b)외부 노출은 nginx 계층 담당이라 제외 대상.
+- nginx 계층 항목(외부 바인딩/TLS/보안 헤더/rate limit)은 애플리케이션 범위 밖으로 제외.
+- **결론**: 애플리케이션 코드 보안 스캔 클린.
+
+**최종 상태(전체)**: ruff clean · ruff format clean · mypy **3**(SQLAdmin 스텁 한계) · bandit 비테스트 **0** · tests **69 passed**(베이스라인 67 + 신규 회귀 2). 보류 잔여 = 배포 HOST env(nginx 계층·제외), 템플릿 스캐폴딩 축소 여부(소유자 결정).
+
 
 
