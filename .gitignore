@@ -20,6 +20,15 @@ __pycache__/
 # Alembic scratch / local verification databases
 _scratch_alembic.db
 
+# Testing / lint / type-check artifacts and caches
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
 # macOS
 .DS_Store
 .AppleDouble
