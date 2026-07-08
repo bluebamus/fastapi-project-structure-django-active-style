@@ -29,16 +29,25 @@
 import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Protocol, TypeVar
 
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.models.models_base import Base
+
+class _HasId(Protocol):
+    """페이지네이션 대상 모델의 최소 계약: `id` 속성 보유.
+
+    utils 는 상위 계층(core)에 의존하지 않으므로, ORM Base 를 직접 import 하지
+    않고 구조적 타입(Protocol)으로 `id` 요구만 표현한다.
+    """
+
+    id: Any
+
 
 T = TypeVar("T", bound=BaseModel)
-ModelT = TypeVar("ModelT", bound=Base)
+ModelT = TypeVar("ModelT", bound=_HasId)
 
 
 @dataclass

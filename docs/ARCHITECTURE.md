@@ -56,9 +56,10 @@ fastapi-default-project-structure/
 │   │       ├── user_info_middleware.py
 │   │       └── access_log_sink.py
 │   │
-│   └── shared/                      # 순수 유틸리티 (외부 의존 없음)
-│       ├── logging/                 # 구조화 로깅 (get_logger, setup_uvicorn_logging)
-│       └── pagination/              # 페이지네이션 헬퍼
+│   └── utils/                       # 순수 유틸리티 (외부·상위 계층 의존 없음)
+│       ├── logs/                    # 구조화 로깅 (get_logger, setup_uvicorn_logging)
+│       ├── authenticator/           # 인증 유틸(스텁)
+│       └── pagination/              # 페이지네이션 헬퍼 (stdlib dataclass)
 │
 ├── migrations/                      # Alembic 마이그레이션
 │   └── env.py                       # app/apps.py의 register_models()로 메타데이터 수집
@@ -73,10 +74,10 @@ fastapi-default-project-structure/
 ### 의존 방향
 
 ```
-domains → core → shared
+domains → core → utils
 ```
 
-`core`는 `shared`만 알고, `domains`는 `core`를 사용합니다.
+`core`는 `utils`만 알고, `domains`는 `core`를 사용합니다.
 `core`는 절대로 `domains`를 import하지 않습니다.
 
 ---
@@ -151,10 +152,11 @@ app = create_app()
 
 if __name__ == "__main__":
     import uvicorn
-    from app.shared.logging import setup_uvicorn_logging
+
+    from app.utils.logs import setup_uvicorn_logging
 
     uvicorn.run(
-        "main:app", host="0.0.0.0", port=8000,
+        "main:app", host=app_settings.HOST, port=app_settings.PORT,
         reload=app_settings.DEBUG, log_config=setup_uvicorn_logging(),
     )
 ```
