@@ -149,5 +149,24 @@
 
 **최종 상태(전체)**: ruff clean · ruff format clean · mypy **3**(SQLAdmin 스텁 한계) · bandit 비테스트 **0** · tests **69 passed**(베이스라인 67 + 신규 회귀 2). 보류 잔여 = 배포 HOST env(nginx 계층·제외), 템플릿 스캐폴딩 축소 여부(소유자 결정).
 
+---
+
+## 실행 #1 (후속 3) — 2026-07-08 · 재사용 표면 전수 검증 (A-1 해소)
+
+소유자 원칙 제기: "재사용 가치가 있으려면 실제로 범용 동작해야 한다. 특정
+조건에서만 되면 재사용 가치 없음." → 미검증 표면을 유지/축소 취향 문제가 아니라
+**검증 문제**로 재정의. 옵션 (A) 검증 패스 선택.
+
+**작업 · `baade53` test(repository): 재사용 표면 전수 검증**
+- 변경 전: BaseRepository 의 18개 메서드가 앱 미사용·테스트 0 → 미검증(잠재 함정). L-2 가 실제 그 상태에서 깨져 있던 증거.
+- 결정: 격리 모델(Item/Tag: 관계·Text·Integer 컬럼)로 18개 메서드 전수 호출 검증. 통과=재사용 확정 / 실패=수정 or 제거.
+- 검증 대상: bulk_create, get_many, exists, exists_by, get_by_id_with, get_one_with, get_many_with, get_by_ids_with(빈목록 조기반환 포함), get_partial, get_by_id_partial, get_in_batches, get_with_join, count_with_relation, bulk_update, update_by, bulk_delete, delete_by, get_or_create, update_or_create.
+- 결과: **18/18 통과**. L-2(기수정) 외 **추가 결함 없음**. 표면 전체가 이제 검증됨 → **제거 불필요**(A-1 (a) 유지가 정당화됨).
+- 인지 사항(한계): 검증 환경은 기존 스위트와 동일한 **aiosqlite**. 프로덕션 **MySQL(aiomysql)** 방언 특이사항(예: 특정 group_by/collation)은 범위 밖 — 단, L-2 부류(쿼리 구성/API 오용) 결함은 커버됨.
+- 검증: tests **69→87 passed**, ruff/format clean, mypy 3 유지.
+- 관계: 보완(A-1 결정 근거 확보). 회귀 없음.
+
+**A-1 결론**: 재사용 표면이 검증됨으로써 "미검증 스캐폴딩" 우려 해소. 유지가 정당(파괴적 축소 불필요). 소비자는 격리 테스트(`test_repository_crud_surface.py`)를 사용 예시로 참고 가능.
+
 
 
