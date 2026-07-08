@@ -2,7 +2,7 @@
 
 `app/domains/*`를 스캔해 **앱을 자동 발견(active app discovery)** 하는 FastAPI 프로젝트 템플릿입니다. 폴더만 추가하면 컨벤션으로 결선되며, Repository 패턴과 **기능 의존성 기반 트랜잭션 경계**(UnitOfWork 미사용)를 적용했습니다.
 
-> 자매 저장소: 앱을 `config.INSTALLED_APPS` 목록으로 명시적 등록하는 [passive-style](https://github.com/bluebamus/bluebamus-fastapi-project-structure-django-passive-style) 버전도 있습니다. 두 저장소는 **앱 목록의 출처만 다르고** 결선 로직은 동일합니다.
+> 자매 저장소: 앱을 `config.INSTALLED_APPS` 목록으로 명시적 등록하는 [passive-style](https://github.com/bluebamus/fastapi-project-structure-django-passive-style) 버전도 있습니다. 두 저장소는 **앱 목록의 출처만 다르고** 결선 로직은 동일합니다.
 
 ## 목차
 
@@ -889,7 +889,7 @@ uv run python -m scripts.new_app <name> --with-admin
 
 `app/domains/<name>/` 패키지를 만들기만 하면 `AppRegistry`가 스캔해 자동 등록합니다(언더스코어로 시작하는 디렉토리는 제외, 알파벳순 로드). 라우터(`<name>_router`)·모델·Admin(`admin_views`)은 컨벤션에 따라 자동 결선되므로 별도 등록 코드가 없습니다.
 
-> 로드 순서를 명시적으로 제어하고 싶다면 `config.INSTALLED_APPS` 목록으로 등록하는 [passive-style](https://github.com/bluebamus/bluebamus-fastapi-project-structure-django-passive-style) 버전을 사용하세요.
+> 로드 순서를 명시적으로 제어하고 싶다면 `config.INSTALLED_APPS` 목록으로 등록하는 [passive-style](https://github.com/bluebamus/fastapi-project-structure-django-passive-style) 버전을 사용하세요.
 
 **3. 서버 재시작** — 새로 만든 앱이 자동 발견되어 라우터가 마운트됩니다.
 

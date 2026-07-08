@@ -263,7 +263,7 @@ wheels = [
 ]
 
 [[package]]
-name = "fastapi-default-project-structure"
+name = "fastapi-project-structure-django-active-style"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
