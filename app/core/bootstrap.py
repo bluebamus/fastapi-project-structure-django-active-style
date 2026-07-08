@@ -257,8 +257,11 @@ def create_app() -> FastAPI:
     )
 
     # 미들웨어 설정
-    CustomCORSMiddleware(app).configure_cors()
+    # add_middleware 는 나중에 등록한 것이 더 바깥(최외곽)에 위치한다.
+    # CORS 를 마지막에 등록해 최외곽에 두면, 내부 미들웨어/핸들러가 만든
+    # 에러 응답에도 CORS 헤더가 일관되게 적용된다.
     setup_user_info_middleware(app)
+    CustomCORSMiddleware(app).configure_cors()
 
     # API 문서 상태 로깅
     if app_settings.DEBUG:
