@@ -3,11 +3,14 @@
 in-memory sqlite 로 service → repository → ORM CRUD 흐름을 검증한다.
 """
 
+from datetime import datetime
+
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.db.session import Base
+from app.domains.home.exceptions import InvalidDateRangeException
 from app.domains.home.models.models import UserAccessLog  # noqa: F401  (register table)
 from app.domains.home.services.user_access_log_service import UserAccessLogService
 
@@ -53,3 +56,25 @@ async def test_stats_counts_device_type(session):
     stats = await service.get_stats()
     assert stats.total_count == 1
     assert any(d.device_type == "desktop" and d.count == 1 for d in stats.device_types)
+
+
+@pytest.mark.asyncio
+async def test_get_logs_by_date_range(session):
+    service = UserAccessLogService(session)
+    await service.create_access_log(
+        {"ip_address": "1.1.1.1", "request_path": "/a", "request_method": "GET"}
+    )
+    await session.commit()
+
+    included = await service.get_logs_by_date_range(datetime(2000, 1, 1), datetime(2100, 1, 1))
+    assert len(included) == 1
+
+    excluded = await service.get_logs_by_date_range(datetime(2100, 1, 1), datetime(2100, 12, 31))
+    assert len(excluded) == 0
+
+
+@pytest.mark.asyncio
+async def test_get_logs_by_date_range_invalid_raises(session):
+    service = UserAccessLogService(session)
+    with pytest.raises(InvalidDateRangeException):
+        await service.get_logs_by_date_range(datetime(2100, 1, 1), datetime(2000, 1, 1))
