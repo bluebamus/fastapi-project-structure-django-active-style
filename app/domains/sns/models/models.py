@@ -5,43 +5,33 @@ SNS 도메인 데이터베이스 모델
 """
 
 from datetime import datetime
-from uuid import uuid4
 
 from sqlalchemy import DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db.session import Base
+from app.core.models.models_base import TimestampMixin, UUIDMixin
 from config import timezone_settings
 
 
-class SnsPost(Base):
+class SnsPost(Base, UUIDMixin, TimestampMixin):
     """SNS 피드 게시물.
 
     Attributes:
-        id: UUID 기본키
+        id: UUID 기본키 (UUIDMixin)
         content: 게시물 본문
         author: 작성자(선택)
         like_count: 좋아요 수
-        created_at: 생성 시각
+        created_at: 생성 시각 (TimestampMixin)
         updated_at: 수정 시각
     """
 
     __tablename__ = "sns_posts"
 
-    id: Mapped[str] = mapped_column(
-        String(36),
-        primary_key=True,
-        default=lambda: str(uuid4()),
-    )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     author: Mapped[str | None] = mapped_column(String(100), nullable=True)
     like_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: timezone_settings.now(),
-        nullable=False,
-    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: timezone_settings.now(),
