@@ -117,10 +117,17 @@ class BaseRepository(CRUDBase[ModelType]):
         for relation in relations:
             # 중첩 관계 지원: "posts.comments" -> posts -> comments
             parts = relation.split(".")
-            load_option = loader(getattr(self.model, parts[0]))
+            attr = getattr(self.model, parts[0])
+            load_option = loader(attr)
 
+            # 중첩 단계는 각 관계의 대상 매퍼 클래스에서 다음 속성을 해석한다.
+            # SQLAlchemy 2.0 의 체인 로더는 문자열이 아닌 InstrumentedAttribute 를
+            # 요구하므로, 관계의 target 클래스(attr.property.mapper.class_)를 따라간다.
+            current_model = attr.property.mapper.class_
             for part in parts[1:]:
-                load_option = load_option.selectinload(part)
+                next_attr = getattr(current_model, part)
+                load_option = load_option.selectinload(next_attr)
+                current_model = next_attr.property.mapper.class_
 
             stmt = stmt.options(load_option)
 
