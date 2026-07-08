@@ -102,6 +102,29 @@
 | Base.id 타입선언(1-B) | 제네릭 `.id` mypy 오류 | 매핑 안 되는 선언으로 불변식 반영 | 없음 | 전체 테스트(DB/alembic 포함)로 런타임 무영향 검증 |
 | B104 host(1-C) | host 하드코딩 0.0.0.0 | 127.0.0.1 안전기본+env | 없음(개선) | 동작변경이나 보안 하드닝, README uvicorn 실행과 무충돌 |
 | F-1 미수정 결정(3) | (신규 식별) | 자동수정 보류·문서화 | 없음 | 도달불가·검증불가, 소비자용 권고안 제공 |
+| F-1 재개 수정(후속) | 보류(도달불가·검증불가) | 수정+회귀테스트로 검증 후 적용 | 없음 | 소유자 "진행" 지시로 재개. 격리 모델 테스트로 검증 확보 → 보류 근거(검증불가) 해소 |
+
+---
+
+## 실행 #1 (후속) — 2026-07-08 · 보류항목 처리
+
+소유자 "진행" 지시에 따라 보고서 §4 보류 4건 중 **코드로 안전·검증 가능한 2건**을 처리. 배포 HOST 주입(1)·템플릿 방향(3)은 소유자 결정 영역이라 코드 변경 없음(보류 유지).
+
+**작업 F-1 · `9f11513` fix(orm): 중첩 eager-loading 정상화**
+- 변경 전: `repository_base.py:123` 중첩 체인 로더에 문자열 전달 → SQLAlchemy 2.0 런타임 실패(L-2). 도달불가·테스트부재로 1차에서 보류.
+- 결정: 각 중첩 단계를 `attr.property.mapper.class_` 로 해석해 InstrumentedAttribute 전달. **동작 변경**(도달불가 경로 정상화). 검증 확보 위해 격리 declarative Base 로 Parent/Child/GrandChild 관계 모델 + 회귀 테스트 2개 신설(단일/중첩, expunge 후 접근으로 지연로딩 부재 검증).
+- 변경 후: mypy 4→3(line 123 해소, 잔여는 SQLAdmin 스텁 3), tests 67→**69 passed**. app Base.metadata 오염 없음(격리 Base).
+- 검증: ruff/format clean, 신규 테스트 2 pass, 전체 69 pass.
+- 관계: **대체**(1차 "보류" 결정을 명시적 근거[검증 확보]로 뒤집음). 회귀 없음.
+
+**작업 L-4 · `4d39216` fix(middleware): CORS 최외곽 등록**
+- 변경 전: `bootstrap.create_app` 에서 CORS 를 user_info 보다 먼저 등록 → CORS 가 내측. 에러 응답 CORS 헤더 미보장(L-4).
+- 결정: 등록 순서 역전(user_info → CORS)으로 CORS 최외곽화. **동작 변경**(저위험).
+- 변경 후: tests 69 passed(엔드포인트 조립·요청 정상).
+- 검증: ruff/format clean, 전체 69 pass.
+- 관계: 신규. 회귀 없음.
+
+**최종 상태**: ruff clean · mypy **3**(SQLAdmin formatter 스텁 부정확, 상류 한계) · bandit(비테스트) 0 · tests **69 passed**. 보류 잔여 2건(배포 HOST env 주입, 템플릿 방향) = 소유자 결정.
 
 
 
