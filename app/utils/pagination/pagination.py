@@ -14,6 +14,13 @@
     라우트에서 Pydantic 모델로 변환·감싸서 반환한다. 순수 데이터 컨테이너로서의
     사용을 전제로 한 선택이다.
 
+적용 현황(의도된 상태):
+    이 모듈은 소비자가 가져다 쓰는 **독립 재사용 유틸**이다. 이 저장소의 도메인
+    엔드포인트는 각자 `<Name>ListResponse`(skip/limit) 스키마를 사용하며 이 유틸을
+    배선하지 않는다. 즉 "제공하되 앱에는 미배선"이 의도된 상태다(소유자 결정).
+    소비 프로젝트가 page/page_size 방식이 필요할 때 `get_paginated`/`PaginatedResponse`
+    를 사용하면 된다.
+
 사용 예시:
     from app.utils.pagination import PaginatedResponse, get_paginated
 

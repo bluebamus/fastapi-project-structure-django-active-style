@@ -195,5 +195,7 @@ Pydantic dataclass / stdlib dataclass) 제시 → 소유자 **stdlib @dataclass 
 
 **최종 상태(전체 갱신)**: ruff/format clean · mypy **3**(SQLAdmin 스텁 한계) · bandit 비테스트 **0** · tests **94 passed**(67 + 신규 27: 회귀 2 + 표면 18 + 페이지네이션 7).
 
+**페이지네이션 배선 결정(소유자)**: 사용처 확인 결과 앱 엔드포인트는 각자 `<Name>ListResponse`(skip/limit)를 쓰고 페이지네이션 유틸(page/page_size)을 import 하는 곳이 0. 소유자 결정 = **엔드포인트 배선하지 않고 독립 재사용 유틸로만 유지**(제공하되 미배선이 의도된 상태). 모듈 docstring 의 "적용 현황"에 명문화(`9d86656` 이후 문서 커밋). 계약(쿼리 파라미터/응답 스키마) 변경 없음 → 회귀 없음.
+
 
 
