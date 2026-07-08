@@ -168,5 +168,32 @@
 
 **A-1 결론**: 재사용 표면이 검증됨으로써 "미검증 스캐폴딩" 우려 해소. 유지가 정당(파괴적 축소 불필요). 소비자는 격리 테스트(`test_repository_crud_surface.py`)를 사용 예시로 참고 가능.
 
+---
+
+## 실행 #1 (후속 4) — 2026-07-08 · 페이지네이션 utils 이전 + dataclass화
+
+소유자 요청: 페이지네이션을 utils 하위 독립 모듈/클래스로, 클래스는 데이터클래스로
+기본값 정의 + `return cls()`로 반환 타입 고정. "안티패턴 있으면 확인."
+
+**안티패턴 확인(사전)**: `PaginatedResponse`(Pydantic BaseModel generic, FastAPI
+response_model 용도)를 stdlib `@dataclass`로 바꾸면 검증 상실·제네릭 OpenAPI 저하
+= FastAPI 응답 스키마로선 안티패턴. AskUserQuestion 으로 3안(Pydantic BaseModel /
+Pydantic dataclass / stdlib dataclass) 제시 → 소유자 **stdlib @dataclass 선택**
+(트레이드오프 승인). 사전 확인 절차 이행.
+
+**작업 · `6e0a75b` refactor + `9d86656` fix/docs**
+- 변경 전: `app/shared/pagination/`(Pydantic BaseModel generic), 앱 소비처 0. `app/shared`의 유일 내용.
+- 결정/조치:
+  · `app/utils/pagination/`로 이전, `app/shared` 제거(소비처 0 확인).
+  · `PaginatedResponse` → stdlib `@dataclass`: 전 필드 기본값, `items=field(default_factory=list)`(가변 기본값 안전), `create()`가 `return cls()`로 타입 고정.
+  · **계층 위반 교정**: ModelT 바인딩을 `app.core.models.Base` import 대신 로컬 `_HasId` Protocol로 → utils 가 상위 계층(core) 비의존(README 규칙 준수).
+  · 문서 정합: README/ARCHITECTURE 의 shared/pagination→utils/pagination, 의존방향 shared→utils, ARCHITECTURE 의 기존 오표기(`shared/logging`→`utils/logs`, main 예제 `app.shared.logging`→`app.utils.logs`, host/port→app_settings) 정정.
+  · 검증 테스트 7개 추가(dataclass 여부/기본값/create 메타/get_paginated 정렬·필터·transform).
+- 인지 사항(트레이드오프): stdlib dataclass 는 런타임 검증 없음 + response_model 제네릭 OpenAPI 취약 — 모듈 docstring 및 보고서에 명시. 응답 충실도 필요 시 라우트에서 Pydantic 변환.
+- 검증: ruff/format clean, mypy 3(불변, pagination clean), tests **87→94 passed**.
+- 관계: 신규(요청 기능) + 보완(문서 드리프트 정정, 계층 위반 교정). 회귀 없음. 회귀 위험 검수: pagination 미사용이라 소비처 파손 없음, `app.shared` 참조 0 확인 후 제거.
+
+**최종 상태(전체 갱신)**: ruff/format clean · mypy **3**(SQLAdmin 스텁 한계) · bandit 비테스트 **0** · tests **94 passed**(67 + 신규 27: 회귀 2 + 표면 18 + 페이지네이션 7).
+
 
 
