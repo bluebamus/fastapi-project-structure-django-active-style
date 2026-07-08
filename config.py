@@ -157,6 +157,20 @@ class AppSettings(BaseSettings):
         description="실행 환경",
     )
 
+    # 개발 서버(`python main.py`) 바인드 주소.
+    # 안전 기본값은 로컬 전용(127.0.0.1). 컨테이너/원격 배포에서 모든
+    # 인터페이스 공개가 필요하면 환경변수 HOST=0.0.0.0 으로 명시 주입한다.
+    HOST: str = Field(
+        default="127.0.0.1",
+        description="개발 서버 바인드 호스트",
+    )
+
+    # 개발 서버(`python main.py`) 포트
+    PORT: int = Field(
+        default=8000,
+        description="개발 서버 포트",
+    )
+
 
 # =============================================================================
 # 데이터베이스 설정
