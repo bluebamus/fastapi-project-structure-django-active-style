@@ -30,8 +30,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-T = TypeVar("T")
-ModelT = TypeVar("ModelT")
+from app.core.models.models_base import Base
+
+T = TypeVar("T", bound=BaseModel)
+ModelT = TypeVar("ModelT", bound=Base)
 
 
 class PaginatedResponse(BaseModel, Generic[T]):

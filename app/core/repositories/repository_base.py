@@ -19,10 +19,10 @@ CRUD 작업과 N+1 문제 해결을 위한 Eager Loading 메서드를 제공합�
 """
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import CursorResult, delete, func, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import (
@@ -787,7 +787,7 @@ class BaseRepository(CRUDBase[ModelType]):
         """
         try:
             stmt = update(self.model).where(self.model.id == id).values(**data)
-            result = await self.session.execute(stmt)
+            result = cast("CursorResult[Any]", await self.session.execute(stmt))
             await self.session.flush()
 
             if result.rowcount == 0:
@@ -829,7 +829,7 @@ class BaseRepository(CRUDBase[ModelType]):
             )
         """
         stmt = update(self.model).where(self.model.id.in_(ids)).values(**data)
-        result = await self.session.execute(stmt)
+        result = cast("CursorResult[Any]", await self.session.execute(stmt))
         await self.session.flush()
         return result.rowcount
 
@@ -855,7 +855,7 @@ class BaseRepository(CRUDBase[ModelType]):
             )
         """
         stmt = update(self.model).filter_by(**filters).values(**data)
-        result = await self.session.execute(stmt)
+        result = cast("CursorResult[Any]", await self.session.execute(stmt))
         await self.session.flush()
         return result.rowcount
 
@@ -882,7 +882,7 @@ class BaseRepository(CRUDBase[ModelType]):
         """
         try:
             stmt = delete(self.model).where(self.model.id == id)
-            result = await self.session.execute(stmt)
+            result = cast("CursorResult[Any]", await self.session.execute(stmt))
             await self.session.flush()
             return result.rowcount > 0
         except IntegrityError as e:
@@ -912,7 +912,7 @@ class BaseRepository(CRUDBase[ModelType]):
             count = await repo.bulk_delete(["id1", "id2", "id3"])
         """
         stmt = delete(self.model).where(self.model.id.in_(ids))
-        result = await self.session.execute(stmt)
+        result = cast("CursorResult[Any]", await self.session.execute(stmt))
         await self.session.flush()
         return result.rowcount
 
@@ -930,7 +930,7 @@ class BaseRepository(CRUDBase[ModelType]):
             count = await repo.delete_by(is_expired=True)
         """
         stmt = delete(self.model).filter_by(**filters)
-        result = await self.session.execute(stmt)
+        result = cast("CursorResult[Any]", await self.session.execute(stmt))
         await self.session.flush()
         return result.rowcount
 
