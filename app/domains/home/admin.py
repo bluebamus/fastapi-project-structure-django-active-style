@@ -179,11 +179,15 @@ class UserAccessLogAdmin(ModelView, model=UserAccessLog):
     # =========================================================================
     # 컬럼 포맷터 (값 표시 형식)
     # =========================================================================
+    # SQLAdmin 은 formatter 의 모델 인자를 `type` 으로 타이핑하므로 속성은 getattr 로 접근한다
+    # (런타임 동작은 인스턴스 속성 접근과 동일).
     column_formatters = {
-        UserAccessLog.is_bot: lambda m, _: "봇" if m.is_bot else "사용자",
-        UserAccessLog.response_time_ms: lambda m, _: f"{m.response_time_ms}ms"
-        if m.response_time_ms
-        else "-",
+        UserAccessLog.is_bot: lambda m, _: "봇" if getattr(m, "is_bot", False) else "사용자",
+        UserAccessLog.response_time_ms: lambda m, _: (
+            f"{getattr(m, 'response_time_ms', None)}ms"
+            if getattr(m, "response_time_ms", None)
+            else "-"
+        ),
     }
 
 
