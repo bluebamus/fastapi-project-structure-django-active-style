@@ -104,7 +104,7 @@ class SnsPostAdmin(ModelView, model=SnsPost):
     }
 
 
-# 취합기 ``app/features/admin.py`` 가 이 모듈에서 직접 import 해 ADMIN_VIEWS 에 넣는다.
+# AppRegistry 가 이 모듈의 ``admin_views`` 를 자동으로 발견해 SQLAdmin 에 등록한다.
 # 패키지 __init__.py 로 재노출하지 않는다 — 그러면 라우터만 필요한 import 에도
 # sqladmin 이 딸려 와 ADMIN=false 가 무의미해진다(가드: tests/test_admin_wiring.py).
 admin_views: list[type] = [SnsPostAdmin]

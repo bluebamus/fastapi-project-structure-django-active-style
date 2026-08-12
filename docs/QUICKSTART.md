@@ -136,17 +136,16 @@ uv run mypy . --cache-dir .mypy_tmp
 
 ## 새 기능 추가
 
-`app/features/<name>/` vertical slice 를 만든 뒤 `main.py` 에 두 줄을 추가한다:
+디렉터리를 만들면 끝이다 — **중앙 파일 편집이 없다**.
 
-```python
-# main.py
-from app.features import auth, blog, home, reply, sns, user, orders   # ← import 추가
-app.include_router(orders.router, prefix="/api")                      # ← 취합 한 줄 추가
+```bash
+uv run python -m scripts.new_app orders [--with-admin]
 ```
 
-모델 등록은 `app/core/db/models_registry.py` 가 `app/features/<name>/models/models.py` 를
-디렉터리 스캔으로 자동 판별하므로 따로 손댈 곳이 없다(기능 `__init__.py` 에서 models import).
-등록 누락은 `tests/test_router_registration.py` 가 잡아준다.
+`AppRegistry` 가 부팅 시 `app/features/*` 를 훑어 라우터(`<name>_router`)·모델·`admin_views`
+를 자동 결선하므로 `main.py`·`migrations/env.py`·중앙 Admin 목록을 열지 않는다.
+회귀 가드: `tests/test_app_autowiring.py`(임시 앱 결선 + 중앙 파일 해시 불변),
+`tests/test_router_registration.py`(발견된 앱의 라우터 마운트).
 
 ---
 
@@ -157,7 +156,7 @@ app.include_router(orders.router, prefix="/api")                      # ← 취�
 | startup 에서 `Can't connect to MySQL server` | `DEBUG=true` 기본값이 테이블 생성을 시도 | MySQL을 띄우거나 `DEBUG=false` |
 | `/docs` 가 404 | `DEBUG=false` 에서는 문서가 꺼진다 | `DEBUG=true` (MySQL 필요) |
 | 기능 API만 500 | 앱은 떴지만 DB가 없다 | 2단계 진행 |
-| 새 기능이 마운트 안 됨 | `main.py` 에 `include_router` 미등록 | import + `app.include_router(<name>.router, prefix="/api")` 추가 |
+| 새 기능이 마운트 안 됨 | 디렉터리명이 파이썬 식별자가 아니거나 `_` 로 시작, 또는 라우터 변수명이 `<name>_router` 가 아님 | 규약 확인 (README 「앱 자동 등록 규약」). 파일 **내부** import 오류라면 조용히 넘어가지 않고 기동이 실패한다 |
 
 ---
 

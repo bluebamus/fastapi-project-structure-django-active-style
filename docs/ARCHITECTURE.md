@@ -9,14 +9,14 @@
 
 ```
 fastapi-default-project-structure/
-├── main.py                          # 진입점: 각 앱 router 를 include_router 로 취합 + 앱 설정
+├── main.py                          # 진입점: AppRegistry 로 앱 자동 발견·결선 + 앱 설정
 ├── config.py                        # Pydantic Settings (app/db/cors/log/redis/middleware/timezone)
 ├── pyproject.toml                   # 의존성 + [tool.uv] package = false
 │
 ├── app/
-│   ├── features/                    # 기능 단위 앱
+│   ├── features/                    # 기능 단위 앱 (디렉터리 존재 = 등록 선언)
 │   │   ├── home/                    # 예시 앱 — 접속 로그
-│   │   │   ├── __init__.py          # router 공개 + models import (admin_views 재노출 금지)
+│   │   │   ├── __init__.py          # 앱 패키지 + 초기화 훅 (admin_views 재노출 금지)
 │   │   │   ├── api/routers/
 │   │   │   │   ├── router.py        # 앱 루트 라우터 (<name>_router: v1 취합)
 │   │   │   │   └── v1/              # 버전별 엔드포인트 (뷰는 HTTP 역할만)
@@ -31,13 +31,14 @@ fastapi-default-project-structure/
 │   │   └── <name>/                  # 추가 앱은 같은 구조를 따름
 │   │
 │   ├── core/                        # 프레임워크 인프라 (features 가 의존)
+│   │   ├── registry.py              # 앱 자동 발견 (AppModule / AppRegistry)
 │   │   ├── exception.py             # 공통 예외 계층 + ErrorResponse
 │   │   ├── tags_metadata.py         # OpenAPI 태그 메타데이터
 │   │   ├── rate_limit.py            # slowapi limiter + 초과 핸들러
 │   │   ├── db/
 │   │   │   ├── session.py           # 엔진, 세션 팩토리, 커넥션 풀, background_session
 │   │   │   ├── router.py            # 읽기/쓰기 라우팅 (RoutingSession)
-│   │   │   └── models_registry.py   # 모델 import 단일 지점 (SSOT)
+│   │   │   └── models_registry.py   # 모델 import — AppRegistry 위임 facade
 │   │   ├── models/models_base.py    # SQLAlchemy Base (declarative) + Timestamp·UUID Mixin
 │   │   ├── repositories/
 │   │   │   ├── repository_base.py   # BaseRepository
@@ -64,7 +65,8 @@ fastapi-default-project-structure/
 │   ├── core/                        # 설정 계약, admin 뷰 정책, 마이그레이션 체인
 │   └── utils/                       # 로깅·인증·페이지네이션
 │
-├── migrations/env.py                # import_all_models()(SSOT) 로 전 기능 모델 자동 수집
+├── scripts/new_app.py               # Django startapp 대응 앱 생성기
+├── migrations/env.py                # 런타임과 같은 AppRegistry 로 전 기능 모델 수집
 ├── .github/workflows/ci.yml         # CI 게이트 (ruff·format·mypy 콜드캐시·pytest·bandit·alembic)
 └── docs/
     ├── ARCHITECTURE.md              # ← 이 문서 (아키텍처 SSOT)
@@ -86,99 +88,141 @@ features → core → utils
 
 ---
 
-## 2. 표준 FastAPI 배선 (include_router)
+## 2. Django 스타일 앱 자동 등록 (AppRegistry)
 
-라우터 등록에는 자동 스캔이나 중앙 `app/apps.py` SSOT를 사용하지 않습니다.
-각 기능 패키지의 `__init__.py`가 하위 뷰 라우터를 취합한 `router`를 공개하고,
-`main.py`가 이를 명시적으로 import 해 `include_router`로 최종 취합합니다.
-이것이 FastAPI 공식(Bigger Applications) 패턴입니다.
+라우터·모델·Admin 등록에 중앙 목록을 쓰지 않습니다. `app/features/<name>/` **디렉터리
+존재 자체가 등록 선언**이고, `AppRegistry` 가 부팅 시 그것을 발견해 결선합니다.
 
-### 2.1 앱 패키지 — `router` 공개
+설계의 뼈대는 **발견과 결선의 분리**입니다.
 
-```python
-# app/features/<name>/__init__.py
-from app.features.<name>.api.routers.router import <name>_router as router
-from app.features.<name>.models import models as _models  # noqa: F401 (Base.metadata 등록)
-
-__all__ = ["router"]
+```text
+app/features/*
+       |
+       v
+AppRegistry.discover()          ← "어떤 앱이 있는가" (이름 알파벳순, _ 제외)
+       |
+       +-- import_models() ----> Base.metadata ----> DEBUG create_all / Alembic
+       +-- install_routers() --> FastAPI.include_router(..., prefix="/api")
+       +-- install_admin() ----> Admin.add_view(...)      ADMIN=true 일 때만
+       `-- 패키지 import ------> 앱 초기화 훅 (__init__.py)
 ```
 
-- `api/routers/router.py`의 `<name>_router`가 `api/routers/v1/*`의 서브라우터를 취합합니다.
-- home 은 import 시 `register_sink()`로 access-log sink를 미들웨어에 등록합니다(부수효과).
-- SQLAdmin ModelView 는 기능이 소유하고(`admin.py`), `app/features/admin.py` 가 **명시 import** 로 취합합니다 — `getattr` 관용 수집을 쓰지 않으므로 빠지면 기동 시 ImportError 로 터집니다.
+목록을 한 번만 만들고 런타임·Alembic·테스트가 그것을 재사용합니다. 두 번째 스캔 로직을
+두면 런타임 테이블과 마이그레이션이 조용히 어긋납니다.
 
-### 2.2 `main.py` — 최종 취합 + 앱 설정
+### 2.1 앱 규약
+
+| 경로 | 계약 | 부재 시 |
+|---|---|---|
+| `<name>/__init__.py` | 앱 패키지 + 초기화 훅(선택) | 패키지가 아니므로 발견되지 않음 |
+| `<name>/api/routers/router.py` | `<name>_router: APIRouter` | 라우터 없는 앱으로 정상 처리 |
+| `<name>/models/` | import 시 `Base.metadata` 등록 | 모델 없는 앱으로 정상 처리 (`auth`) |
+| `<name>/admin.py` | `admin_views: list[type]` | Admin 없는 앱으로 정상 처리 |
+
+- home 은 `__init__.py` import 시 `register_sink()` 로 access-log sink 를 등록합니다(부수효과).
+- SQLAdmin ModelView 는 기능이 소유하고(`admin.py`), registry 가 자동 취합합니다. 기능
+  `__init__.py` 로는 **재노출하지 않습니다** — 재노출하면 라우터만 필요한 import 에도
+  sqladmin 이 딸려 와 `ADMIN=false` 가 무의미해집니다(ADMIN-2).
+
+### 2.2 오류 정책 — 파일 부재는 선택, 잘못된 계약은 오류
+
+자동 등록은 실패를 조용하게 만듭니다. 그래서 **없는 것과 틀린 것을 구분**합니다.
+
+| 상황 | 동작 |
+|---|---|
+| 선택 모듈 자체가 없다 | 건너뛴다 |
+| 선택 모듈 **안의** import 가 틀렸다 | 원래 `ModuleNotFoundError` 를 그대로 올린다 |
+| 모듈은 있는데 export 가 없거나 타입이 틀리다 | `AppContractError` 로 기동 실패 |
+| 같은 라우터 객체·같은 ModelView 를 두 앱이 내보낸다 | `AppContractError` 로 기동 실패 |
+
+과거 관용 수집(`getattr(module, "admin_views", [])`)은 빈 `admin.py` 를 무신호로 건너뛰어
+ADMIN-1 을 낳았습니다. 지금은 파일이 **있는데** 계약이 틀리면 기동이 멈춥니다.
+
+### 2.3 `main.py` — 발견 후 결선
 
 ```python
-from app.features import auth, blog, home, reply, sns, user
+from app.core.registry import AppRegistry
+
+registry = AppRegistry()                  # FastAPI 인스턴스 생성 **전에** 발견 —
+registry.discover()                       #   앱 초기화 훅이 미들웨어 설정보다 먼저 끝나야 한다
+registry.import_models()
 
 app = FastAPI(...)                        # 인스턴스 + lifespan + 문서 설정
 CustomCORSMiddleware(app).configure_cors()
 setup_user_info_middleware(app)
 _register_exception_handlers(app)         # 4개 글로벌 핸들러
 
-app.include_router(home.router, prefix="/api")   # 기능마다 한 줄
-app.include_router(blog.router, prefix="/api")
-# ... reply, sns, user, auth
+registry.install_routers(app)             # 발견된 앱의 <name>_router 를 /api 에 마운트
 
 _add_health_and_docs(app)                 # /health + Scalar
 if app_settings.ADMIN:                    # SQLAdmin
-    register_admin(app, engine)           # app/features/admin.py — 조립 진입점
+    register_admin(app, engine, registry) # app/features/admin.py — 조립 진입점
 ```
 
-라우터·미들웨어·예외 핸들러·문서·lifespan·Admin 등록이 전부 `main.py`에서 일어납니다.
-별도의 `create_app()` 팩토리·`bootstrap.py`·`APPS` 목록은 없습니다.
+미들웨어·예외 핸들러·문서·lifespan 설정은 계속 `main.py` 가 담당합니다. 별도의
+`create_app()` 팩토리·`bootstrap.py` 는 없습니다.
 
 ---
 
-## 3. 새 기능 추가 — `main.py`에 명시 등록
+## 3. 새 기능 추가 — 중앙 파일 편집 없음
 
-새 기능은 `app/features/<name>/` vertical slice 를 만든 뒤, **`main.py`에 직접 등록**합니다.
+`app/features/<name>/` vertical slice 를 만들면 끝입니다.
 
-### 3.1 등록 단계
+### 3.1 절차
 
-```python
-# main.py
-from app.features import auth, blog, home, reply, sns, user, <name>   # ← import 추가
-app.include_router(<name>.router, prefix="/api")                     # ← 취합 한 줄 추가
+```bash
+python -m scripts.new_app <name> [--with-admin]   # Django startapp 대응
 ```
 
-- 라우터: 위 두 줄을 직접 추가합니다(기능 `__init__.py` 가 `router` 공개).
-- 모델(메타데이터): **`models_registry`(SSOT)가 `app/features/<name>/models/models.py` 를 자동 수집**하므로 `env.py`·`session.py` 를 손댈 필요가 없습니다. 기능 `__init__.py` 에서 models 를 import 합니다.
-- Admin: `app/features/<name>/admin.py` 에 ModelView + `admin_views` 를 만들고,
-  `app/features/admin.py` 의 import 와 `ADMIN_VIEWS` 에 한 줄씩 더합니다. 기능 `__init__.py`
-  로는 **재노출하지 않습니다** — 재노출하면 라우터만 필요한 import 에도 sqladmin 이 딸려 와
-  `ADMIN=false` 가 무의미해집니다.
+- 라우터: 생성된 `api/routers/router.py` 의 `<name>_router` 에 v1 서브라우터를 include.
+- 모델: `models/models.py` 에 두고 `models/__init__.py` 에서 재노출 — `env.py`·`session.py`
+  를 손대지 않습니다.
+- Admin: `admin.py` 에 ModelView + `admin_views` — 중앙 취합 목록이 없습니다.
+
+`main.py` · `migrations/env.py` · `app/features/admin.py` 는 **열지 않습니다**.
+회귀 가드: `tests/test_app_autowiring.py` 가 임시 앱을 만든 뒤 이 파일들의 해시가
+변하지 않았음을 확인합니다.
 
 ### 3.2 SQLAdmin 조립 구조
 
-`main.py` 는 `ADMIN=true` 일 때 `register_admin(app, engine)` **하나만** 호출합니다.
-그 안에서 두 단계로 나뉩니다.
+`main.py` 는 `ADMIN=true` 일 때 `register_admin(app, engine, registry)` **하나만** 호출합니다.
 
 ```text
 main.py
-  └─ register_admin(app, engine)          외부 진입점 (조립부가 아는 유일한 이름)
-       ├─ create_admin_interface(...)     Admin 생성 + /admin 마운트
-       └─ register_admin_views(admin)     ADMIN_VIEWS 등록
-            └─ ADMIN_VIEWS                등록 대상 SSOT
+  └─ register_admin(app, engine, registry)   외부 진입점 (조립부가 아는 유일한 이름)
+       ├─ create_admin_interface(app, engine)  Admin 생성 + /admin 마운트
+       └─ registry.install_admin(admin)        발견된 앱의 admin_views 등록
 ```
 
 | 함수 | 책임 | 아는 것 |
 |---|---|---|
 | `create_admin_interface(app, engine)` | `Admin` 생성 → SQLAdmin 이 `/admin` 마운트 | 앱·엔진·제목 (향후 `authentication_backend`) |
-| `register_admin_views(admin)` | `ADMIN_VIEWS` 를 선언 순서대로 등록 | 뷰 목록만 — 앱·엔진·설정을 참조하지 않음 |
-| `register_admin(app, engine)` | 위 둘을 생성 → 등록 순으로 호출 | 조립 순서 |
+| `registry.install_admin(admin)` | 발견된 앱의 `admin_views` 를 앱 이름순으로 등록 | 앱 목록과 `add_view` 뿐 |
+| `register_admin(app, engine, registry)` | 위 둘을 생성 → 등록 순으로 호출 | 조립 순서 |
 
-> 세 함수는 **SQLAdmin 이나 FastAPI 의 공식 API 가 아니라 이 프로젝트 내부의 조립 함수**입니다.
-> 공식 객체는 `Admin` 과 `Admin.add_view()` 뿐이고, 위 함수들은 그 호출 위치를 정리한 것입니다.
->
 > 나눈 이유는 두 책임이 서로 다른 것을 알아야 하기 때문입니다 — 생성 쪽은 앱·엔진을,
-> 등록 쪽은 뷰 목록만 압니다. 나뉘어 있으면 각각 단독으로 검증할 수 있고, 나중에 인증
+> 등록 쪽은 앱 목록만 압니다. 나뉘어 있으면 각각 단독으로 검증할 수 있고, 나중에 인증
 > 백엔드를 붙일 자리도 `create_admin_interface()` 하나로 정해집니다(인증 백엔드는 `Admin`
 > 생성 인자라 등록 쪽에는 넣을 수 없습니다).
 >
-> `main.py` 가 두 내부 함수를 직접 부르지 않는 것이 계약입니다. 조립부가 SQLAdmin 의
-> 생성·등록 순서를 알 필요가 없습니다. 회귀 가드: `tests/test_admin_wiring.py`.
+> `register_admin` 이 registry 를 **인자로 받는** 것이 계약입니다. 스스로 발견하면 라우터·
+> 모델과 다른 앱 집합을 볼 수 있습니다. 회귀 가드: `tests/test_admin_wiring.py`.
+
+### 3.3 Django 와의 대응 범위
+
+| Django | 이 프로젝트 | 판정 |
+|---|---|---|
+| 앱 registry | `AppRegistry` | 대응 |
+| `AppConfig.ready()` | 앱 `__init__.py` 의 빠르고 멱등적인 훅 | **역할만** 대응 — 생명주기 보장은 다름 |
+| 모델 발견 | 앱 `models` import | 대응 |
+| Admin 등록 | 앱 `admin.py` 의 `admin_views` 자동 수집 | 대응 |
+| `startapp` | `python -m scripts.new_app <name>` | 대응 |
+| URLconf | `<name>_router` 자동 마운트 | Django 에 없는 확장 |
+| `INSTALLED_APPS` | 디렉터리 존재가 등록 선언 | **의도적인 차이** |
+
+> Django 호환 계층이 아니며 Django 기반도 아닙니다. 초기화 훅은 프레임워크가 보장하는
+> 준비 단계가 아니라 파이썬 import 이므로, 빠르고 멱등적이어야 하며 DB·네트워크 I/O 를
+> 하면 안 됩니다.
 
 ### 3.3 필수/선택 파일 표
 
@@ -311,3 +355,4 @@ uv run alembic upgrade head
 | 2026-08-11 | **문서 드리프트 정정**: §4 와 README 가 P1-3 이전의 "의존성이 `yield` 후 커밋" 을 계속 설명하고 있었다(코드는 이미 핸들러 커밋). §4 예시를 실제 코드(쓰기/조회 의존성 분리 + 핸들러 `await service.commit()`)로 교체하고, `BaseService` 독스트링도 같이 정정. 아울러 재구조화 잔재 정리 — `tests/features/` 잔류분을 `app/features/<name>/tests/` 로 통합, 이동 중 겹친 디렉터리 레벨과 빈 `tests/scripts/` 제거. |
 | 2026-08-11 | **Django 배선 제거 (구조는 vertical slice 유지)**: 옛 중앙 목록 순회 → 명시 `include_router`; 기능별 `admin.py` 관용 수집(`getattr(..., "admin_views", [])`) → 중앙 `app/features/admin.py`의 명시 import(`ADMIN_VIEWS`+`register_admin`); `scripts/new_app.py` 제거. 폴더는 실제 코드 기준 `app/features/` 를 유지한다. 모델 등록은 `models_registry` 디렉터리 스캔 유지. 공개 API 경로·응답 스키마·SQLAdmin 보안 정책 불변. |
 | 2026-08-11 | **문서 정합성 재정리**: 삭제된 심화·리팩터링 문서 참조, 존재하지 않는 과거 모듈·관리자 경로 참조, 제거된 중앙 목록 설명을 실제 코드 기준으로 정정. |
+| 2026-08-12 | **Django 스타일 앱 자동 등록 도입**: 기반 저장소 `fastapi-default-project-structure@a980b71` 을 기준선으로 삼고 자동 등록만 얹었다. 신설 `app/core/registry.py` 의 `AppRegistry` 가 `app/features/*` 를 발견해 라우터(`<name>_router` → `/api`)·모델·`admin_views` 를 결선한다. `main.py` 의 명시 `include_router` 여섯 줄과 `app/features/admin.py` 의 중앙 `ADMIN_VIEWS` 목록 제거, `models_registry` 는 자체 스캔을 버리고 registry 위임 facade 로, `migrations/env.py` 는 런타임과 **같은** registry 를 쓴다. 과거 관용 수집의 실패(ADMIN-1)를 되풀이하지 않도록 "파일 부재는 선택, 잘못된 계약은 오류" 를 `AppContractError` 로 고정했다 — 모듈 내부 import 오류는 원인을 보존해 다시 올리고, 잘못된 export·중복 등록은 기동을 멈춘다. `scripts/new_app.py`(Django `startapp` 대응, 이름 검증·경로 이탈·덮어쓰기 방지) 재도입. 공개 API 경로 18개·ORM 테이블 5개·SQLAdmin 뷰 5개·설정 키 inventory 는 기준선과 실측 일치하며, `ADMIN=false` 에서 sqladmin 미로드 계약도 유지된다. |
