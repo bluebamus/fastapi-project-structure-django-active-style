@@ -34,21 +34,25 @@ def _mounted_paths() -> set[str]:
     return set(app.openapi()["paths"].keys())
 
 
+# 라우터를 내보내는 앱만 파라미터로 쓴다. `pytest.skip` 을 쓰지 않는 이유는
+# CI 게이트가 조용한 SKIP 을 실패로 취급하기 때문이다 — 라우터 없는 앱은 정상이므로
+# 애초에 케이스를 만들지 않는다.
+_APPS_WITH_ROUTER = [module for module in _discovered() if module.load_router() is not None]
+
+
 def test_discovery_is_not_vacuous():
     """발견 목록이 비면 아래 검사가 전부 헛통과한다."""
     names = [m.name for m in _discovered()]
     assert len(names) >= 6, f"기능 앱이 발견되지 않았다: {names}"
+    assert _APPS_WITH_ROUTER, "라우터를 내보내는 앱이 하나도 없다 — 마운트 검사가 무의미하다"
 
 
-@pytest.mark.parametrize("module", _discovered(), ids=lambda m: m.name)
+@pytest.mark.parametrize("module", _APPS_WITH_ROUTER, ids=lambda m: m.name)
 def test_every_app_router_is_mounted(module):
     """라우터를 내보내는 앱은 예외 없이 `/api/v1/<name>/...` 에 마운트돼 있다.
 
     앱마다 개별 케이스로 돌린다 — 한 앱이 빠졌을 때 어느 앱인지 바로 보인다.
     """
-    if module.load_router() is None:
-        pytest.skip(f"'{module.name}' 은 라우터가 없는 앱이다 (선택 구성요소)")
-
     mounted = _mounted_paths()
     assert any(
         f"/{module.name}/" in path for path in mounted
