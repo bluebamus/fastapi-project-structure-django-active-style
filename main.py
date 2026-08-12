@@ -1,7 +1,13 @@
 """FastAPI 진입점.
 
-표준 FastAPI 구조: 각 기능 패키지가 취합한 ``router`` 를 여기서 ``include_router`` 로
-최종 취합하고, 애플리케이션의 주요 설정(미들웨어·예외 핸들러·문서·lifespan·Admin)을 구성한다.
+Django 스타일 앱 자동 등록: ``AppRegistry`` 가 ``app/features/*`` 를 스캔해 앱 목록을
+만들고, 그 목록으로 라우터·모델·Admin 을 결선한다. **기능을 추가하거나 제거할 때
+이 파일을 고치지 않는다** — 디렉터리 존재 자체가 등록 선언이다.
+
+이 파일이 계속 담당하는 것: 애플리케이션의 주요 설정(미들웨어·예외 핸들러·문서·
+lifespan·rate limit·Admin 활성화 분기).
+
+앱 규약과 한계는 ``app/core/registry.py`` 와 README 참고.
 """
 
 from collections.abc import AsyncGenerator
@@ -21,12 +27,28 @@ from app.core.middlewares.background_tasks import access_log_tasks
 from app.core.middlewares.cors_middleware import CustomCORSMiddleware
 from app.core.middlewares.user_info_middleware import setup_user_info_middleware
 from app.core.rate_limit import limiter, rate_limit_exceeded_handler
+from app.core.registry import AppRegistry
 from app.core.tags_metadata import tags_metadata
-from app.features import auth, blog, home, reply, sns, user
 from app.utils.logs import get_logger
 from config import app_settings
 
 logger = get_logger("main")
+
+# =============================================================================
+# 앱 자동 발견
+#
+# `app/features/*` 를 스캔해 앱 목록을 **한 번** 만들고, 아래 조립 과정 전체가
+# 이 목록 하나를 재사용한다(라우터·모델·Admin). 기능을 추가·제거할 때 이 파일을
+# 고칠 필요가 없다 (FR-01, FR-08, CR-03).
+#
+# 여기서 discover() 를 호출하는 위치가 중요하다. 앱 패키지 import 는 초기화 훅을
+# 실행하는데(예: home 의 access-log sink 등록), 그 등록은 미들웨어 설정보다 먼저
+# 끝나 있어야 한다. 그래서 FastAPI 인스턴스를 만들기 전에 발견을 마친다.
+# =============================================================================
+registry = AppRegistry()
+registry.discover()
+registry.import_models()
+logger.info("앱 자동 발견: %s", [m.name for m in registry.enabled_apps])
 
 
 @asynccontextmanager
@@ -267,14 +289,10 @@ else:
 _register_exception_handlers(app)
 logger.info("글로벌 예외 핸들러 설정 완료")
 
-# 라우터 취합 — 명시적 include_router (FastAPI 표준). 새 라우터는 여기에 한 줄 추가한다.
-app.include_router(home.router, prefix="/api")
-app.include_router(blog.router, prefix="/api")
-app.include_router(reply.router, prefix="/api")
-app.include_router(sns.router, prefix="/api")
-app.include_router(user.router, prefix="/api")
-app.include_router(auth.router, prefix="/api")
-logger.info("라우터 include 완료")
+# 라우터 취합 — 발견된 앱의 `<name>_router` 를 registry 가 /api 에 마운트한다.
+# 새 라우터 때문에 이 파일을 고치지 않는다 (FR-02, FR-08).
+_mounted = registry.install_routers(app)
+logger.info("라우터 include 완료: %d개", _mounted)
 
 # 헬스체크 + Scalar 문서
 _add_health_and_docs(app)
@@ -283,7 +301,8 @@ _add_health_and_docs(app)
 if app_settings.ADMIN:
     from app.features.admin import register_admin
 
-    admin = register_admin(app, engine)
+    # 라우터·모델과 같은 발견 목록을 넘긴다 — 여기서 다시 스캔하지 않는다.
+    admin = register_admin(app, engine, registry)
     logger.info("SQLAdmin 관리자 페이지 활성화 (ADMIN=True): /admin")
 else:
     logger.info("SQLAdmin 관리자 페이지 비활성화 (ADMIN=False): /admin 접근 차단")
