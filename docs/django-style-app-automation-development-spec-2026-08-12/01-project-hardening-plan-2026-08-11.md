@@ -8,26 +8,38 @@
 
 ## 실행 결과 요약
 
-이 문서는 2026-08-11 검토 시점의 작업 계획이다. 2026-08-12 기준으로 migration 완전성,
-DB 오류 비노출, 접근 로그 보호, registry import 오류 처리, scaffold 안전성, lifespan 정리,
-DB routing 및 CI gate가 구현됐다. 관리자 페이지는 인증 backend를 템플릿 기본 기능으로
-도입하지 않고 **기본 비활성화**하는 방향으로 최종 결정됐다. API 인증도 후속 범위로
-남겼다. 따라서 아래 우선순위는 최초 판단 기록으로 보존하며, 실제 지원 범위와 현재
-동작은 README 및 같은 폴더의 `02-django-style-app-discovery-concept-2026-08-12.md`를 기준으로 한다.
+> **주의 — 이 표는 한 번 뒤집혔다.** 2026-08-12 오전 기준으로는 아래 항목 대부분이
+> "완료" 였다. 그러나 같은 날 오후, 같은 폴더의
+> [`03-django-style-app-automation-development-spec`](03-django-style-app-automation-development-spec-2026-08-12.md)
+> 에 따라 **코드 기준선을 `fastapi-default-project-structure@a980b71` 로 교체**하고
+> 앱 자동 등록만 이식했다. 그 명세 §3.2·§4.2 가 "DB routing·access log·lifespan·오류
+> 응답·CI 강화는 자동 앱 등록과 무관하므로 가져오지 않는다" 고 못 박았기 때문에,
+> **자동화와 무관한 하드닝 결과물은 현재 코드에 없다.**
+>
+> 아래 표는 그 교체 이후 실제 코드(`d15cd1c`)를 다시 확인한 결과다.
 
-| 항목 | 2026-08-12 상태 |
-|---|---|
-| Alembic 스키마 완전성 | 완료 |
-| SQLAdmin 안전한 기본값 | 완료 — 기본 비활성화 |
-| SQLAdmin 내장 인증 | 제외 — 로컬 또는 외부 인증 환경에서만 사용 |
-| DB 오류 정보 비노출 | 완료 |
-| API 인증·인가 | 후속 범위 |
-| 접근 로그 보호 | 완료 |
-| registry import 오류 판별 | 완료 |
-| 앱 생성 스크립트 안전성 | 완료 |
-| lifespan 종료 보장 | 완료 |
-| 읽기/쓰기 DB routing | 완료 |
-| CI 및 회귀 테스트 gate | 완료 |
+| 항목 | 현재 코드 상태 (2026-08-12 기준선 교체 후) | 근거 |
+|---|---|---|
+| Alembic 스키마 완전성 | **완료** | 빈 DB `upgrade head` → ORM 5개 테이블과 일치 실측 |
+| registry import 오류 판별 | **완료** | `app/core/registry.py` — 부재/내부 오류/계약 위반 3분기 |
+| 앱 생성 스크립트 안전성 | **완료** | `scripts/new_app.py` — 이름·경로·덮어쓰기 검증 |
+| CI 및 회귀 테스트 gate | **완료** | `.github/workflows/ci.yml` (기반 저장소 제공) |
+| SQLAdmin 내장 인증 | **제외 (영구 비목표)** | 로컬 또는 외부 인증 환경에서만 사용 |
+| API 인증·인가 | **후속 범위** | 별도 진행 예정 |
+| SQLAdmin 안전한 기본값 | **미적용** — `ADMIN` 기본값은 `True` | `config.py` 가 개발 편의를 이유로 `True` 를 의도된 기본값으로 명시 |
+| DB 오류 정보 비노출 | **미적용** | `app/core/repositories/repository_base.py` 가 detail 에 `str(e.orig)` 포함 |
+| 접근 로그 보호 | **미적용** | `TRUSTED_PROXY_IPS` 설정 없음 — 전달 헤더를 무조건 신뢰 |
+| lifespan 종료 보장 | **미적용** | `main.py` lifespan 에 `try/finally` 없음 |
+| 읽기/쓰기 DB routing | **미적용** | `app/core/db/router.py` 에 `SELECT ... FOR UPDATE`·textual DML 판별 없음 |
+
+**미적용 4건은 실재하는 보안·복원력 이슈다.** 특히 DB 오류 detail 유출과 접근 로그의
+프록시 헤더 무조건 신뢰는 외부에서 관측·악용 가능하다. 다만 이번 자동화 작업의 명세가
+범위 밖으로 규정했으므로 의도적으로 이식하지 않았고, 구현본은 로컬 브랜치
+`refactor/domains-to-features` (구 `app/domains/` 계보, 15커밋)에 남아 있다.
+새 기준선 위로 재이식할지는 **미결 사항**이다.
+
+따라서 아래 우선순위 표는 최초 판단 기록으로 보존한다. 실제 지원 범위와 현재 동작은
+README 및 같은 폴더의 `02-django-style-app-discovery-concept-2026-08-12.md` 를 기준으로 한다.
 
 ## 1. 유지할 설계 원칙
 
