@@ -13,16 +13,15 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # ---------------------------------------------------------------------------
-# Import Base and populate metadata via AppRegistry auto-discovery so that
-# autogenerate discovers ALL domain models without manual imports.
+# Import Base and every domain app's models so that autogenerate discovers
+# ALL domain tables. 목록은 models_registry 가 디렉터리에서 판별하므로
+# 새 앱을 추가해도 이 파일은 손대지 않는다.
 # ---------------------------------------------------------------------------
+from app.core.db.models_registry import import_all_models  # noqa: E402
 from app.core.db.session import Base  # noqa: E402
-from app.core.registry import AppRegistry  # noqa: E402
 from config import db_settings  # noqa: E402
 
-_reg = AppRegistry()
-_reg.discover()
-_reg.import_models()
+import_all_models()
 
 target_metadata = Base.metadata
 

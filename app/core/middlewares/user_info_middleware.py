@@ -38,7 +38,7 @@ class UserInfoMiddleware(BaseHTTPMiddleware):
         미들웨어 초기화
 
         Args:
-            app: ASGI 애플리케이션 (Starlette add_middleware 가 주입)
+            app: 다음 ASGI 애플리케이션(add_middleware 가 주입)
         """
         super().__init__(app)
         self.enabled = middleware_settings.ACCESS_LOG_ENABLED

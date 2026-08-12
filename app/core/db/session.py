@@ -214,20 +214,21 @@ async def create_db_tables() -> None:
     데이터베이스 테이블을 생성합니다.
 
     애플리케이션 시작 시 lifespan에서 호출됩니다.
-    AppRegistry 자동발견(discover→import_models)을 통해 모든 앱의 모델을
-    Base.metadata에 등록한 후 테이블을 생성합니다.
+    각 기능 앱의 models 모듈을 import 하여 Base.metadata에 모든 테이블을 등록한 후
+    테이블을 생성합니다.
 
     Note:
-        새로운 도메인 앱은 app/domains/<name>/ 디렉터리 컨벤션만 지키면
-        AppRegistry 가 자동으로 발견합니다(별도 선언/수동 모델 등록 불필요).
+        모델 import 목록은 app/core/db/models_registry.py 가 디렉터리에서
+        자동으로 판별한다. 새 기능은 app/features/<name>/ 를 만들고
+        라우터는 main.py 에 명시적으로 include_router 한 줄을 추가한다.
     """
     import asyncio
 
-    from app.core.registry import AppRegistry
+    from app.core.db.models_registry import import_all_models
 
-    registry = AppRegistry()
-    registry.discover()
-    registry.import_models()  # imports every app's models package -> Base.metadata
+    # 모델 메타데이터 등록: 각 앱 models 모듈 import -> Base.metadata 채움
+    registered = import_all_models()
+    logger.info("[database] 모델 등록: %d개 모듈 %s", len(registered), registered)
 
     logger.info("Creating database tables...")
 
@@ -259,24 +260,11 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
     Note:
         - 세션은 요청 범위(request scope)로 관리됩니다
         - 한 요청 내에서 여러 번 호출해도 같은 세션을 반환하지 않습니다
-        - 트랜잭션 경계는 기능 의존성(dependencies)이 yield 후 커밋으로 관리합니다
+        - 트랜잭션 경계는 쓰기 핸들러 본문이 `await service.commit()` 으로 관리합니다
     """
     start_time = time.perf_counter()
 
-    # 커넥션 풀 상태 로깅 (디버깅용 - 필요 시 pool 변수와 함께 주석 해제)
-    # pool = engine.pool
-    # logger.debug(
-    #     f"[get_session] ACQUIRE - pool_size: {pool.size()}, "
-    #     f"in: {pool.checkedin()}, out: {pool.checkedout()}, "
-    #     f"overflow: {pool.overflow()}"
-    # )
-
     async with AsyncSessionLocal() as session:
-        # acquire_time = time.perf_counter()  # 디버그 로그 활성화 시 함께 주석 해제
-        # logger.debug(
-        #     f"[get_session] Session acquired in "
-        #     f"{(acquire_time - start_time)*1000:.1f}ms"
-        # )
         try:
             yield session
         except Exception as e:
@@ -286,13 +274,6 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
                 f"duration: {(time.perf_counter() - start_time)*1000:.1f}ms"
             )
             raise e
-        finally:
-            pass  # 디버그 로깅 비활성. 아래 주석 해제 시 이 pass 제거
-            # total_time = time.perf_counter() - start_time
-            # logger.debug(
-            #     f"[get_session] RELEASE - duration: {total_time*1000:.1f}ms, "
-            #     f"pool_out: {pool.checkedout()}"
-            # )
 
 
 async def get_read_session() -> AsyncGenerator[AsyncSession, None]:
@@ -373,20 +354,7 @@ async def get_background_session() -> AsyncGenerator[AsyncSession, None]:
     """
     start_time = time.perf_counter()
 
-    # 커넥션 풀 상태 로깅 (디버깅용 - 필요 시 pool 변수와 함께 주석 해제)
-    # pool = background_engine.pool
-    # logger.debug(
-    #     f"[get_background_session] ACQUIRE - pool_size: {pool.size()}, "
-    #     f"in: {pool.checkedin()}, out: {pool.checkedout()}, "
-    #     f"overflow: {pool.overflow()}"
-    # )
-
     async with BackgroundSessionLocal() as session:
-        # acquire_time = time.perf_counter()  # 디버그 로그 활성화 시 함께 주석 해제
-        # logger.debug(
-        #     f"[get_background_session] Session acquired in "
-        #     f"{(acquire_time - start_time)*1000:.1f}ms"
-        # )
         try:
             yield session
         except Exception as e:
@@ -397,14 +365,6 @@ async def get_background_session() -> AsyncGenerator[AsyncSession, None]:
                 f"duration: {(time.perf_counter() - start_time)*1000:.1f}ms"
             )
             raise e
-        finally:
-            pass  # 디버그 로깅 비활성. 아래 주석 해제 시 이 pass 제거
-            # total_time = time.perf_counter() - start_time
-            # logger.debug(
-            #     f"[get_background_session] RELEASE - "
-            #     f"duration: {total_time*1000:.1f}ms, "
-            #     f"pool_out: {pool.checkedout()}"
-            # )
 
 
 async def dispose_engine() -> None:
