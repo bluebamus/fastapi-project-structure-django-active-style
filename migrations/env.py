@@ -13,16 +13,20 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # ---------------------------------------------------------------------------
-# Import Base and populate metadata via AppRegistry auto-discovery so that
-# autogenerate discovers ALL domain models without manual imports.
+# Base 와 모든 기능 앱의 모델을 import 해서 autogenerate 가 전체 테이블을 본다.
+#
+# 목록은 런타임과 **똑같은** AppRegistry 가 만든다 — 여기에 별도 스캔이나 명시
+# import 목록을 두면 런타임 테이블과 마이그레이션이 조용히 어긋난다. 그 어긋남은
+# "운영에 테이블이 없다" 로 배포 뒤에야 드러난다. 새 앱을 추가해도 이 파일은
+# 손대지 않는다 (FR-03, FR-08, NFR-05).
 # ---------------------------------------------------------------------------
 from app.core.db.session import Base  # noqa: E402
 from app.core.registry import AppRegistry  # noqa: E402
 from config import db_settings  # noqa: E402
 
-_reg = AppRegistry()
-_reg.discover()
-_reg.import_models()
+_registry = AppRegistry()
+_registry.discover()
+_registry.import_models()
 
 target_metadata = Base.metadata
 
