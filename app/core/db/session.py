@@ -218,9 +218,9 @@ async def create_db_tables() -> None:
     테이블을 생성합니다.
 
     Note:
-        모델 import 목록은 app/core/db/models_registry.py 가 디렉터리에서
-        자동으로 판별한다. 새 기능은 app/features/<name>/ 를 만들고
-        라우터는 main.py 에 명시적으로 include_router 한 줄을 추가한다.
+        모델 import 목록은 AppRegistry 의 발견 결과에서 나온다(SSOT) —
+        Alembic 과 같은 경로다. 새 기능은 app/features/<name>/ 를 만들기만 하면
+        되고, 라우터·모델·Admin 등록을 위해 중앙 파일을 고칠 필요가 없다.
     """
     import asyncio
 

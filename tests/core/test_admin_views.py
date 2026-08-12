@@ -1,8 +1,9 @@
 """SQLAdmin ModelView 계약 테스트.
 
 ``ModelView`` 정의는 기능이 소유하고(``app/features/<name>/admin.py``),
-``app/features/admin.py`` 가 명시 import 로 취합한다. 등록 뷰의 진실의 원천은
-``ADMIN_VIEWS`` 다 — 어느 파일에 정의됐든 여기 모이지 않으면 등록되지 않는다.
+``AppRegistry`` 가 발견된 앱에서 자동으로 취합한다. 등록 뷰의 진실의 원천은
+**registry 가 실제로 등록하는 목록**이다 — 어느 파일에 정의됐든 발견되지 않으면
+등록되지 않으므로, 여기서도 같은 경로로 모아서 검사한다.
 
 검증하는 계약
 -------------
@@ -26,7 +27,32 @@ from sqlalchemy import String
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from app.features.admin import ADMIN_VIEWS
+from app.core.registry import AppRegistry
+
+
+def _collect_admin_views() -> list[type]:
+    """registry 가 실제로 SQLAdmin 에 등록하는 뷰 목록.
+
+    기능별 ``admin.py`` 를 직접 import 해 모으지 않는다 — 그러면 "정의는 됐지만
+    발견되지 않아 등록도 안 되는" 뷰까지 검사 대상에 들어와, 실제로 노출되는
+    화면과 검사 대상이 어긋난다.
+    """
+
+    class _Recorder:
+        def __init__(self) -> None:
+            self.views: list[type] = []
+
+        def add_view(self, view: type) -> None:
+            self.views.append(view)
+
+    registry = AppRegistry()
+    registry.discover()
+    recorder = _Recorder()
+    registry.install_admin(recorder)
+    return recorder.views
+
+
+ADMIN_VIEWS = _collect_admin_views()
 
 # 비밀번호 자격증명으로 취급하여 어떤 화면에도 노출을 금지하는 컬럼명.
 SECRET_COLUMNS = frozenset({"hashed_password", "password"})
