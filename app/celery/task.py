@@ -18,15 +18,13 @@ Celery 기본 prefork 워커는 태스크를 프로세스 안에서 순차 실�
 
 import asyncio
 from collections.abc import Coroutine
-from typing import Any, TypeVar
-
-_T = TypeVar("_T")
+from typing import Any
 
 # 워커 프로세스당 하나만 생성해 재사용하는 영속 이벤트 루프.
 _worker_loop: asyncio.AbstractEventLoop | None = None
 
 
-def run_async(coro: Coroutine[Any, Any, _T]) -> _T:
+def run_async(coro: Coroutine[Any, Any, Any]) -> Any:
     """동기 Celery 워커에서 async 코루틴 실행(영속 루프 재사용)."""
     global _worker_loop
     if _worker_loop is None or _worker_loop.is_closed():

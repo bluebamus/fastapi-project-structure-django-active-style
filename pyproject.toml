@@ -1,21 +1,20 @@
 [project]
-name = "fastapi-project-structure-django-active-style"
+name = "fastapi-default-project-structure"
 version = "0.1.0"
-description = "FastAPI project structure with Django-style automatic app discovery"
+description = "FastAPI Default Project Structure with Repository Pattern"
 authors = [
     {name = "Your Name", email = "you@example.com"}
 ]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi (>=0.115.11,<0.116.0)",
+    "fastapi (>=0.141.1,<0.142.0)",
     "sqlalchemy (>=2.0.38,<3.0.0)",
     "alembic (>=1.15.1,<2.0.0)",
     "pydantic (>=2.10.6,<3.0.0)",
     "pydantic-settings (>=2.8.1,<3.0.0)",
     "aiomysql (>=0.2.0,<0.3.0)",
     "uvicorn[standard] (>=0.34.0,<0.35.0)",
-    "orjson (>=3.10.0,<4.0.0)",
     "user-agents (>=2.2.0,<3.0.0)",
     "scalar-fastapi (>=1.0.0,<2.0.0)",
     "sqladmin (>=0.20.0,<1.0.0)",
@@ -25,6 +24,10 @@ dependencies = [
     "tzdata>=2026.2",
     "celery[redis]>=5.4,<6.0",
     "pymysql>=1.2.0",
+    "pyjwt>=2.13.0",
+    "python-multipart>=0.0.32",
+    "bcrypt>=5.0.0",
+    "slowapi>=0.1.10",
 ]
 
 [dependency-groups]
@@ -37,6 +40,7 @@ dev = [
     "aiosqlite>=0.20.0,<0.21.0",
     "ruff>=0.8.0,<0.9.0",
     "mypy>=1.14.0,<2.0.0",
+    "bandit>=1.9.4",
 ]
 
 
@@ -92,6 +96,9 @@ markers = [
 env = [
     "DEBUG=true",
     "ENV=test",
+    # 레이트 리밋은 in-memory 카운터가 테스트 간 공유되므로 비활성화
+    # (레이트 리밋 자체는 tests/test_rate_limit.py 가 격리된 앱으로 검증)
+    "RATE_LIMIT_ENABLED=false",
 ]
 
 # 필터 경고
@@ -156,12 +163,16 @@ target-version = "py312"
 line-length = 100
 
 # 제외 경로
+# .pytest_tmp/.mypy_tmp 는 README 의 실행 명령이 저장소 안에 만드는 임시 산출물이다.
+# 테스트가 그 안에 .py 픽스처를 쓰면 ruff 가 그것까지 잡아 게이트가 빨개진다.
 exclude = [
     ".git",
     ".venv",
     "__pycache__",
     "migrations",
     "*.pyc",
+    ".pytest_tmp",
+    ".mypy_tmp",
 ]
 
 [tool.ruff.lint]
@@ -207,6 +218,8 @@ exclude = [
 ]
 
 # 모듈별 설정
+# 아래 서드파티 패키지들은 타입 스텁(py.typed)을 제공하지 않으므로 import 검사만 완화한다.
+# (개별 코드에 # type: ignore 를 다는 대신 설정에서 일괄 처리 — 재발 방지 게이트)
 [[tool.mypy.overrides]]
 module = [
     "uvicorn.*",
@@ -214,6 +227,8 @@ module = [
     "aiomysql.*",
     "scalar_fastapi.*",
     "sqladmin.*",
+    "slowapi.*",
+    "bcrypt.*",
     "celery.*",
 ]
 ignore_missing_imports = true

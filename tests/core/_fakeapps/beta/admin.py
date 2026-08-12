@@ -1,12 +1,16 @@
-"""beta fakeapp admin — admin_views 컨벤션 검증용(라우터는 일부러 없음)."""
+"""가짜 앱의 SQLAdmin 뷰 — `admin_views` 컨벤션을 만족하는 정상 사례."""
+
+from sqladmin import ModelView
+
+from tests.core._fakeapps.beta.models import Gadget, Widget
 
 
-class ViewA:
-    pass
+class WidgetAdmin(ModelView, model=Widget):
+    name = "Widget"
 
 
-class ViewB:
-    pass
+class GadgetAdmin(ModelView, model=Gadget):
+    name = "Gadget"
 
 
-admin_views = [ViewA, ViewB]
+admin_views: list[type] = [WidgetAdmin, GadgetAdmin]

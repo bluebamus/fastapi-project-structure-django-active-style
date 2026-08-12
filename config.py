@@ -68,9 +68,9 @@ class TimezoneSettings(BaseSettings):
 # API 설명 (Scalar 문서에 표시)
 # =============================================================================
 API_DESCRIPTION = """
-## FastAPI Project Structure — Django Active App Discovery
+## FastAPI Default Project Structure
 
-Repository 패턴과 기능 의존성 기반 트랜잭션 경계(UnitOfWork 미사용)를 적용한 FastAPI 프로젝트 템플릿입니다.
+Repository 패턴과 Unit of Work 패턴을 적용한 FastAPI 프로젝트 템플릿입니다.
 
 ### 주요 기능
 
@@ -81,8 +81,9 @@ Repository 패턴과 기능 의존성 기반 트랜잭션 경계(UnitOfWork 미�
 ### 아키텍처
 
 ```
-Router → Depends(get_<name>_service) → Service → Repository → Database
-              (트랜잭션 경계: 요청 성공 시 커밋)
+Router → Service → Repository → Database
+           ↑
+      UnitOfWork (트랜잭션 관리)
 ```
 
 ### 기술 스택
@@ -144,11 +145,20 @@ class AppSettings(BaseSettings):
     )
 
     # 관리자 페이지 활성화 (DEBUG와 독립적으로 동작)
-    # True: /admin 접근 가능
-    # False: /admin 접근 차단
+    # True: /admin 마운트  /  False: /admin 자체가 없음(404)
+    #
+    # 기본값이 True 인 것은 의도다 — 이 저장소는 개발을 우선 고려한 레퍼런스 구조라,
+    # 받자마자 /admin 으로 DB 를 들여다볼 수 있어야 한다. "보안 기본값"으로 보고
+    # False 로 되돌리지 말 것(결정: 2026-08-12).
+    #
+    # 다만 대가를 알고 켜야 한다: 이 프로젝트는 SQLAdmin 에 인증 백엔드를 붙이지
+    # 않기로 확정했다(영구 비목표). 즉 ADMIN=True 이면 /admin 이 **자격증명 없이**
+    # 열리고, 게시글·댓글·사용자·접속로그의 조회·수정·삭제와 CSV 내보내기가 가능하다
+    # (비밀번호 해시만 SQLAdmin 설정으로 제외된다).
+    # → 운영·스테이징은 ADMIN=false 를 **명시적으로** 넘기거나, 프록시에서 /admin 을 막는다.
     ADMIN: bool = Field(
         default=True,
-        description="관리자 페이지 활성화",
+        description="관리자 페이지 활성화 (인증 없음 — 운영에서는 false 권장)",
     )
 
     # 실행 환경 (헬스체크 응답에 포함)
@@ -157,18 +167,18 @@ class AppSettings(BaseSettings):
         description="실행 환경",
     )
 
-    # 개발 서버(`python main.py`) 바인드 주소.
-    # 안전 기본값은 로컬 전용(127.0.0.1). 컨테이너/원격 배포에서 모든
-    # 인터페이스 공개가 필요하면 환경변수 HOST=0.0.0.0 으로 명시 주입한다.
-    HOST: str = Field(
-        default="127.0.0.1",
-        description="개발 서버 바인드 호스트",
+    # 개발용 `python main.py` 직접 실행 시 바인딩 호스트/포트.
+    # 컨테이너·배포 환경에서 외부 접근을 허용하려면 0.0.0.0 이 기본이지만, 민감한
+    # 환경에서는 SERVER_HOST=127.0.0.1 로 지정하고 리버스 프록시를 두는 것을 권장한다.
+    SERVER_HOST: str = Field(
+        default="0.0.0.0",  # nosec B104 - 컨테이너 실행 전제의 의도된 기본값(운영은 env 로 제한)
+        description="개발 서버 바인딩 호스트",
     )
 
-    # 개발 서버(`python main.py`) 포트
-    PORT: int = Field(
+    # 개발 서버 바인딩 포트
+    SERVER_PORT: int = Field(
         default=8000,
-        description="개발 서버 포트",
+        description="개발 서버 바인딩 포트",
     )
 
 
@@ -506,6 +516,21 @@ class CORSSettings(BaseSettings):
         description="Preflight 캐시 시간(초)",
     )
 
+    @model_validator(mode="after")
+    def _reject_wildcard_with_credentials(self) -> "CORSSettings":
+        """`allow_origins=["*"]` 와 `allow_credentials=True` 조합을 거부한다.
+
+        이 조합은 CORS 스펙상 무효일 뿐 아니라, Starlette 은 이때 요청 Origin 을 그대로
+        반영해 '자격증명 포함 임의 출처 허용'이라는 취약 상태가 된다. 잘못된 운영 설정을
+        기동 시점에 차단한다(fail-fast).
+        """
+        if self.CORS_ALLOW_CREDENTIALS and "*" in self.CORS_ALLOW_ORIGINS:
+            raise ValueError(
+                "CORS_ALLOW_CREDENTIALS=True 와 CORS_ALLOW_ORIGINS=['*'] 는 함께 쓸 수 없습니다. "
+                "자격증명을 허용하려면 구체적인 Origin 을 지정하세요."
+            )
+        return self
+
 
 # =============================================================================
 # 로깅 설정
@@ -674,6 +699,18 @@ class MiddlewareSettings(BaseSettings):
     ACCESS_LOG_EXCLUDE_EXTENSIONS: list[str] = Field(
         default=[".css", ".js", ".ico", ".png", ".jpg", ".jpeg", ".gif", ".svg"],
         description="로그 수집 제외 확장자",
+    )
+
+    # 레이트 리밋(slowapi) 활성화
+    RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        description="요청 레이트 리밋 활성화",
+    )
+
+    # 라우트 데코레이터(@limiter.limit)용 기본 레이트 리밋 (slowapi 형식: "<count>/<period>")
+    RATE_LIMIT_DEFAULT: str = Field(
+        default="100/minute",
+        description="라우트 데코레이터 기본 레이트 리밋",
     )
 
 

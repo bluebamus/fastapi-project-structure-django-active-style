@@ -13,7 +13,7 @@ SQLAlchemy Base 클래스
 """
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import DateTime, String
@@ -30,15 +30,16 @@ class Base(DeclarativeBase):
     공통 필드와 메서드를 제공합니다.
     """
 
+    if TYPE_CHECKING:
+        # 저장소(BaseRepository)가 관리하는 모든 모델은 UUIDMixin 을 통해 문자열 ``id``
+        # 기본키를 갖는다는 것이 이 프로젝트의 불변식이다. 런타임에는 각 모델/믹스인이
+        # 실제 컬럼을 정의하므로, 여기서는 제네릭 코드(self.model.id)의 타입 체크를 위한
+        # 선언만 둔다(TYPE_CHECKING 가드로 런타임 매핑에는 영향을 주지 않음).
+        id: Mapped[str]
+
     type_annotation_map = {
         datetime: DateTime(timezone=True),
     }
-
-    # 모든 도메인 모델은 각 models.py 에서 String(36) UUID `id` 기본키를 선언한다.
-    # 제네릭 BaseRepository / pagination 계약이 `model.id` 를 참조하므로, 타입
-    # 체커가 이 불변식을 인식하도록 베이스에 선언만 둔다. Base 는 테이블이 없어
-    # 매핑되지 않으므로(추상 선언 베이스) 런타임 스키마에는 영향이 없다.
-    id: Mapped[Any]
 
     def to_dict(self) -> dict[str, Any]:
         """모델을 딕셔너리로 변환합니다."""
