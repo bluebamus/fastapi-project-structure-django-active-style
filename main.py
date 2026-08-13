@@ -5,7 +5,7 @@ Django 스타일 앱 자동 등록: ``AppRegistry`` 가 ``app/features/*`` 를 �
 이 파일을 고치지 않는다** — 디렉터리 존재 자체가 등록 선언이다.
 
 이 파일이 계속 담당하는 것: 애플리케이션의 주요 설정(미들웨어·예외 핸들러·문서·
-lifespan·rate limit·Admin 활성화 분기).
+lifespan·Admin 활성화 분기).
 
 앱 규약과 한계는 ``app/core/registry.py`` 와 README 참고.
 """
@@ -18,7 +18,6 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from scalar_fastapi import get_scalar_api_reference
-from slowapi.errors import RateLimitExceeded
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.db.session import create_db_tables, dispose_engine, engine
@@ -26,7 +25,6 @@ from app.core.exception import AppException, ErrorResponse, ValidationException
 from app.core.middlewares.background_tasks import access_log_tasks
 from app.core.middlewares.cors_middleware import CustomCORSMiddleware
 from app.core.middlewares.user_info_middleware import setup_user_info_middleware
-from app.core.rate_limit import limiter, rate_limit_exceeded_handler
 from app.core.registry import AppRegistry
 from app.core.tags_metadata import tags_metadata
 from app.utils.logs import get_logger
@@ -274,10 +272,6 @@ app = FastAPI(
 # 미들웨어 설정
 CustomCORSMiddleware(app).configure_cors()
 setup_user_info_middleware(app)
-
-# 레이트 리밋 (slowapi) — 데코레이터 기반. 라우트에 @limiter.limit(...) 로 적용한다.
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # API 문서 상태 로깅
 if app_settings.DEBUG:
