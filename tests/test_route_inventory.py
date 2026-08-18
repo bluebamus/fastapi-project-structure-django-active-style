@@ -12,6 +12,8 @@ Django식 AppRegistry 자동발견 → 표준 FastAPI include_router 배선으�
 # 재구조화 이전 baseline 에서 캡처한 골든 경로 집합 (경로 -> 허용 메서드).
 EXPECTED: dict[str, frozenset[str]] = {
     "/health": frozenset({"GET"}),
+    # Phase 1: readiness 는 liveness 와 분리한다(DB 점검 포함).
+    "/ready": frozenset({"GET"}),
     "/api/v1/home/access-logs": frozenset({"GET"}),
     "/api/v1/home/access-logs/recent": frozenset({"GET"}),
     "/api/v1/home/access-logs/by-ip/{ip_address}": frozenset({"GET"}),
@@ -39,7 +41,7 @@ def _collect_api_routes() -> dict[str, frozenset[str]]:
     return {
         path: frozenset(method.upper() for method in operations)
         for path, operations in app.openapi()["paths"].items()
-        if path.startswith("/api") or path == "/health"
+        if path.startswith("/api") or path in ("/health", "/ready")
     }
 
 

@@ -47,6 +47,7 @@ def setup_uvicorn_logging() -> dict:
         "disable_existing_loggers": False,
         "filters": {
             "context": {"()": "app.utils.logs.filters.ContextFilter"},
+            "redact": {"()": "app.utils.logs.filters.RedactingFilter"},
         },
         "formatters": {
             "default": {
@@ -65,13 +66,13 @@ def setup_uvicorn_logging() -> dict:
                 "class": "logging.StreamHandler",
                 "stream": "ext://sys.stdout",
                 "formatter": "default",
-                "filters": ["context"],
+                "filters": ["context", "redact"],
             },
             "access": {
                 "class": "logging.StreamHandler",
                 "stream": "ext://sys.stdout",
                 "formatter": "access",
-                "filters": ["context"],
+                "filters": ["context", "redact"],
             },
         },
         "loggers": {

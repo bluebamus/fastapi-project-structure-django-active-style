@@ -1,8 +1,9 @@
-"""Home 도메인 등록은 표준 FastAPI 배선으로 이뤄진다.
+"""Home 도메인 등록은 AppRegistry 자동 배선으로 이뤄진다.
 
-home 패키지 __init__.py 가 import 시점에 access-log sink 를 등록하고(register_sink),
-하위 뷰 라우터를 취합한 ``router`` (= home_router) 를 공개하며, main.py 가 이를
-``include_router`` 로 /api 에 취합한다.
+home 패키지 __init__.py 는 import 시점에 access-log sink 만 등록한다(register_sink).
+라우터는 **재노출하지 않는다** — registry 가 컨벤션 경로 ``api/routers/router.py``
+에서 직접 가져가 /api 에 마운트한다(Phase 1 패키지 init 경량화, 경계는
+``tests/core/test_import_boundary.py``).
 """
 
 
@@ -22,14 +23,21 @@ def test_register_sink_installs_home_sink():
         set_access_log_sink(original)
 
 
-def test_home_package_exposes_router_and_main_includes_it():
+def test_home_package_stays_light():
+    """패키지 __init__ 은 라우터를 재노출하지 않는다 — 발견만으로 라우팅 트리를 올리지 않기 위해."""
     from app.features import home
+
+    assert not hasattr(
+        home, "router"
+    ), "home 패키지가 router 를 재노출합니다 — 발견 단계에서 라우팅 트리가 끌려옵니다."
+
+
+def test_registry_mounts_home_router_under_api():
+    """재노출 없이도 registry 가 home 라우터를 /api 에 마운트한다."""
     from app.features.home.api.routers.router import home_router
 
-    # 패키지가 취합 라우터를 공개한다.
-    assert home.router is home_router
+    assert home_router is not None
 
-    # main.py 가 /api 프리픽스로 취합한다.
     from main import app
 
     # app.routes 직접 순회는 FastAPI 버전에 따라 하위 라우터가 평탄화되지 않는다.

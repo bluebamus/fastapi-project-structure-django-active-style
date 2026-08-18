@@ -10,7 +10,9 @@ config = context.config
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers 기본값(True)은 migration 이 한 번 돌 때마다 이미
+    # 만들어진 앱 로거를 조용히 꺼버린다 — 그 뒤의 보안 로그가 사라진다.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # ---------------------------------------------------------------------------
 # Base 와 모든 기능 앱의 모델을 import 해서 autogenerate 가 전체 테이블을 본다.

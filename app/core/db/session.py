@@ -218,18 +218,26 @@ async def create_db_tables() -> None:
     테이블을 생성합니다.
 
     Note:
-        모델 import 목록은 AppRegistry 의 발견 결과에서 나온다(SSOT) —
-        Alembic 과 같은 경로다. 새 기능은 app/features/<name>/ 를 만들기만 하면
-        되고, 라우터·모델·Admin 등록을 위해 중앙 파일을 고칠 필요가 없다.
+        모델 발견은 **이 함수가 하지 않는다**. main.py 가 만든 동일 ``AppRegistry``
+        인스턴스가 이미 ``discover()`` + ``import_models()`` 로 ``Base.metadata`` 를
+        채워둔 상태를 그대로 재사용한다(INV-5). 여기서 두 번째 스캔을 돌리면
+        런타임과 Alembic 이 서로 다른 앱 목록을 볼 수 있고, 그 어긋남은 나중에
+        "테이블이 안 생김" 으로만 드러나 원인을 찾기 어렵다.
+
+    Raises:
+        RuntimeError: ``Base.metadata`` 가 비어 있을 때. 0개 테이블을 조용히
+            "생성 완료" 로 넘기지 않는다.
     """
     import asyncio
 
-    from app.core.db.models_registry import import_all_models
+    if not Base.metadata.tables:
+        raise RuntimeError(
+            "Base.metadata 가 비어 있어 테이블을 생성할 수 없습니다. "
+            "create_db_tables() 는 모델을 직접 발견하지 않습니다 — 호출 전에 "
+            "AppRegistry.discover() 와 import_models() 로 metadata 를 채우세요."
+        )
 
-    # 모델 메타데이터 등록: 각 앱 models 모듈 import -> Base.metadata 채움
-    registered = import_all_models()
-    logger.info("[database] 모델 등록: %d개 모듈 %s", len(registered), registered)
-
+    logger.info("[database] 테이블 생성 대상: %d개", len(Base.metadata.tables))
     logger.info("Creating database tables...")
 
     async with asyncio.timeout(30):
