@@ -4,7 +4,7 @@
 
 설계 원칙 (UnitOfWork 제거 후):
     - Service 는 AsyncSession 을 주입받는다. 트랜잭션 경계는 **쓰기 핸들러 본문**이
-      `await service.commit()` 으로 닫는다(비요청 경로는 background_session 컨텍스트).
+      `await service.commit()` 으로 닫는다(비요청 경로는 background_db_session 컨텍스트).
     - 데이터 접근은 Service 가 session 으로 생성한 Repository 를 통해 수행한다.
     - LoggerMixin 을 상속하여 self.log 로 클래스명이 주입된 로거를 쓴다(방식 C).
 
@@ -28,7 +28,7 @@ class BaseService(LoggerMixin):
     """세션 주입 기반 서비스 공통 클래스.
 
     트랜잭션 경계는 요청 경로에서는 **쓰기 핸들러**가, 비요청 경로에서는
-    `background_session()` 컨텍스트가 책임진다. Service 자신은 커밋 시점을
+    `background_db_session()` 컨텍스트가 책임진다. Service 자신은 커밋 시점을
     결정하지 않고, 핸들러가 호출할 commit()/rollback() 헬퍼만 제공한다.
 
     Attributes:

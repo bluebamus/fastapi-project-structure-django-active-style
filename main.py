@@ -22,7 +22,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.core.db.session import create_db_tables, dispose_engine, engine, get_read_session
+from app.core.db.session import create_db_tables, dispose_engine, engine, get_read_only_db_session
 from app.core.exception import AppException, ErrorResponse, ValidationException
 from app.core.middlewares.background_tasks import access_log_tasks
 from app.core.middlewares.cors_middleware import CustomCORSMiddleware
@@ -260,7 +260,7 @@ def _add_health_and_docs(app: FastAPI) -> None:
     )
     async def readiness_check(
         response: Response,
-        session: AsyncSession = Depends(get_read_session),
+        session: AsyncSession = Depends(get_read_only_db_session),
     ) -> ReadyResponse:
         """DB 왕복 1회로 준비 상태를 확인한다.
 

@@ -13,7 +13,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from app.core.db.session import Base, get_read_session
+from app.core.db.session import Base, get_read_only_db_session
 from main import app
 
 
@@ -32,7 +32,7 @@ async def client():
         async with maker() as session:
             yield session
 
-    app.dependency_overrides[get_read_session] = _override
+    app.dependency_overrides[get_read_only_db_session] = _override
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
@@ -51,7 +51,7 @@ async def broken_client():
     async def _override():
         yield _BrokenSession()
 
-    app.dependency_overrides[get_read_session] = _override
+    app.dependency_overrides[get_read_only_db_session] = _override
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c

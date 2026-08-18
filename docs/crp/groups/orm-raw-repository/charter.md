@@ -52,6 +52,8 @@
 - INV-7: 사용자 입력이 SQL 문자열에 보간되지 않는다 — 바인딩 파라미터만. (검사: AST 규칙 + 인젝션 테스트)
 - INV-8: OpenAPI component 스키마명에 모듈 경로형 `__` 가 없고 operationId 는 누락·중복이 없다. (검사: 스냅샷 검증)
 - INV-9: 전체 suite 의 skip/xfail/deselected 가 0 이다. (검사: CI `ci.yml` 기존 게이트)
+- INV-10: DB Session Dependency 의 정식 이름은 `*_db_session` 이며, 기존 이름은 **같은 객체**를 가리키는 alias 로만 존재한다. 저장소 안(`app/**`, `tests/**`)에서는 정식 이름만 쓴다. (검사: `tests/core/test_session_dependency_names.py` 의 동일성 단언 + AST 스캔)
+- INV-11: read-only 세션에서 Raw SQL 은 default-deny 로 판별한다 — SELECT 로 시작하고 잠금을 잡지 않는 단일 문장만 허용한다. (검사: `tests/core/test_read_only_guard.py` 의 문장 매트릭스)
 
 ### 2-4. 비목표
 - `main.py` 의 기능별 명시 `include_router()` / 중앙 router·Admin 목록

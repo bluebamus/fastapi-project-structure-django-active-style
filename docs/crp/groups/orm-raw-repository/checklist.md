@@ -27,10 +27,20 @@
 - [x] 요구사항 회귀 0 — design-baseline Active 요구·불가침 제약 위반 없음(회귀 1건은 구현 전 차단)
 - [x] run-log 심각도 추세 갱신 + 수렴 판정(NOT CONVERGED)
 - [x] residual-risk 갱신(R-007 해소, R-008 신규)
-- [ ] **STOP: Phase 2 착수 승인**
+- [x] **STOP: Phase 2 착수 승인** — 사용자 승인 완료
 
-## 예정 — Phase 2 이후
-- [ ] Phase 2 (F-003) 설정 무관 read-only DML guard + 정식 Dependency 이름(기존 이름은 alias 유지)
+## Round 2 — 2026-08-18 (Phase 2: read-only 안전성) — 완료
+- [x] (ledger F-003) 설정 무관 read-only DML guard — `Session` 이벤트로 집행 지점 이동
+- [x] 중앙 `is_read_only()` / `assert_writable()` 도입
+- [x] Raw SQL default-deny 판별(SELECT 단일문·비잠금만 허용, WITH·multi-statement·판별불가 거부)
+- [x] 정식 Dependency 명명 5쌍 도입 + 기존 이름을 동일 객체 alias 로 유지(override 키 보존)
+- [x] 저장소 내 호출부 103건(26파일) 정식 이름 전환 + AST 재발 방지 가드
+- [x] 라우터 on/off parameterize 검증 52건 통과, 라우트 인벤토리 19/31 불변
+- [x] Phase 2 게이트 전량 그린: pytest 385 / ruff / format / mypy / bandit / alembic single head
+- [x] run-log Round 2 + residual-risk(R-001 정정, R-009 신규) 갱신
+- [ ] **STOP: Phase 3 착수 승인**
+
+## 예정 — Phase 3 이후
 - [ ] Phase 3 (F-002) ORM mixin·PK generic, `_get()` str 변환 제거
 - [ ] Phase 4 ORM Repository 최소 CRUD·입력 불변성·EXISTS·예외 변환
 - [ ] Phase 5 (F-007) `compose.test.yaml` + CI MySQL service, Alembic chain up/down/re-up smoke

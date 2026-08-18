@@ -2,7 +2,7 @@
 User Service
 
 사용자 비즈니스 로직. 세션을 주입받아 Repository 를 구성한다.
-트랜잭션 경계(commit/rollback)는 호출하는 의존성(또는 background_session)이 책임진다.
+트랜잭션 경계(commit/rollback)는 호출하는 의존성(또는 background_db_session)이 책임진다.
 """
 
 from collections.abc import Sequence

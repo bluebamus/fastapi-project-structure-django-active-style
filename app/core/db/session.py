@@ -190,7 +190,7 @@ BackgroundSessionLocal = async_sessionmaker(
 
 
 @asynccontextmanager
-async def background_session() -> AsyncGenerator[AsyncSession, None]:
+async def background_db_session() -> AsyncGenerator[AsyncSession, None]:
     """요청 밖(백그라운드 태스크·Celery)에서 사용하는 세션 컨텍스트.
 
     요청 스코프 DI(get_session)를 쓸 수 없는 곳에서 트랜잭션 경계를 제공한다.
@@ -245,7 +245,7 @@ async def create_db_tables() -> None:
             await connection.run_sync(Base.metadata.create_all)
 
 
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_routed_db_session() -> AsyncGenerator[AsyncSession, None]:
     """
     FastAPI 의존성 주입용 세션 제너레이터
 
@@ -284,7 +284,7 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
             raise e
 
 
-async def get_read_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_read_only_db_session() -> AsyncGenerator[AsyncSession, None]:
     """
     읽기 전용 세션 제너레이터 (FastAPI DI)
 
@@ -315,7 +315,7 @@ async def get_read_session() -> AsyncGenerator[AsyncSession, None]:
             raise
 
 
-async def get_write_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_writer_db_session() -> AsyncGenerator[AsyncSession, None]:
     """
     쓰기 세션 제너레이터 (FastAPI DI)
 
@@ -339,7 +339,7 @@ async def get_write_session() -> AsyncGenerator[AsyncSession, None]:
             raise
 
 
-async def get_background_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_background_db_session() -> AsyncGenerator[AsyncSession, None]:
     """
     백그라운드 태스크용 세션 제너레이터
 
@@ -373,6 +373,20 @@ async def get_background_session() -> AsyncGenerator[AsyncSession, None]:
                 f"duration: {(time.perf_counter() - start_time)*1000:.1f}ms"
             )
             raise e
+
+
+# =============================================================================
+# deprecated alias — 기존 호출부 호환용
+# =============================================================================
+# 정식 이름은 위의 `*_db_session` 이다(workflow-guide §2.1). 아래는 **같은 객체**를
+# 가리키는 별칭이라, 이미 `dependency_overrides[get_read_session]` 을 쓰는 테스트도
+# 그대로 동작한다. 다른 객체로 감싸면 override 키가 갈라져 조용히 안 먹는다.
+# 신규 코드는 정식 이름을 쓴다.
+get_session = get_routed_db_session
+get_read_session = get_read_only_db_session
+get_write_session = get_writer_db_session
+get_background_session = get_background_db_session
+background_session = background_db_session
 
 
 async def dispose_engine() -> None:
