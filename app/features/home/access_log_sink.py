@@ -2,9 +2,9 @@
 Home-domain implementation of the AccessLogSink Protocol.
 
 Persists access-log entries using the background session context
-(background_session) so the write runs on the background connection pool and
+(background_db_session) so the write runs on the background connection pool and
 does not interfere with the main API pool. (UnitOfWork was removed; the
-transaction boundary is the background_session context manager.)
+transaction boundary is the background_db_session context manager.)
 """
 
 from app.core.middlewares.access_log_sink import AccessLogSink, set_access_log_sink
@@ -18,10 +18,10 @@ class HomeAccessLogSink(AccessLogSink):
     # 알면 되는 경로까지 DB 엔진과 모델을 통째로 올린다
     # (경계: tests/core/test_import_boundary.py, 같은 패턴: registry.load_admin_views).
     async def save(self, data: dict) -> None:
-        from app.core.db.session import background_session
+        from app.core.db.session import background_db_session
         from app.features.home.services.user_access_log_service import UserAccessLogService
 
-        async with background_session() as session:
+        async with background_db_session() as session:
             service = UserAccessLogService(session)
             await service.create_access_log(data)
             await session.commit()

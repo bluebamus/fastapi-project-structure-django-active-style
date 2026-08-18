@@ -57,8 +57,43 @@
 - **수렴 판정:** `NOT CONVERGED` (Open Fix 4건: F-002, F-003, F-004, F-005, F-007 중 Phase 2~9 대상)
 - **잔여 위험 변화:** R-007 **해소**(구조적 redaction 도입). R-008 신규 등록(Celery 종료 대상 없음).
 
+### Round 2 — 2026-08-18 (base SHA: `b6d1aa2`) — Phase 2 read-only 안전성
+- **트리거:** 사용자 요청 "Phase 2 진행해줘".
+- **검수 범위:** read-only 계약 경계 (`db/router.py`, `db/session.py`) + Dependency 명명 전면 전환.
+- **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 □ 4 □ 5 □
+- **처리한 Fix:** F-003 → Fixed.
+- **변경 요약:**
+  - 집행 지점 이동 — `RoutingSession.get_bind()` 안에만 있던 차단을 `Session` 클래스
+    이벤트(`before_flush`, `do_orm_execute`)로 옮겼다. sessionmaker·엔진과 무관하게
+    적용되므로 `DB_ROUTER_ENABLED=false` 와 `BackgroundSessionLocal` 에서도 동일하게 막힌다.
+  - 중앙 API `is_read_only()` / `assert_writable()` 도입.
+  - Raw SQL 은 default-deny 판별(`_text_is_readable`) — 주석 제거 후 SELECT 로 시작하고
+    잠금(`FOR UPDATE` / `LOCK IN SHARE MODE`)을 잡지 않는 **단일** 문장만 허용.
+    `WITH`·저장 프로시저·multi-statement·판별 불가 문장은 거부.
+  - Dependency 정식 명명 도입(workflow-guide §2.1): `get_read_only_db_session`,
+    `get_writer_db_session`, `get_routed_db_session`, `get_background_db_session`,
+    `background_db_session`. 기존 이름은 **동일 객체 alias** 로 유지해
+    `dependency_overrides` 키를 보존했다.
+  - 저장소 내 호출부 103건(26개 파일)을 정식 이름으로 전환하고, 재발을 AST 스캔으로 고정.
+- **검증 설계:** 라우터 on/off 를 fixture 로 parameterize 해 같은 계약을 양쪽에서 검사한다
+  (ORM flush / Core insert·update·delete / Raw DML·DDL / 잠금·CTE·multi-statement 거부 /
+  ORM·Raw SELECT 허용 / 쓰기 세션 대조군 / 차단 후 row count 불변). 테스트 모델은 별도
+  `DeclarativeBase` 를 써서 공유 metadata 를 오염시키지 않는다(workflow-guide §14).
+- **자체 결함 1건(같은 라운드에서 교정):** 호출부 일괄 rename 이 방금 작성한 명명 테스트의
+  **문자열 리터럴까지** 바꿔 alias 표가 canonical→canonical 로 붕괴했다(검사가 자기 자신을
+  무력화). AST 가드가 이를 드러냈고, 표를 조각 합성으로 바꿔 같은 사고가 재발하지 않게 했다.
+- **신규 finding:** 0 (F-003 외 신규 계약 위반 없음)
+- **게이트 결과:** pytest **385 passed**(Phase 1 315 + 신규 70), skip/xfail/deselected 0 ·
+  ruff check/format · mypy 148 files · bandit 0 issues · `alembic heads` 단일 ·
+  라우트 인벤토리 **19 paths / 31 operations**(Phase 1 대비 불변, 골든 테스트 통과)
+- **수렴 판정:** `NOT CONVERGED` (Open Fix 4건: F-002·F-004·F-005·F-007 → Phase 3/9/9/5)
+- **잔여 위험 변화:** R-001 문구를 "구현된 default-deny" 로 정정(읽기 전용 CTE 도 함께 막히는
+  대가를 명시). R-009 신규 — `session.info` 는 보안 경계가 아니며 운영은 read-only credential 을
+  최종 방어선으로 둔다.
+
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
 | 0 | 0 | 3 | 3 | 1 | 7 | NOT CONVERGED |
 | 1 | 0 | 1 | 2 | 0 | 3 (전부 같은 라운드에 Fixed) | NOT CONVERGED (Open Fix 5 → Phase 2~9) |
+| 2 | 0 | 0 | 0 | 0 | 0 (F-003 해소) | NOT CONVERGED (Open Fix 4 → Phase 3·5·9) |

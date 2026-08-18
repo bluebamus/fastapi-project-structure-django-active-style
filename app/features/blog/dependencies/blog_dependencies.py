@@ -2,18 +2,18 @@
 
 services 의 기능 클래스를 session 으로 생성·결합하여 view 에 제공한다.
 커밋은 **핸들러 본문**이 `await service.commit()` 으로 수행한다(P1-3).
-예외 시에는 get_session 의 teardown 이 롤백을 수행한다.
+예외 시에는 get_routed_db_session 의 teardown 이 롤백을 수행한다.
 """
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db.session import get_read_session, get_session
+from app.core.db.session import get_read_only_db_session, get_routed_db_session
 from app.features.blog.services.blog_service import BlogService
 
 
 async def get_blog_service(
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_routed_db_session),
 ) -> BlogService:
     """BlogService 를 구성해 view 에 제공한다(쓰기용 — 커밋은 핸들러가 한다).
 
@@ -25,7 +25,7 @@ async def get_blog_service(
 
 
 async def get_blog_service_readonly(
-    session: AsyncSession = Depends(get_read_session),
+    session: AsyncSession = Depends(get_read_only_db_session),
 ) -> BlogService:
     """조회 엔드포인트용 — 커밋하지 않는다.
 
