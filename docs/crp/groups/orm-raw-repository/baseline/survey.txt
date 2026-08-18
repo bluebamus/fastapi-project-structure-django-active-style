@@ -1,0 +1,53 @@
+=== OpenAPI 기준선 ===
+paths: 18  operations: 30
+normalized-sha256: 4ce7f6b6e931358029b265f8946ae931f0d873a92c018f009c6981d8944ae98a
+tags(실사용): ['Auth', 'Blog', 'Health', 'Home', 'Reply', 'SNS', 'User']
+operationId 누락: 0 []
+operationId 중복: 없음
+tags_metadata 선언: ['Analytics', 'Blog', 'Health', 'Home', 'Reply', 'SNS', 'User']
+  선언됐지만 미사용: ['Analytics']
+  사용되지만 미선언: ['Auth']
+
+--- 경로 인벤토리 (골든) ---
+  POST   /api/v1/auth/login                                 authLogin                    Auth
+  GET    /api/v1/auth/me                                    authMe                       Auth
+  POST   /api/v1/auth/refresh                               authRefresh                  Auth
+  POST   /api/v1/auth/register                              authRegister                 Auth
+  GET    /api/v1/blog/posts                                 listPosts                    Blog
+  POST   /api/v1/blog/posts                                 createPost                   Blog
+  DELETE /api/v1/blog/posts/{post_id}                       deletePost                   Blog
+  GET    /api/v1/blog/posts/{post_id}                       getPost                      Blog
+  PATCH  /api/v1/blog/posts/{post_id}                       updatePost                   Blog
+  GET    /api/v1/home/access-logs                           getAccessLogs                Home
+  GET    /api/v1/home/access-logs/by-ip/{ip_address}        getAccessLogsByIp            Home
+  GET    /api/v1/home/access-logs/by-user/{user_id}         getAccessLogsByUser          Home
+  GET    /api/v1/home/access-logs/recent                    getRecentAccessLogs          Home
+  GET    /api/v1/home/access-logs/stats                     getAccessLogStats            Home
+  GET    /api/v1/reply/replies                              listReplies                  Reply
+  POST   /api/v1/reply/replies                              createReply                  Reply
+  DELETE /api/v1/reply/replies/{reply_id}                   deleteReply                  Reply
+  GET    /api/v1/reply/replies/{reply_id}                   getReply                     Reply
+  PATCH  /api/v1/reply/replies/{reply_id}                   updateReply                  Reply
+  GET    /api/v1/sns/posts                                  listSnsPosts                 SNS
+  POST   /api/v1/sns/posts                                  createSnsPost                SNS
+  DELETE /api/v1/sns/posts/{post_id}                        deleteSnsPost                SNS
+  GET    /api/v1/sns/posts/{post_id}                        getSnsPost                   SNS
+  PATCH  /api/v1/sns/posts/{post_id}                        updateSnsPost                SNS
+  GET    /api/v1/user/users                                 listUsers                    User
+  POST   /api/v1/user/users                                 createUser                   User
+  DELETE /api/v1/user/users/{user_id}                       deleteUser                   User
+  GET    /api/v1/user/users/{user_id}                       getUser                      User
+  PATCH  /api/v1/user/users/{user_id}                       updateUser                   User
+  GET    /health                                            healthCheck                  Health
+
+=== OpenAPI component schemas ===
+총 31개, '__' 포함: ['app__features__auth__schemas__auth_schema__UserResponse', 'app__features__user__schemas__user_schema__UserResponse']
+
+=== AppRegistry / Admin ===
+discovered apps (6): ['auth', 'blog', 'home', 'reply', 'sns', 'user']
+metadata tables (5): ['blog_posts', 'replies', 'sns_posts', 'user_access_logs', 'users']
+admin views (5): ['PostAdmin', 'ReplyAdmin', 'SnsPostAdmin', 'UserAccessLogAdmin', 'UserAdmin']
+
+=== Repository 공개 표면 ===
+CRUDBase: ['_get', '_add', '_update', '_delete']
+BaseRepository 공개 메서드(28): ['create', 'bulk_create', 'get_by_id', 'get_by_id_or_raise', 'get_one', 'get_many', 'get_all', 'count', 'exists', 'exists_by', 'get_by_id_with', 'get_one_with', 'get_many_with', 'get_all_with', 'get_by_ids_with', 'get_partial', 'get_by_id_partial', 'get_in_batches', 'get_with_join', 'count_with_relation', 'update', 'bulk_update', 'update_by', 'delete', 'bulk_delete', 'delete_by', 'get_or_create', 'update_or_create']
