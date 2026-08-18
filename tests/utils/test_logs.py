@@ -144,7 +144,7 @@ def test_production_adds_rotating_file_handlers(monkeypatch, tmp_path):
         assert handler["backupCount"] == logs_config.log_settings.LOG_BACKUP_COUNT
         assert handler["maxBytes"] == logs_config.log_settings.LOG_MAX_SIZE_MB * 1024 * 1024
         # 핸들러마다 컨텍스트 필터가 붙어야 appname/classname 이 채워진다.
-        assert handler["filters"] == ["context"]
+        assert handler["filters"] == ["context", "redact"]
         assert str(tmp_path) in handler["filename"]
 
     # 에러 전용 파일은 ERROR 만 받아야 의미가 있다.
@@ -205,7 +205,7 @@ def test_uvicorn_config_isolates_three_loggers():
     assert cfg["loggers"]["uvicorn.access"]["handlers"] == ["access"]
     assert "request_line" in cfg["formatters"]["access"]["fmt"]
     for handler in cfg["handlers"].values():
-        assert handler["filters"] == ["context"]
+        assert handler["filters"] == ["context", "redact"]
 
 
 def test_configure_logging_applies_once(monkeypatch):

@@ -12,6 +12,7 @@ record 에 두 필드를 주입한다.
 from __future__ import annotations
 
 import logging
+import re
 import sys
 from pathlib import Path
 from types import FrameType
@@ -74,4 +75,53 @@ class ContextFilter(logging.Filter):
             record.appname = _app_from_path(record.pathname)
         if not getattr(record, "classname", None):
             record.classname = _class_from_stack()
+        return True
+
+
+# =============================================================================
+# 비밀정보 마스킹 (C-5)
+# =============================================================================
+# SQLAlchemy `echo=False` 는 SQL 로그를 막지만 그건 설정에 기댄 차단이라, 누가
+# echo 를 켜거나 드라이버가 예외에 DSN 을 실어 보내면 무너진다. 파이프라인 끝에서
+# 한 번 더 지운다.
+#
+# DSN 마스킹 규칙은 config.mask_dsn 과 같은 의도지만 여기서 다시 구현한다 —
+# 로깅 설정은 config 보다 먼저 세워질 수 있어서 import 순서를 얽지 않는다.
+_DSN_CREDENTIALS = re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://)([^:/@\s]+):([^@\s]+)@")
+_KEYWORD_SECRET = re.compile(
+    r"(?i)\b(secret[_-]?key|api[_-]?key|password|passwd|pwd|secret|token)\b"
+    r"(\s*[:=]\s*)([\"']?)([^\s\"',;)]+)\3"
+)
+
+
+def redact(text: str) -> str:
+    """DSN 자격증명과 secret 형태의 값을 ``***`` 로 바꾼다.
+
+    호스트·포트·사용자명처럼 진단에 필요한 부분은 남긴다 — 통째로 지우면 로그가
+    쓸모없어져서 결국 아무도 안 켠다.
+    """
+    text = _DSN_CREDENTIALS.sub(r"\1\2:***@", text)
+    return _KEYWORD_SECRET.sub(r"\1\2\3***\3", text)
+
+
+class RedactingFilter(logging.Filter):
+    """포매팅된 메시지에서 비밀정보를 지운다.
+
+    치환이 일어나면 ``args`` 를 비운다 — 포매터가 이미 전개된 문자열을 다시
+    전개하려다 깨지지 않게 하기 위해서다.
+    """
+
+    # ponytail: record 마다 getMessage() 를 한 번 더 호출한다(문자열 포매팅 1회분).
+    # 로깅이 병목으로 측정되면 레벨/로거 이름으로 사전 선별해 좁힌다.
+    # exc_info 로 실려오는 traceback 본문은 검사하지 않는다 — 필요해지면 포매터
+    # 단계에서 exc_text 를 한 번 더 통과시킨다.
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+        except Exception:  # pragma: no cover - 포매팅 실패는 로깅이 알아서 보고한다
+            return True
+        redacted = redact(message)
+        if redacted != message:
+            record.msg = redacted
+            record.args = ()
         return True

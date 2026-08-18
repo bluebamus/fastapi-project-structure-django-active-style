@@ -13,14 +13,16 @@ lifespan·Admin 활성화 분기).
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from scalar_fastapi import get_scalar_api_reference
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.core.db.session import create_db_tables, dispose_engine, engine
+from app.core.db.session import create_db_tables, dispose_engine, engine, get_read_session
 from app.core.exception import AppException, ErrorResponse, ValidationException
 from app.core.middlewares.background_tasks import access_log_tasks
 from app.core.middlewares.cors_middleware import CustomCORSMiddleware
@@ -63,26 +65,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     logger.info("[Startup] 애플리케이션 시작 (DEBUG=%s)", app_settings.DEBUG)
 
-    # DEBUG 모드일 때만 테이블 자동 생성
-    # 운영 환경에서는 Alembic 마이그레이션 사용 권장
-    if app_settings.DEBUG:
-        try:
-            await create_db_tables()
-            logger.info("[Startup] 데이터베이스 테이블 생성 완료 (DEBUG 모드)")
-        except Exception as e:
-            logger.error("[Startup] 데이터베이스 테이블 생성 실패: %s", e)
-            raise
-    else:
-        logger.info("[Startup] 테이블 자동 생성 건너뜀 (DEBUG=False, Alembic 사용)")
+    # 정리는 finally 에 둔다. yield 뒤에만 두면 startup 이 실패했을 때(테이블 생성
+    # 실패 등) 도달하지 못해 엔진이 회수되지 않는다 — 기동을 재시도하는 컨테이너에서
+    # 커넥션이 계속 쌓인다.
+    try:
+        # DEBUG 모드일 때만 테이블 자동 생성
+        # 운영 환경에서는 Alembic 마이그레이션 사용 권장
+        if app_settings.DEBUG:
+            try:
+                await create_db_tables()
+                logger.info("[Startup] 데이터베이스 테이블 생성 완료 (DEBUG 모드)")
+            except Exception as e:
+                logger.error("[Startup] 데이터베이스 테이블 생성 실패: %s", e)
+                raise
+        else:
+            logger.info("[Startup] 테이블 자동 생성 건너뜀 (DEBUG=False, Alembic 사용)")
 
-    yield
-
-    logger.info("[Shutdown] 애플리케이션 종료 시작")
-    # 엔진 정리 전에 진행 중인 백그라운드 로그 태스크를 drain (W1) —
-    # dispose 와의 경합으로 인한 마지막 로그 유실을 줄인다.
-    await access_log_tasks.drain()
-    await dispose_engine()
-    logger.info("[Shutdown] 애플리케이션 종료 완료")
+        yield
+    finally:
+        logger.info("[Shutdown] 애플리케이션 종료 시작")
+        # 엔진 정리 전에 진행 중인 백그라운드 로그 태스크를 drain (W1) —
+        # dispose 와의 경합으로 인한 마지막 로그 유실을 줄인다.
+        await access_log_tasks.drain()
+        await dispose_engine()
+        logger.info("[Shutdown] 애플리케이션 종료 완료")
 
 
 def _register_exception_handlers(app: FastAPI) -> None:
@@ -202,10 +208,22 @@ def _register_exception_handlers(app: FastAPI) -> None:
 
 
 class HealthResponse(BaseModel):
-    """헬스체크 응답 스키마"""
+    """헬스체크(liveness) 응답 스키마"""
 
     status: str
     version: str
+
+
+class ReadyResponse(BaseModel):
+    """readiness 응답 스키마.
+
+    `/health` 는 프로세스 생존만 답한다. 트래픽을 받아도 되는지는 의존 자원(DB)
+    상태에 달려 있어서 별도 엔드포인트로 나눈다 — 둘을 합치면 DB 가 죽어도
+    로드밸런서가 계속 트래픽을 보낸다.
+    """
+
+    status: str
+    database: str
 
 
 def _add_health_and_docs(app: FastAPI) -> None:
@@ -230,6 +248,32 @@ def _add_health_and_docs(app: FastAPI) -> None:
             status="healthy",
             version=app_settings.VERSION,
         )
+
+    @app.get(
+        "/ready",
+        response_model=ReadyResponse,
+        tags=["Health"],
+        summary="readiness 점검",
+        description="DB 등 의존 자원까지 확인해 트래픽 수용 가능 여부를 알립니다.",
+        operation_id="readinessCheck",
+        responses={503: {"description": "의존 자원이 준비되지 않음"}},
+    )
+    async def readiness_check(
+        response: Response,
+        session: AsyncSession = Depends(get_read_session),
+    ) -> ReadyResponse:
+        """DB 왕복 1회로 준비 상태를 확인한다.
+
+        실패해도 예외를 그대로 올리지 않고 503 으로 낮춘다. 오류 응답에는 예외
+        메시지·DSN·SQL 을 담지 않는다 (C-5) — 로그에도 예외 타입만 남긴다.
+        """
+        try:
+            await session.execute(text("SELECT 1"))
+        except Exception as exc:
+            logger.warning("[Readiness] DB 점검 실패: %s", type(exc).__name__)
+            response.status_code = 503
+            return ReadyResponse(status="not_ready", database="unavailable")
+        return ReadyResponse(status="ready", database="ok")
 
     # Scalar API 문서 (DEBUG 모드에서만 활성화)
     if app_settings.DEBUG:

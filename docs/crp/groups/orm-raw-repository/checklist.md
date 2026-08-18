@@ -10,16 +10,24 @@
 - [x] 결함 ledger 착수 — F-001 ~ F-007 등록(전부 코드 위치 확인 완료)
 - [x] residual-risk 착수 — R-001 ~ R-007 등록
 - [x] run-log Round 0 기록 + 수렴 판정(NOT CONVERGED)
-- [ ] **STOP: Phase 1 착수 승인** — 여기서부터 런타임 코드가 바뀐다
-- [ ] Phase 0 커밋 (`docs(crp): orm-raw-repository 그룹 기준선 확립`) — 사용자 승인 후
+- [x] **STOP: Phase 1 착수 승인** — 사용자 승인 완료(전체 진행)
+- [x] Phase 0 커밋 `2804f6c`
 
-## 예정 — Phase 1 (Runtime/lifecycle hardening, 독립 커밋)
-- [ ] (ledger F-001) `create_db_tables()` 재-discovery 제거, 동일 registry metadata 재사용 — discovery 호출 횟수 테스트
-- [ ] (ledger F-006) staging/production 무인증 `/admin` fail-fast + `ADMIN` lazy import
-- [ ] (residual R-007→해소) SQL/driver 로그 redaction, Alembic logger 보존, sentinel 비노출 테스트
-- [ ] 경량 feature `__init__.py`, resource manager, drain, Celery 종료 경계
-- [ ] `/ready` 추가 → 라우트 인벤토리 **19 paths / 31 operations** 로 갱신·고정
-- [ ] Phase 1 게이트: pytest / ruff / format / mypy / bandit / alembic heads 전량 그린
+## Round 1 — 2026-08-18 (Phase 1: Runtime/lifecycle hardening) — 완료
+- [x] (ledger F-001) `create_db_tables()` 재-discovery 제거 + 빈 metadata 거부 — `tests/core/test_create_db_tables.py`
+- [x] (ledger F-006, **재정의**) staging/production 배포 안전성 fail-fast — `tests/core/test_deployment_safety.py`
+      · ADR-005 로 "Admin 인증 백엔드 = 영구 비목표" 를 승계. `ADMIN` lazy import 는 이미 충족(main.py)
+- [x] (residual R-007 → 해소) `RedactingFilter` 로 DSN·secret 마스킹 — `tests/utils/test_log_redaction.py`
+- [x] (ledger F-010) Alembic `fileConfig(disable_existing_loggers=False)` — `tests/core/test_alembic_logging.py`
+- [x] (ledger F-008) 기능 `__init__.py` 6개 경량화 + sink DB import 지연 — `tests/core/test_import_boundary.py`
+- [x] (ledger F-009) lifespan 정리를 try/finally 로 이동(startup 실패 cleanup) — `tests/test_lifespan.py`
+- [x] `/ready` 추가 → 라우트 인벤토리 **19 paths / 31 operations** 확인·고정
+- [x] Celery 종료: 대상 없음으로 판정하고 residual-risk R-008 에 기록(추측성 코드 미작성)
+- [x] Phase 1 게이트 전량 그린: pytest 315 / ruff / format / mypy / bandit / alembic single head
+- [x] 요구사항 회귀 0 — design-baseline Active 요구·불가침 제약 위반 없음(회귀 1건은 구현 전 차단)
+- [x] run-log 심각도 추세 갱신 + 수렴 판정(NOT CONVERGED)
+- [x] residual-risk 갱신(R-007 해소, R-008 신규)
+- [ ] **STOP: Phase 2 착수 승인**
 
 ## 예정 — Phase 2 이후
 - [ ] Phase 2 (F-003) 설정 무관 read-only DML guard + 정식 Dependency 이름(기존 이름은 alias 유지)

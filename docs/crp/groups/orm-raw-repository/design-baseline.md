@@ -41,6 +41,7 @@ DI·Service·세션 선택·트랜잭션 경계·검증·라우터 구성·문�
 | ADR-002 | 2026-08-18 | ORM Base 와 Raw Base 는 서로 상속하지 않는다. 세션·예외·로깅 정책만 공유한다. | development-plan §1. 만능 Base 통합은 두 접근의 계약을 오염시킨다. | Accepted | — |
 | ADR-003 | 2026-08-18 | 신규 기능은 `app/features/*` 규약 자동 발견으로만 결선한다. `main.py` 에 기능별 `include_router()` 를 추가하지 않는다. | development-plan §12 비목표. Django 스타일 자동배선이 이 저장소의 정체성. | Accepted | — |
 | ADR-004 | 2026-08-18 | SQL 은 Repository 만 소유하고, commit 은 쓰기 View 가 성공 응답 전에 정확히 한 번 수행한다. | workflow-guide §1·§7. 트랜잭션 경계 단일화. | Accepted | — |
+| ADR-005 | 2026-08-18 | SQLAdmin 에 인증 백엔드를 붙이지 않는다(**영구 비목표**). `ADMIN` 기본값 True 도 의도된 개발 편의 기본값으로 유지한다. 무인증 `/admin` 에 대한 방어선은 "인증 추가" 가 아니라 **staging/production 기동 거부(fail-fast)** 로 둔다. | 선행 확정 결정(2026-08-12, `config.py` ADMIN 필드 주석)을 그대로 승계한다. Phase 0 에서 이 결정을 모르고 F-006 을 "인증 백엔드 주입" 으로 적었다가 요구사항 회귀가 될 뻔했다. | Accepted | — |
 
 ## 4. 불가침 제약 (INVARIANT REQUIREMENTS)
 
@@ -51,6 +52,9 @@ DI·Service·세션 선택·트랜잭션 경계·검증·라우터 구성·문�
 - C-5: SQL / driver / ORM / commit / Alembic 로그와 오류 응답에 sentinel secret, SQL 원문, params, DSN 이 노출되지 않는다 — development-plan §13.
 - C-6: 사용자 입력을 Raw SQL 문자열에 보간하지 않는다. 바인딩 파라미터만 사용한다 — workflow-guide §6.
 - C-7: ORM Base 와 Raw Base 는 상속 관계를 갖지 않는다 — ADR-002 에서 비롯.
+- C-8: SQLAdmin 에 인증 백엔드를 추가하지 않는다. `ADMIN` 기본값을 "보안 기본값" 명목으로 False 로 되돌리지 않는다. 대신 staging/production 에서 `ADMIN=true` 면 기동을 거부한다 — ADR-005 에서 비롯.
+- C-9: 기능 패키지 `__init__.py` 는 라우터·모델·DB 모듈을 import 하지 않는다(초기화 훅 제외). 발견과 결선을 분리한 상태를 유지한다 — Phase 1 에서 비롯.
 
 ## 5. 변경 이력
 - v0.1 (2026-08-18): 최초 작성. REQ-001/002, ADR-001~004, C-1~C-7 확정. Phase 0 기준선과 연결.
+- v0.2 (2026-08-18): Phase 1 수행 중 선행 확정 결정(2026-08-12 Admin 인증 영구 비목표)을 발견해 ADR-005·C-8 로 승계. 패키지 init 경량화 계약을 C-9 로 고정.

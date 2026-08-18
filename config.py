@@ -1078,3 +1078,63 @@ api_settings = get_api_settings()
 session_settings = get_session_settings()
 smtp_settings = get_smtp_settings()
 upload_settings = get_upload_settings()
+
+
+# =============================================================================
+# 배포 안전성 게이트 (staging / production fail-fast)
+# =============================================================================
+# 이 프로젝트는 SQLAdmin 에 인증 백엔드를 붙이지 않기로 확정했다(영구 비목표,
+# 결정 2026-08-12 — ADMIN 필드 주석 참고). 그래서 무인증 /admin 에 대한 방어선은
+# "인증을 붙인다" 가 아니라 **운영·스테이징에서 아예 기동을 막는다** 이다.
+# 개발·테스트 환경은 지금까지의 편의 기본값(ADMIN=true, DEBUG=true)을 그대로 둔다.
+_PLACEHOLDER_SECRET_PREFIX = "change-this-"
+
+
+def validate_deployment_safety() -> None:
+    """staging/production 에서 안전하지 않은 설정이면 기동을 멈춘다.
+
+    검사 항목:
+        - ``DEBUG=true``      : 상세 오류·문서 노출
+        - ``ADMIN=true``      : 자격증명 없는 /admin 공개
+        - placeholder secret  : ``change-this-`` 로 시작하는 서명·세션 키
+        - 와일드카드 CORS     : ``CORS_ALLOW_ORIGINS`` 에 ``*``
+
+    위반은 **한 번에 모두** 모아서 보고한다. 하나 고치고 재기동하는 왕복을
+    줄이기 위해서다. 오류 메시지에는 설정 이름만 담고 값은 담지 않는다.
+
+    Raises:
+        RuntimeError: 위반이 하나라도 있을 때.
+    """
+    if app_settings.ENV not in ("staging", "production"):
+        return
+
+    problems: list[str] = []
+
+    if app_settings.DEBUG:
+        problems.append("DEBUG=true — 상세 오류와 API 문서가 노출됩니다. false 로 두세요.")
+    if app_settings.ADMIN:
+        problems.append(
+            "ADMIN=true — /admin 은 인증 백엔드 없이 열립니다(영구 비목표). "
+            "false 로 두거나 프록시에서 /admin 을 차단하세요."
+        )
+
+    for name, value in (
+        ("ACCESS_TOKEN_SECRET_KEY", jwt_settings.ACCESS_TOKEN_SECRET_KEY),
+        ("REFRESH_TOKEN_SECRET_KEY", jwt_settings.REFRESH_TOKEN_SECRET_KEY),
+        ("SESSION_SECRET_KEY", session_settings.SESSION_SECRET_KEY),
+    ):
+        if value.startswith(_PLACEHOLDER_SECRET_PREFIX):
+            # 값 자체는 절대 메시지에 담지 않는다 (C-5).
+            problems.append(f"{name} 이 기본 placeholder 입니다. 실제 키로 교체하세요.")
+
+    if "*" in cors_settings.CORS_ALLOW_ORIGINS:
+        problems.append("CORS_ALLOW_ORIGINS 에 와일드카드('*') 가 있습니다. 출처를 명시하세요.")
+
+    if problems:
+        raise RuntimeError(
+            f"ENV={app_settings.ENV} 에서 안전하지 않은 설정으로 기동할 수 없습니다:\n  - "
+            + "\n  - ".join(problems)
+        )
+
+
+validate_deployment_safety()

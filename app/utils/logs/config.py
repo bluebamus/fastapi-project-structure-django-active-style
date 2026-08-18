@@ -59,7 +59,7 @@ def build_dictconfig() -> dict:
             "class": "logging.StreamHandler",
             "stream": "ext://sys.stdout",
             "formatter": "app",
-            "filters": ["context"],
+            "filters": ["context", "redact"],
             "level": log_settings.get_effective_console_level(app_settings.DEBUG),
         },
     }
@@ -76,7 +76,7 @@ def build_dictconfig() -> dict:
             "backupCount": log_settings.LOG_BACKUP_COUNT,
             "encoding": "utf-8",
             "formatter": "app",
-            "filters": ["context"],
+            "filters": ["context", "redact"],
             "level": log_settings.LOG_FILE_LEVEL,
         }
         handlers["error_file"] = {
@@ -86,7 +86,7 @@ def build_dictconfig() -> dict:
             "backupCount": log_settings.LOG_BACKUP_COUNT,
             "encoding": "utf-8",
             "formatter": "app",
-            "filters": ["context"],
+            "filters": ["context", "redact"],
             "level": "ERROR",
         }
         root_handlers += ["file", "error_file"]
@@ -96,6 +96,7 @@ def build_dictconfig() -> dict:
         "disable_existing_loggers": False,
         "filters": {
             "context": {"()": "app.utils.logs.filters.ContextFilter"},
+            "redact": {"()": "app.utils.logs.filters.RedactingFilter"},
         },
         "formatters": {
             "app": {

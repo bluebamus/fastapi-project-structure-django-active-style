@@ -12,4 +12,5 @@
 | R-004 | 성능, 커넥션 pool 튜닝, 로깅 처리량은 측정하지 않는다. | LOW | 이 그룹의 계약은 구조·정확성·보안이며 성능 SLO 는 charter 에 없음. | 2026-08-18 | 성능 SLO 가 charter 계약에 추가되면. |
 | R-005 | 실제 Celery worker 를 띄운 종단 종료 시퀀스는 미검증(테스트는 FastAPI 측 종료만). | MED | development-plan §12 비목표 — FastAPI 에서 Celery 소유 자원을 종료하지 않는다. | 2026-08-18 | worker 통합 테스트가 CI 에 추가되면. |
 | R-006 | 브라우저에서의 Scalar 문서 실제 렌더링은 미검증(OpenAPI 스펙 수준까지만 검사). | LOW | charter 3 인수기준이 스펙 스냅샷 검증까지만 요구. | 2026-08-18 | 브라우저 E2E 가 도입되면. |
-| R-007 | SQL 로깅은 현재 `echo=False`(`session.py:82,111,170`)로 꺼져 있어 sentinel 노출이 구조적으로 차단된 것이 아니라 **설정으로** 차단된 상태. | MED | Phase 1 에서 redaction 을 구현하기 전까지의 상태. C-5 는 Phase 1 게이트에서 구조적으로 보장한다. | 2026-08-18 | Phase 1 완료 시 이 항목은 해소되어야 하며, 미해소면 ledger 로 승격. |
+| R-008 | 계획서 Phase 1 의 "Celery 종료" 는 이 저장소에 **대상이 없다**. FastAPI 경로(`app/features`, `app/core`, `main.py`)에 Celery 클라이언트 사용처가 없고 Celery 는 `app/celery/` 워커 측에만 있다. | LOW | development-plan §12 가 "FastAPI 에서 Celery 소유 자원 종료" 를 비목표로 명시. 대상이 없으므로 추측성 종료 코드를 넣지 않았다. | 2026-08-18 | FastAPI 요청 경로에서 `.delay()`/`send_task` 사용이 생기면 ledger 로 승격. |
+| R-007 | ~~SQL 로깅이 `echo=False` 설정으로만 차단된 상태~~ → **해소(2026-08-18, Phase 1)**. `RedactingFilter` 가 DSN 자격증명과 secret 키워드를 로깅 파이프라인에서 지운다. | — | 해소됨. 남은 좁은 구멍: `exc_info` 로 실려오는 traceback 본문은 검사하지 않는다(필터 주석에 ceiling 명시). | 2026-08-18 | traceback 본문에서 secret 유출이 실제로 관측되면 ledger 로 승격. |
