@@ -338,6 +338,12 @@
   ruff check/format · mypy · bandit MEDIUM 이상 0 · `alembic heads` 단일(`d4e6f8b12c34`) ·
   pip-audit 취약점 0 · 문서 경로·환경변수 기계 검사 통과 ·
   인벤토리 **22 paths / 37 operations**, operation ID 37 고유, component key `__` 0
+- **CI 실전 검증(2026-08-19, run `32227295666`):** 브랜치를 push 해 GitHub Actions 에서
+  **처음으로 실제 실행**했다. 지금까지 CI 는 로컬 재현으로만 확인한 상태였다.
+  gate job — review_gate 5그룹 통과, `pytest -m "not mysql"` 593 passed.
+  mysql job — digest 로 고정한 이미지 pull → healthy, `pytest -m mysql` **28 passed / skip 0**,
+  `review_gate --group tests` 로 전체 suite skip·deselect 0 통과. 두 job 모두 success.
+  부수 관측: SHA 고정 때문에 Action 이 Node 20 대상 버전에 묶였다(R-014).
 - **수렴 판정:** ORM/Raw delivery 범위는 **CONVERGED**. Open Fix 5건이 남아 있으나 전부
   F-016~F-020 으로, 계획서 §8 이 **독립 작업(Runtime/lifecycle)** 으로 분리한 Phase 1-R2
   트랙이다. 이 그룹의 계약(ORM/Raw 데이터 접근·예제·문서·게이트)에는 Open Fix 가 없다.

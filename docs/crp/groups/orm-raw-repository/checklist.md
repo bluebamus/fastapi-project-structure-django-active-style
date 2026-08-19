@@ -149,7 +149,8 @@
 - [x] 최종 인벤토리 **22 paths / 37 operations** — 계획서 목표치와 일치
 - [x] 게이트: 621 passed(skip·deselect 0) / -m mysql 28 / ruff / format / mypy / bandit /
       alembic single head / pip-audit 0
-- [x] residual-risk 재평가 조건 기록 (R-001~R-013)
+- [x] **CI 실전 검증** — push 후 GitHub Actions 두 job 모두 success (run `32227295666`)
+- [x] residual-risk 재평가 조건 기록 (R-001~R-014)
 
 ## 남은 트랙 — Phase 1-R2 (Runtime/lifecycle, 계획서 §8 독립 작업)
 - [ ] F-016 자원 관리자(`app/core/resources.py`)
