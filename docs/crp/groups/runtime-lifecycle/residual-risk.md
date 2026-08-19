@@ -16,3 +16,4 @@
 - 여기 있는 항목을 다음 라운드에서 새 finding 으로 다시 올리지 않는다.
 - 재평가 조건이 참이 되면 ledger 로 승격한다(그때 비로소 "결함").
 -->
+| R-105 | 개발용 startup DDL(`DEBUG=true` 일 때의 `create_db_tables()`)이 **다중 worker 에서 동시에 실행될 수 있다**. `uvicorn --workers N` 이나 gunicorn 을 쓰면 N 개 프로세스가 각각 lifespan 을 돌려 concurrent DDL 이 된다. 계획서 §8 은 이를 단일 worker 로 제한하라고 요구하지만 구현하지 않았다. | LOW | charter 2-1 이 지원 진입점을 `python main.py` / `uvicorn main:app` **단일 프로세스**로 선언하고, 2-2 가 다중 worker 를 명시적 비목표로 둔다. 또 이 경로는 `DEBUG=true` 에서만 도는 개발 편의 기능이고, 운영은 Alembic 을 쓴다(`DEBUG=false` 면 건너뛴다). portable 한 프로세스 간 잠금(파일 락·DB advisory lock)은 방언·크래시 잔여 락 문제를 새로 들여오는데, 막으려는 대상이 개발 환경의 편의 경로다. | 2026-08-19 | 다중 worker 기동이 charter 2-1 의 지원 구성에 추가되거나, 개발에서 실제로 concurrent DDL 충돌이 관측되면 ledger 로 승격한다. 그때의 해법은 잠금이 아니라 **startup DDL 제거 + Alembic 일원화**가 먼저 검토돼야 한다. |

@@ -67,6 +67,10 @@
   방향으로 일으킨다. mypy 가 처음 작성한 `pool.dispose(close=False)` 를 잡아줬다 — `close` 는
   Pool 이 아니라 Engine 의 인자다.
 
+- **의도적으로 구현하지 않은 항목 1건:** 계획서 §8 의 "개발 startup DDL 은 단일 worker 에서만"
+  은 구현하지 않고 **R-105 로 이관**했다. charter 2-1 이 지원 진입점을 단일 프로세스로 선언하고
+  2-2 가 다중 worker 를 비목표로 두기 때문이다. 체크리스트 정리 중 이 항목이 조치란에서 빠져
+  있는 것을 발견해 명시했다 — 사양 항목을 조용히 흘려보내지 않기 위해서다.
 - **신규 finding:** 0건 (Round 0 에서 식별한 F-021 포함 6건을 이 라운드에서 전부 Fixed).
 - **게이트 결과:** 전체 suite **677 passed**(skip·xfail·deselect 0) · `-m mysql` 28 passed ·
   review_gate 6그룹 전부 통과 · 라우트 인벤토리 22 paths / 37 operations **불변** ·
