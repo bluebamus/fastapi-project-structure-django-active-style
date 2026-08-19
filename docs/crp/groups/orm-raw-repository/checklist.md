@@ -87,10 +87,19 @@
 - [x] Alembic chain MySQL 에서 head → base → head 왕복 + 모델 대조 diff 0
 - [x] 전체 suite 458 passed, skip·deselect 0 (MySQL 기동 상태)
 - [x] WSL 운영 함정 기록 — `compose.test.yaml` 주석 + residual-risk R-010
-- [ ] **STOP: Phase 6 착수 승인**
+- [x] **STOP: Phase 6 착수 승인** — 사용자 승인 완료
 
-## 예정 — Phase 6 이후
-- [ ] Phase 6 Raw Base — one/all/scalar/rowcount·binding·query name·예외·read-only 계약
+## Round 7 — 2026-08-19 (Phase 6: Raw Base) — 완료
+- [x] `RawCRUDBase` — fetch_one/fetch_all/fetch_scalar/execute 결과 의미 고정
+- [x] 입력 계약 — TextClause 전용, multi-statement 거부, `ensure_identifier` allowlist
+- [x] `RawRepositoryBase` — query_name(keyword-only)·소요시간·성공/실패만 로깅
+- [x] ORM Base 와 상속 관계 없음 확인 (C-7)
+- [x] SQLite 단위 27건 통과
+- [x] MySQL 통합 12건 통과 — rowcount 실측, expanding IN, 주입 무력화, read-only × Raw 차단
+- [x] 게이트: 전체 497 passed / -m mysql 17 / ruff / format / mypy 150 / bandit / alembic
+- [ ] **STOP: Phase 7 착수 승인**
+
+## 예정 — Phase 7 이후
 - [ ] Phase 7 catalog(ORM) 예제 자동배선
 - [ ] Phase 8 reports(Raw) 예제 자동배선
 - [ ] Phase 9 (F-004, F-005) OpenAPI/문서 정리 + `scripts/review_gate.py` + 최종 인벤토리 22/37
