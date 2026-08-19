@@ -31,3 +31,30 @@ def run_async(coro: Coroutine[Any, Any, Any]) -> Any:
         _worker_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(_worker_loop)
     return _worker_loop.run_until_complete(coro)
+
+
+def reset_worker_loop() -> None:
+    """루프 참조를 비운다 — fork 직후 자식 프로세스에서 호출한다.
+
+    모듈 전역 루프는 fork 로 **복제된다**. 자식이 부모의 루프 객체를 이어 쓰면 그
+    루프에 묶인(부모의) 커넥션을 참조하게 된다. 여기서는 **닫지 않고 버린다** —
+    닫으면 같은 객체를 가리키는 부모 쪽에 영향이 갈 수 있다. 자식은 다음
+    `run_async()` 호출에서 자기 루프를 새로 만든다.
+    """
+    global _worker_loop
+    _worker_loop = None
+
+
+def close_worker_loop() -> bool:
+    """워커 루프를 닫는다(멱등). 자식 프로세스 종료 시 호출한다.
+
+    Returns:
+        이번 호출이 실제로 루프를 닫았으면 True.
+    """
+    global _worker_loop
+    loop = _worker_loop
+    _worker_loop = None
+    if loop is None or loop.is_closed():
+        return False
+    loop.close()
+    return True

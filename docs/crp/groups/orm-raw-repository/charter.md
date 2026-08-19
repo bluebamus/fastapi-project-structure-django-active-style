@@ -82,7 +82,7 @@
 - [ ] 불변식 구조 증거: INV-1~INV-9 각각에 AST 규칙 또는 실행 테스트 1개 이상 연결
 - [x] MySQL marker 테스트가 **실제 실행** — 28 passed, skip 0
 - [x] 문서의 경로·심볼·환경변수 기계 검사 통과 — `review_gate --group docs`
-- [x] delivery 범위 Open Fix 0 (이월 F-016~F-020 은 Phase 1-R2 트랙) · residual-risk R-001~R-013 기록 완료
+- [x] **Open Fix 0** — 이월 F-016~F-020 도 runtime-lifecycle 그룹 Round 1 에서 Closed · residual-risk R-001~R-014 기록 완료
 - [ ] 질의 수준(design-baseline §0 = 보통)에 맞춘 P/D 질문 깊이 준수
 
 ## 4. 변경 이력

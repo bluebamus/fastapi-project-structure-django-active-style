@@ -103,6 +103,31 @@ class AppModule:
                 return None  # 선택 모듈 자체가 없다 — 정상, 건너뛴다
             raise  # 모듈 내부의 import 실패 — 숨기지 않는다
 
+    def install_hook(self) -> bool:
+        """`<package>.apps` 의 `ready()` 를 호출한다(있으면).
+
+        Django 의 `AppConfig.ready()` 자리다. 앱이 부팅 시 한 번 해야 하는 결선
+        (예: home 의 access-log sink 등록)을 **명시적인 함수**에 둔다.
+
+        `__init__.py` 의 import-time 부수효과를 쓰지 않는 이유는 추적 가능성이다.
+        import 부작용은 "이 모듈을 import 하면 무슨 일이 일어나는가" 를 코드에서
+        읽을 수 없게 만들고, 테스트가 모듈을 건드리는 것만으로 상태가 바뀌어
+        결과가 실행 순서에 좌우된다.
+
+        `ready()` 는 **멱등**이어야 한다 — 재기동·재진입에서 다시 불릴 수 있다.
+
+        Returns:
+            훅을 실제로 호출했으면 True, 모듈이나 `ready` 가 없으면 False.
+        """
+        module = self._import_optional(f"{self.package}.apps")
+        if module is None:
+            return False
+        ready = getattr(module, "ready", None)
+        if ready is None:
+            return False
+        ready()
+        return True
+
     def load_router(self) -> APIRouter | None:
         """`<package>.api.routers.router` 의 `<name>_router` 를 반환한다.
 
@@ -212,9 +237,12 @@ class AppRegistry:
         순서는 파일시스템에 따라 달라져서, 정렬하지 않으면 라우트 등록 순서가
         기계마다 달라진다.
 
-        정렬 후 각 앱 패키지를 import 하여 초기화 훅(`__init__.py` 의 import-time
-        부수효과)을 결정적인 순서로 실행한다. 이미 import 된 패키지는 파이썬이
-        `sys.modules` 에서 돌려주므로 재호출해도 훅이 두 번 실행되지 않는다.
+        **이 메서드는 부작용이 없다.** 앱이 무엇인지 알아내기만 하고 아무것도
+        초기화하지 않는다(C-5). 초기화가 필요하면 `install_hooks()` 를 따로 부른다 —
+        "무엇을 import 하면 무엇이 일어나는가" 를 추적할 수 있어야 하기 때문이다.
+        이전에는 여기서 각 패키지를 import 해 `__init__.py` 의 import-time 부수효과를
+        실행했는데, 그러면 테스트가 모듈을 import 하는 것만으로 sink 가 등록되어
+        결과가 테스트 순서에 좌우됐다.
 
         Returns:
             발견된 `AppModule` 목록(이름 오름차순).
@@ -228,13 +256,22 @@ class AppRegistry:
 
         apps = [AppModule(name=name, package=f"{package}.{name}") for name in names]
 
-        # 초기화 훅 실행 (예: home 의 access-log sink 등록). 정렬된 순서로 돈다.
-        for app_module in apps:
-            importlib.import_module(app_module.package)
-
         self._apps = apps
         logger.debug("discovered %d apps: %s", len(apps), names)
         return self._apps
+
+    def install_hooks(self) -> int:
+        """발견된 각 앱의 `apps.ready()` 를 발견 순서대로 호출한다.
+
+        `discover()` 와 분리한 이유는 C-5(발견 단계 부작용 0)다. 초기화는
+        **부르는 쪽이 명시적으로** 요청해야 한다.
+
+        Returns:
+            실제로 호출한 훅 개수.
+        """
+        count = sum(1 for module in self._apps if module.install_hook())
+        logger.debug("installed %d app hooks", count)
+        return count
 
     def install_routers(self, app: FastAPI) -> int:
         """발견된 각 앱의 `<name>_router` 를 FastAPI 앱에 마운트한다.

@@ -16,7 +16,9 @@ class _Stub:
         self.__dict__.update(kwargs)
 
 
-def _install(monkeypatch, *, env, debug=False, admin=False, origins=None, secrets=None):
+def _install(
+    monkeypatch, *, env, debug=False, admin=False, origins=None, secrets=None, sql_echo=False
+):
     secrets = secrets or {}
     monkeypatch.setattr(config_module, "app_settings", _Stub(ENV=env, DEBUG=debug, ADMIN=admin))
     monkeypatch.setattr(
@@ -35,6 +37,7 @@ def _install(monkeypatch, *, env, debug=False, admin=False, origins=None, secret
         "session_settings",
         _Stub(SESSION_SECRET_KEY=secrets.get("session", "real-session-key")),
     )
+    monkeypatch.setattr(config_module, "log_settings", _Stub(LOG_SQL_ECHO_ENABLED=sql_echo))
 
 
 @pytest.mark.parametrize("env", ["development", "test"])
@@ -122,3 +125,34 @@ def test_error_message_does_not_leak_secret_values(monkeypatch):
         config_module.validate_deployment_safety()
 
     assert "change-this-super-sensitive" not in str(excinfo.value)
+
+
+# ---------------------------------------------------------------- Phase 1-R2
+# INV-8 — SQL echo 는 운영에서 켤 수 없다.
+
+
+@pytest.mark.parametrize("env", ["staging", "production"])
+def test_sql_echo_is_rejected_in_deployed_envs(monkeypatch, env):
+    """SQL 로그에는 바인딩된 파라미터가 그대로 실린다 — 운영에서 켤 이유가 없다.
+
+    설정 하나로 사용자 식별자·검색어·이메일이 로그 파일에 쌓인다. "잠깐 켜두고
+    잊는" 것이 가장 흔한 경로라, 잊을 수 있게 두지 않고 기동을 막는다.
+    """
+    _install(monkeypatch, env=env, sql_echo=True)
+
+    with pytest.raises(RuntimeError, match="LOG_SQL_ECHO_ENABLED"):
+        config_module.validate_deployment_safety()
+
+
+@pytest.mark.parametrize("env", ["development", "test"])
+def test_sql_echo_is_allowed_in_development(monkeypatch, env):
+    """개발·테스트에서는 SQL 을 봐야 할 때가 있다."""
+    _install(monkeypatch, env=env, sql_echo=True)
+
+    config_module.validate_deployment_safety()  # 예외가 없어야 한다
+
+
+def test_sql_echo_off_passes_in_production(monkeypatch):
+    _install(monkeypatch, env="production", sql_echo=False)
+
+    config_module.validate_deployment_safety()

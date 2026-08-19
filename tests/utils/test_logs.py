@@ -131,11 +131,15 @@ def _build_with(monkeypatch, tmp_path, **overrides):
 
 
 def test_production_adds_rotating_file_handlers(monkeypatch, tmp_path):
-    """production 에서는 콘솔에 더해 회전 파일·에러 파일 핸들러가 붙고 UTC 를 쓴다."""
+    """production 에서는 콘솔에 더해 회전 파일·에러 파일 핸들러가 붙고 UTC 를 쓴다.
+
+    단, 파일 핸들러는 root 에 **직접 붙지 않는다** — queue 를 경유한다(INV-5).
+    아래 `test_file_handlers_are_behind_a_queue` 가 그 이유를 다룬다.
+    """
     cfg = _build_with(monkeypatch, tmp_path, env="production", LOG_FILE_ENABLED=True)
 
-    assert set(cfg["handlers"]) == {"console", "file", "error_file"}
-    assert cfg["root"]["handlers"] == ["console", "file", "error_file"]
+    assert set(cfg["handlers"]) == {"console", "file", "error_file", "queue"}
+    assert cfg["root"]["handlers"] == ["console", "queue"]
     assert cfg["formatters"]["app"]["use_utc"] is True
 
     for name in ("file", "error_file"):

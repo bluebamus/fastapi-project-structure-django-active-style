@@ -10,17 +10,33 @@ import logging
 from logging.config import dictConfig
 
 from app.utils.logs.config import LOG_FORMAT, _env, _level, build_dictconfig
+from app.utils.logs.queue_logging import BoundedQueueHandler, start_queue_listener
 
 _configured = False
 
 
 def configure_logging(force: bool = False) -> None:
-    """환경별 로깅 구성을 root 로거에 적용한다(idempotent)."""
+    """환경별 로깅 구성을 root 로거에 적용한다(idempotent).
+
+    파일 로깅이 켜진 환경에서는 queue listener 도 함께 시작한다. `python main.py` 와
+    `uvicorn main:app` 은 진입 경로가 다르지만 둘 다 결국 `get_logger()` 를 거치므로,
+    bootstrap 을 여기 한 곳에 두면 **어느 경로로 들어와도 정확히 한 번** 일어난다
+    (계획서 §8). listener 시작은 그 자체로도 멱등이라 이중 방어가 된다.
+    """
     global _configured
     if _configured and not force:
         return
     dictConfig(build_dictconfig())
     _configured = True
+    start_queue_listener(_queue_handler())
+
+
+def _queue_handler() -> BoundedQueueHandler | None:
+    """root 에 붙은 queue handler(없으면 None — development/test)."""
+    for handler in logging.getLogger().handlers:
+        if isinstance(handler, BoundedQueueHandler):
+            return handler
+    return None
 
 
 def get_logger(name: str = "app") -> logging.Logger:

@@ -48,23 +48,22 @@ def test_discover_sorts_regardless_of_filesystem_order(monkeypatch):
     assert names == ["alpha", "beta"]
 
 
-def test_discover_runs_init_hook_once_per_app():
-    """초기화 훅은 결정적인 순서로, 앱마다 한 번만 실행된다 (FR-05, AC-05).
+def test_discover_does_not_run_package_import_hooks():
+    """발견은 **부작용이 없다** — 앱이 무엇인지 알아내기만 한다 (ADR-006, C-5).
 
-    파이썬이 `sys.modules` 로 import 를 캐시하므로 재발견해도 훅은 다시 돌지
-    않는다. 이 성질에 기대는 계약이므로 회귀로 고정한다.
+    이전 계약은 그 반대였다: discover 가 각 앱 패키지를 import 해
+    `__init__.py` 의 import-time 부수효과를 실행했다. 그러면 "앱 목록만 알고
+    싶은" 경로에서도 초기화가 일어나고, 테스트가 모듈을 건드리는 순서에 따라
+    상태가 달라진다. Phase 1-R2 에서 초기화를 `install_hooks()` 로 분리했다.
     """
     from tests.core._fakeapps import INIT_CALLS
 
+    before = list(INIT_CALLS)
     reg = AppRegistry()
-    reg.discover(package=FAKE_PACKAGE)
-    after_first = list(INIT_CALLS)
+    discovered = reg.discover(package=FAKE_PACKAGE)
 
-    assert sorted(after_first) == ["alpha", "beta"], "훅 실행 앱 집합이 발견 목록과 다르다"
-
-    second = reg.discover(package=FAKE_PACKAGE)
-    assert [a.name for a in second] == ["alpha", "beta"]
-    assert INIT_CALLS == after_first, "재발견이 초기화 훅을 중복 실행했다"
+    assert [a.name for a in discovered] == ["alpha", "beta"]
+    assert INIT_CALLS == before, "discover() 가 초기화 훅을 실행했습니다."
 
 
 def test_discover_real_features_is_deterministic():
@@ -81,3 +80,61 @@ def _fake_path() -> str:
     import tests.core._fakeapps as pkg
 
     return pkg.__path__[0]
+
+
+# ---------------------------------------------------------------- Phase 1-R2
+# INV-9 / ADR-006 — 발견은 순수하고, 초기화는 명시적이다.
+
+
+def test_discover_has_no_side_effects():
+    """`discover()` 만으로는 아무것도 초기화되지 않는다.
+
+    이전에는 discover 가 각 앱 패키지를 import 해 `__init__.py` 의 부수효과를
+    실행했다. 그러면 "앱이 무엇인지 알아보는" 것만으로 sink 가 등록되고, 테스트가
+    모듈을 건드리는 순서에 따라 결과가 달라진다.
+    """
+    from app.core.middlewares import access_log_sink as sink_module
+
+    sink_module.set_access_log_sink(None)
+    AppRegistry().discover()
+
+    assert sink_module.get_access_log_sink() is None, "discover() 가 sink 를 등록했습니다."
+
+
+def test_install_hooks_registers_the_sink():
+    """초기화는 명시적 호출로만 일어난다."""
+    from app.core.middlewares import access_log_sink as sink_module
+
+    sink_module.set_access_log_sink(None)
+    registry = AppRegistry()
+    registry.discover()
+
+    installed = registry.install_hooks()
+
+    assert installed >= 1
+    assert sink_module.get_access_log_sink() is not None
+
+
+def test_install_hooks_is_idempotent():
+    """재기동·lifespan 재진입에서 다시 불려도 sink 는 하나다."""
+    from app.core.middlewares import access_log_sink as sink_module
+
+    registry = AppRegistry()
+    registry.discover()
+
+    registry.install_hooks()
+    first = sink_module.get_access_log_sink()
+    registry.install_hooks()
+    second = sink_module.get_access_log_sink()
+
+    assert type(first) is type(second)
+
+
+def test_apps_without_hook_module_are_skipped():
+    """`apps.py` 는 선택이다 — 없는 앱이 대부분이다."""
+    registry = AppRegistry()
+    apps = registry.discover()
+
+    without_hook = [module for module in apps if module.name != "home"]
+    assert without_hook, "훅 없는 앱이 하나도 없으면 이 테스트는 의미가 없다."
+    assert all(module.install_hook() is False for module in without_hook)

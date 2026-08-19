@@ -569,6 +569,19 @@ class LogSettings(BaseSettings):
         description="파일 로그 활성화",
     )
 
+    # SQL/드라이버 DEBUG·INFO 로그 opt-in.
+    #
+    # 기본은 차단이다. SQLAlchemy 의 echo 계열 로그는 SQL 본문과 **바인딩된 파라미터**를
+    # 그대로 찍는데, 거기에는 사용자 식별자·검색어·이메일이 들어 있다. RedactingFilter 는
+    # 알려진 키워드만 마스킹하므로 SQL 전문 노출을 막지 못한다.
+    #
+    # development/test 에서만 유효하다. staging/production 에서 true 면 기동이 실패한다
+    # (validate_deployment_safety) — 환경 제한이 없으면 "잠깐 켜둔" 설정이 운영에 남는다.
+    LOG_SQL_ECHO_ENABLED: bool = Field(
+        default=False,
+        description="SQL/드라이버 DEBUG·INFO 로그 허용 (development/test 전용)",
+    )
+
     # === 로그 레벨 설정 ===
     # None이면 DEBUG 설정에 따라 자동 결정
     LOG_LEVEL: str | None = Field(
@@ -1111,6 +1124,7 @@ def validate_deployment_safety() -> None:
         - ``ADMIN=true``      : 자격증명 없는 /admin 공개
         - placeholder secret  : ``change-this-`` 로 시작하는 서명·세션 키
         - 와일드카드 CORS     : ``CORS_ALLOW_ORIGINS`` 에 ``*``
+        - SQL echo           : ``LOG_SQL_ECHO_ENABLED=true`` (파라미터가 로그에 남는다)
 
     위반은 **한 번에 모두** 모아서 보고한다. 하나 고치고 재기동하는 왕복을
     줄이기 위해서다. 오류 메시지에는 설정 이름만 담고 값은 담지 않는다.
@@ -1149,6 +1163,13 @@ def validate_deployment_safety() -> None:
 
     if "*" in cors_settings.CORS_ALLOW_ORIGINS:
         problems.append("CORS_ALLOW_ORIGINS 에 와일드카드('*') 가 있습니다. 출처를 명시하세요.")
+
+    if log_settings.LOG_SQL_ECHO_ENABLED:
+        # SQL 로그에는 바인딩된 파라미터가 그대로 실린다. 운영에서 켤 이유가 없다.
+        problems.append(
+            "LOG_SQL_ECHO_ENABLED=true — SQL 본문과 파라미터가 로그에 남습니다. "
+            "development/test 에서만 사용하세요."
+        )
 
     if problems:
         raise RuntimeError(
