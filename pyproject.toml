@@ -89,6 +89,12 @@ markers = [
     "slow: 느린 테스트 (실행 제외 가능)",
     "integration: 통합 테스트",
     "unit: 단위 테스트",
+    # MySQL 통합 테스트. compose.test.yaml 로 전용 컨테이너를 띄운 뒤 실행한다.
+    #   docker compose -f compose.test.yaml up -d --wait
+    #   pytest -m mysql
+    # MySQL 이 없으면 skip 되지만, CI 는 skip 을 실패로 취급한다 — "안 돌았는데 초록"을
+    # 막기 위해서다.
+    "mysql: MySQL 8.4 통합 테스트 (compose.test.yaml 필요)",
 ]
 
 # 환경 변수 설정

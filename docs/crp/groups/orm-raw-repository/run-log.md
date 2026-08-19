@@ -170,6 +170,38 @@
   라우트 인벤토리 19 paths / 31 operations 불변
 - **수렴 판정:** `NOT CONVERGED` (Open Fix **8건**: F-004·F-005·F-007 + 이월 F-016~F-020)
 
+### Round 6 — 2026-08-19 (base SHA: `823fa59`) — Phase 5 MySQL 테스트 인프라
+- **트리거:** 사용자 제안 — "WSL 에 직접 컨테이너를 구축 후 진행하면 되지 않나".
+- **판단 정정:** 직전 라운드에서 나는 Windows 셸의 PATH 에 docker 가 없다는 이유로
+  "로컬 검증 불가" 라고 결론내고 Phase 7 선행을 권했다. **성급했다.** WSL 안에는
+  docker 29.6.1 이 있었고, sibling 저장소들이 이미 같은 패턴으로 테스트 컨테이너를
+  쓰고 있었다(`fastapi-passive-mysql-test` 등). 계획서 순서대로 Phase 5 를 진행했다.
+- **검수 범위:** MySQL 통합 인프라 신설 + CI 마커 경계.
+- **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 ☑(Phase 5 한정) 4 □ 5 □
+- **처리한 Fix:** F-007 → Fixed.
+- **재사용:** sibling(passive-style)의 `compose.test.yaml` / `tests/integration/conftest.py`
+  패턴을 그대로 이식했다. 포트만 3310 으로 바꾼 것이 아니라 **DB·계정 이름도 이 저장소
+  전용**으로 두었다 — 격리는 포트가 아니라 자격증명으로 보장한다는 그쪽의 실전 근거를 따랐다.
+- **sibling 의 버그는 베끼지 않았다:** passive-style 의 mysql job 은 `-m mysql` 이 항상
+  만드는 `deselected` 를 실패 조건으로 grep 해서, 성공해도 실패로 판정된다. active-style
+  에서는 `skipped` 만 판정하고 deselect 는 정상 결과로 둔다.
+- **CI 구조:** gate job 은 `-m "not mysql"` 로 돌고 SKIP 판정에서 `deselected` 를 뺀다.
+  mysql job 이 compose 를 띄우고 (1) `-m mysql` 을 skip 0 으로, (2) **전체 suite** 를
+  skip·deselect 0 으로 검증한다. 계획서 §10 의 "전체 suite skip/xfail/deselected 0" 은
+  MySQL 이 떠 있는 이 job 에서만 성립하므로 거기서 한 번 전수 확인한다.
+- **로컬 실측 결과:** MySQL 8.4.11 컨테이너에 대해
+  `pytest -m mysql` **5 passed(skip 0)**, 전체 suite **458 passed(skip·deselect 0)**.
+  Alembic chain 은 MySQL 에서 head → base → head 왕복이 모두 성공했고,
+  적용 결과가 모델 metadata 와 일치함(`compare_metadata` diff 0)까지 확인했다.
+- **삽질 기록:** 컨테이너가 반복적으로 정지했다. 원인은 Windows 쪽 `wsl.exe` 프로세스가
+  없으면 WSL 배포판이 통째로 내려가는 것이었고, 배포판 안에서 `nohup` 으로 붙잡는 것은
+  소용없었다(배포판 종료 시 함께 죽는다). 증상이 "방금 5 passed 였는데 전부 skip" 이라
+  테스트 결함으로 오인하기 쉽다 — `compose.test.yaml` 주석과 residual-risk R-010 에 기록했다.
+- **신규 finding:** 0
+- **게이트 결과:** ruff check/format · mypy 148 files · bandit 0 issues · alembic single head ·
+  라우트 인벤토리 19 paths / 31 operations 불변
+- **수렴 판정:** `NOT CONVERGED` (Open Fix 7건: F-004·F-005 + 이월 F-016~F-020)
+
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
@@ -179,3 +211,4 @@
 | 3 | 0 | 1 | 6 | 3 | 10 (5 Fixed / 5 이월) | NOT CONVERGED (Open Fix 9) |
 | 4 | 0 | 0 | 0 | 0 | 0 (F-002 해소) | NOT CONVERGED (Open Fix 8) |
 | 5 | 0 | 1 | 2 | 1 | 4 (전부 같은 라운드에 Fixed) | NOT CONVERGED (Open Fix 7) |
+| 6 | 0 | 0 | 0 | 0 | 0 (F-007 해소) | NOT CONVERGED (Open Fix 7) |

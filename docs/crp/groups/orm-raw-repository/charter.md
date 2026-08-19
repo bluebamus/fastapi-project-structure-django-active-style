@@ -22,7 +22,8 @@
 | 설정 | `config.py`, `.env.example` | 설정 | staging/production fail-fast |
 | 마이그레이션 | `migrations/**`, `alembic.ini` | 설정 | single head 유지 |
 | 문서 | `docs/orm-raw-repository/2026-08-13/**` | 문서 | 설계·계획 기준선 |
-| CI·테스트 인프라 | `.github/workflows/ci.yml`, `compose.test.yaml`(신규) | 설정 | Phase 5 MySQL |
+| CI·테스트 인프라 | `.github/workflows/ci.yml`, `compose.test.yaml` | 설정 | Phase 5 완료 — gate/mysql 2개 job |
+| MySQL 통합 테스트 | `tests/integration/**` | 테스트 | 전용 컨테이너(3310) 하네스 |
 | 검증 스크립트 | `scripts/review_gate.py`(신규) | 소스 | Phase 9 결정적 게이트 |
 | 테스트 | `tests/**`, `app/features/*/tests/**` | 테스트 | 기준선 271 |
 
@@ -53,6 +54,7 @@
 - INV-8: OpenAPI component 스키마명에 모듈 경로형 `__` 가 없고 operationId 는 누락·중복이 없다. (검사: 스냅샷 검증)
 - INV-9: 전체 suite 의 skip/xfail/deselected 가 0 이다. (검사: CI `ci.yml` 기존 게이트)
 - INV-10: DB Session Dependency 의 정식 이름은 `*_db_session` 이며, 기존 이름은 **같은 객체**를 가리키는 alias 로만 존재한다. 저장소 안(`app/**`, `tests/**`)에서는 정식 이름만 쓴다. (검사: `tests/core/test_session_dependency_names.py` 의 동일성 단언 + AST 스캔)
+- INV-18: MySQL 통합 테스트는 **실제로 실행**되어야 한다. MySQL 부재로 전부 skip 된 초록은 실패로 처리한다. gate job(`-m "not mysql"`)과 mysql job(`-m mysql` + 전체 suite)은 정확히 상보 관계여서 어느 쪽에서도 실행되지 않는 테스트가 없다. (검사: `ci.yml` 의 두 판정 단계)
 - INV-15: `BaseRepository` 의 공개 표면은 8개(create/get_by_id/get_by_id_or_raise/get_all/count/exists/update/delete), `CRUDBase` 는 primitive 5개(+`_pk`)로 고정한다. 고급 조회는 기능 Repository 가 소유한다. (검사: `tests/core/test_repository_contract.py` 표면 단언)
 - INV-16: Repository 는 호출자가 넘긴 mapping 을 변경하지 않으며 PK 를 임의로 주입하지 않는다. (검사: 같은 파일)
 - INV-17: 예외 detail 과 로그에 드라이버 오류 원문을 담지 않는다. (검사: 같은 파일)
