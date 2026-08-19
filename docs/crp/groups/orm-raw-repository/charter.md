@@ -53,6 +53,9 @@
 - INV-8: OpenAPI component 스키마명에 모듈 경로형 `__` 가 없고 operationId 는 누락·중복이 없다. (검사: 스냅샷 검증)
 - INV-9: 전체 suite 의 skip/xfail/deselected 가 0 이다. (검사: CI `ci.yml` 기존 게이트)
 - INV-10: DB Session Dependency 의 정식 이름은 `*_db_session` 이며, 기존 이름은 **같은 객체**를 가리키는 alias 로만 존재한다. 저장소 안(`app/**`, `tests/**`)에서는 정식 이름만 쓴다. (검사: `tests/core/test_session_dependency_names.py` 의 동일성 단언 + AST 스캔)
+- INV-12: 공통 Base 는 단일 컬럼 PK 만 지원하며 기본 이름은 `id` 다. PK 는 Repository 계층을 지나며 **타입이 변환되지 않는다**. 다른 이름은 `pk_attr`, 복합 PK 는 기능 Repository 로 분리한다. (검사: `tests/core/test_pk_generic.py`)
+- INV-13: 공통 컬럼(`id`/`created_at`/`updated_at`)은 mixin 에서 온다. 모델이 같은 컬럼을 복사 정의하지 않는다. (검사: `tests/core/test_models_base_mixins.py`)
+- INV-14: 모델 리팩터링은 스키마를 바꾸지 않는다. (검사: `tests/core/test_schema_snapshot.py` 골든 대조 + 기존 `tests/core/test_migration_chain.py::test_migrated_schema_matches_models`)
 - INV-11: read-only 세션에서 Raw SQL 은 default-deny 로 판별한다 — SELECT 로 시작하고 잠금을 잡지 않는 단일 문장만 허용한다. (검사: `tests/core/test_read_only_guard.py` 의 문장 매트릭스)
 
 ### 2-4. 비목표

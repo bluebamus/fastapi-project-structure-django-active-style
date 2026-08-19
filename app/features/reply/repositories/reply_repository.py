@@ -7,7 +7,7 @@ from app.core.repositories.repository_base import BaseRepository
 from app.features.reply.models.models import Reply
 
 
-class ReplyRepository(BaseRepository[Reply]):
+class ReplyRepository(BaseRepository[Reply, str]):
     """댓글 Repository."""
 
     model = Reply

@@ -19,7 +19,7 @@ CRUD 작업과 N+1 문제 해결을 위한 Eager Loading 메서드를 제공합�
 """
 
 from collections.abc import Sequence
-from typing import Any, cast
+from typing import Any, Generic, cast
 from uuid import uuid4
 
 from sqlalchemy import CursorResult, delete, func, select, update
@@ -36,13 +36,13 @@ from sqlalchemy.orm import (
 from sqlalchemy.sql import Select
 
 from app.core.exception import DatabaseException, DuplicateException, NotFoundException
-from app.core.repositories.crud_base import CRUDBase, ModelType
+from app.core.repositories.crud_base import CRUDBase, ModelType, PrimaryKeyType
 from app.utils.logs import get_logger
 
 logger = get_logger("repository")
 
 
-class BaseRepository(CRUDBase[ModelType]):
+class BaseRepository(CRUDBase[ModelType, PrimaryKeyType], Generic[ModelType, PrimaryKeyType]):
     """
     기본 Repository 클래스
 
@@ -254,7 +254,7 @@ class BaseRepository(CRUDBase[ModelType]):
     # READ - 기본 조회
     # ========================================================================
 
-    async def get_by_id(self, id: str) -> ModelType | None:
+    async def get_by_id(self, id: PrimaryKeyType) -> ModelType | None:
         """
         ID로 레코드를 조회합니다.
 
@@ -269,7 +269,7 @@ class BaseRepository(CRUDBase[ModelType]):
         """
         return await self._get(id)  # CRUDBase 메서드 활용
 
-    async def get_by_id_or_raise(self, id: str) -> ModelType:
+    async def get_by_id_or_raise(self, id: PrimaryKeyType) -> ModelType:
         """
         ID로 레코드를 조회하고, 없으면 예외를 발생시킵니다.
 
@@ -376,7 +376,7 @@ class BaseRepository(CRUDBase[ModelType]):
         result = await self.session.execute(stmt)
         return result.scalar_one()
 
-    async def exists(self, id: str) -> bool:
+    async def exists(self, id: PrimaryKeyType) -> bool:
         """
         ID로 레코드 존재 여부를 확인합니다.
 
@@ -390,7 +390,7 @@ class BaseRepository(CRUDBase[ModelType]):
             if await repo.exists("user-123"):
                 print("User exists")
         """
-        stmt = select(func.count()).select_from(self.model).where(self.model.id == id)
+        stmt = select(func.count()).select_from(self.model).where(self._pk == id)
         result = await self.session.execute(stmt)
         return result.scalar_one() > 0
 
@@ -418,7 +418,7 @@ class BaseRepository(CRUDBase[ModelType]):
 
     async def get_by_id_with(
         self,
-        id: str,
+        id: PrimaryKeyType,
         relations: list[str] | None = None,
         strategy: str = "selectin",
     ) -> ModelType | None:
@@ -443,7 +443,7 @@ class BaseRepository(CRUDBase[ModelType]):
             )
             print(user.posts)  # 추가 쿼리 없음
         """
-        stmt = select(self.model).where(self.model.id == id)
+        stmt = select(self.model).where(self._pk == id)
         stmt = self._apply_eager_loading(stmt, relations, strategy)
 
         result = await self.session.execute(stmt)
@@ -546,7 +546,7 @@ class BaseRepository(CRUDBase[ModelType]):
 
     async def get_by_ids_with(
         self,
-        ids: list[str],
+        ids: list[PrimaryKeyType],
         relations: list[str] | None = None,
         strategy: str = "selectin",
     ) -> Sequence[ModelType]:
@@ -570,7 +570,7 @@ class BaseRepository(CRUDBase[ModelType]):
         if not ids:
             return []
 
-        stmt = select(self.model).where(self.model.id.in_(ids))
+        stmt = select(self.model).where(self._pk.in_(ids))
         stmt = self._apply_eager_loading(stmt, relations, strategy)
 
         result = await self.session.execute(stmt)
@@ -616,7 +616,7 @@ class BaseRepository(CRUDBase[ModelType]):
 
     async def get_by_id_partial(
         self,
-        id: str,
+        id: PrimaryKeyType,
         columns: list[str],
     ) -> ModelType | None:
         """
@@ -635,7 +635,7 @@ class BaseRepository(CRUDBase[ModelType]):
                 columns=["id", "title", "author_id"]
             )
         """
-        stmt = select(self.model).where(self.model.id == id)
+        stmt = select(self.model).where(self._pk == id)
         stmt = self._apply_column_loading(stmt, only_columns=columns)
 
         result = await self.session.execute(stmt)
@@ -765,7 +765,7 @@ class BaseRepository(CRUDBase[ModelType]):
             select(self.model, func.count(relation_model.id).label("count"))
             .outerjoin(relation_attr)
             .filter_by(**filters)
-            .group_by(self.model.id)
+            .group_by(self._pk)
         )
 
         result = await self.session.execute(stmt)
@@ -775,7 +775,7 @@ class BaseRepository(CRUDBase[ModelType]):
     # UPDATE (수정)
     # ========================================================================
 
-    async def update(self, id: str, data: dict[str, Any]) -> ModelType | None:
+    async def update(self, id: PrimaryKeyType, data: dict[str, Any]) -> ModelType | None:
         """
         ID로 레코드를 업데이트합니다.
 
@@ -794,7 +794,7 @@ class BaseRepository(CRUDBase[ModelType]):
             user = await repo.update("user-123", {"name": "New Name"})
         """
         try:
-            stmt = update(self.model).where(self.model.id == id).values(**data)
+            stmt = update(self.model).where(self._pk == id).values(**data)
             result = cast("CursorResult[Any]", await self.session.execute(stmt))
             await self.session.flush()
 
@@ -817,7 +817,7 @@ class BaseRepository(CRUDBase[ModelType]):
 
     async def bulk_update(
         self,
-        ids: list[str],
+        ids: list[PrimaryKeyType],
         data: dict[str, Any],
     ) -> int:
         """
@@ -836,7 +836,7 @@ class BaseRepository(CRUDBase[ModelType]):
                 data={"is_active": False}
             )
         """
-        stmt = update(self.model).where(self.model.id.in_(ids)).values(**data)
+        stmt = update(self.model).where(self._pk.in_(ids)).values(**data)
         result = cast("CursorResult[Any]", await self.session.execute(stmt))
         await self.session.flush()
         return result.rowcount
@@ -871,7 +871,7 @@ class BaseRepository(CRUDBase[ModelType]):
     # DELETE (삭제)
     # ========================================================================
 
-    async def delete(self, id: str) -> bool:
+    async def delete(self, id: PrimaryKeyType) -> bool:
         """
         ID로 레코드를 삭제합니다.
 
@@ -889,7 +889,7 @@ class BaseRepository(CRUDBase[ModelType]):
                 print("User deleted")
         """
         try:
-            stmt = delete(self.model).where(self.model.id == id)
+            stmt = delete(self.model).where(self._pk == id)
             result = cast("CursorResult[Any]", await self.session.execute(stmt))
             await self.session.flush()
             return result.rowcount > 0
@@ -906,7 +906,7 @@ class BaseRepository(CRUDBase[ModelType]):
                 detail={"model": self.model.__name__, "id": id, "error": str(e)},
             ) from e
 
-    async def bulk_delete(self, ids: list[str]) -> int:
+    async def bulk_delete(self, ids: list[PrimaryKeyType]) -> int:
         """
         여러 레코드를 일괄 삭제합니다.
 
@@ -919,7 +919,7 @@ class BaseRepository(CRUDBase[ModelType]):
         Example:
             count = await repo.bulk_delete(["id1", "id2", "id3"])
         """
-        stmt = delete(self.model).where(self.model.id.in_(ids))
+        stmt = delete(self.model).where(self._pk.in_(ids))
         result = cast("CursorResult[Any]", await self.session.execute(stmt))
         await self.session.flush()
         return result.rowcount

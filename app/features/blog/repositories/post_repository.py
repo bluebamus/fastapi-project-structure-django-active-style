@@ -7,7 +7,7 @@ from app.core.repositories.repository_base import BaseRepository
 from app.features.blog.models.models import Post
 
 
-class PostRepository(BaseRepository[Post]):
+class PostRepository(BaseRepository[Post, str]):
     """게시글 Repository."""
 
     model = Post
