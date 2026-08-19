@@ -8,7 +8,7 @@
 from typing import Any
 
 from fastapi import status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # =============================================================================
@@ -17,17 +17,22 @@ from pydantic import BaseModel
 class ErrorResponse(BaseModel):
     """API 에러 응답 스키마"""
 
-    error_code: str
-    message: str
-    detail: Any | None = None
+    error_code: str = Field(description="도메인 오류 코드(안정적인 식별자)")
+    message: str = Field(description="사람이 읽는 오류 메시지")
+    detail: Any | None = Field(
+        default=None,
+        description="오류를 좁히는 안전한 부가 정보. 드라이버 원문·내부 예외 문자열은 담지 않는다.",
+    )
 
     model_config = {
         "json_schema_extra": {
-            "example": {
-                "error_code": "NOT_FOUND",
-                "message": "리소스를 찾을 수 없습니다.",
-                "detail": {"resource": "User", "id": 1},
-            }
+            "examples": [
+                {
+                    "error_code": "NOT_FOUND",
+                    "message": "리소스를 찾을 수 없습니다.",
+                    "detail": {"resource": "User", "id": 1},
+                }
+            ]
         }
     }
 
@@ -98,7 +103,8 @@ class ValidationException(AppException):
     입력 데이터의 유효성 검증에 실패한 경우 발생합니다.
     """
 
-    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    # starlette 1.x 에서 UNPROCESSABLE_ENTITY 는 폐기됐다(값 422 는 동일).
+    status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     error_code = "VALIDATION_ERROR"
     message = "입력 데이터 유효성 검증에 실패했습니다."
 

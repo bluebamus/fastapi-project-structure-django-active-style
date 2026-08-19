@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from scalar_fastapi import get_scalar_api_reference
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -217,8 +217,12 @@ def _register_exception_handlers(app: FastAPI) -> None:
 class HealthResponse(BaseModel):
     """헬스체크(liveness) 응답 스키마"""
 
-    status: str
-    version: str
+    model_config = ConfigDict(
+        json_schema_extra={"examples": [{"status": "ok", "version": "1.0.0"}]}
+    )
+
+    status: str = Field(description="상태 문자열")
+    version: str = Field(description="애플리케이션 버전")
 
 
 # readiness 는 별도 스키마를 두지 않고 HealthResponse 계약을 재사용한다.

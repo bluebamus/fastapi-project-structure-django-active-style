@@ -38,7 +38,11 @@
 
 services:
   mysql-test:
-    image: mysql:8.4
+    # 태그가 아니라 digest 로 고정한다. `mysql:8.4` 는 재빌드될 때마다 다른
+    # 바이트를 가리킬 수 있고, 그러면 테스트가 무엇에 대고 통과했는지 특정할 수
+    # 없다. 갱신은 의도적 행위여야 한다 — `docker image inspect mysql:8.4
+    #   --format '{{index .RepoDigests 0}}'` 로 확인 후 교체한다.
+    image: mysql@sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb  # 8.4
     container_name: fastapi-active-mysql-test
     command:
       # 이 저장소의 운영 설정과 맞춘다(이모지 등 4바이트 UTF-8).

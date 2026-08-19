@@ -283,7 +283,7 @@
   로 바꿔 보니 MySQL 통합 4건이 깨졌다("종료일 후반부 주문이 누락됐습니다" 포함).
   `created_at` 은 시각이고 파라미터는 날짜라 `<=` 는 종료일을 통째로 날린다. 이 결함은
   SQLite 에서도 조용히 통과하고 운영에서 "어제 매출이 0" 으로만 드러난다.
-- **신규 finding 3건 (전부 같은 라운드에 Fixed):**
+- **신규 finding 4건 (전부 같은 라운드에 Fixed):**
   - **F-028(MED)** — 생성기 CLI 가 앱을 만들고도 종료 코드 1 로 죽었다(cp949 × em dash).
     "성공했는데 실패로 보이는" 실패라 체이닝이 조용히 끊긴다.
   - **F-029(MED)** — 지침서 §6 이 요구하는 Raw SQL 정적 검사가 없었다. Phase 6 은 런타임
@@ -302,6 +302,46 @@
   `alembic heads` 단일(`d4e6f8b12c34`) · 인벤토리 22 paths / 37 operations, operation ID 37 고유
 - **수렴 판정:** `NOT CONVERGED` (Open Fix 8건: F-004·F-005·F-027 + 이월 F-016~F-020)
 
+### Round 10 — 2026-08-19 (base SHA: `5639b16`) — Phase 9 문서/OpenAPI/최종 게이트
+- **트리거:** Phase 8 완료 후 사용자 승인.
+- **검수 범위:** 공개 문서 계약, 공급망, 검증 스크립트, 그룹 수렴 판정.
+- **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 ☑ 4 ☑ 5 ☑(ORM/Raw delivery 한정 — 아래 판정 참고)
+- **F-004 해소:** auth 의 `UserResponse` 를 `AuthUserResponse` 로 개명. 다만 개명만으로는
+  같은 실수가 재발하므로, **component key 의 `__` 자체를 금지**하는 규칙 검사를 세웠다.
+  `__` 이름은 공개 계약을 내부 디렉터리 구조에 묶어 파일 이동만으로 클라이언트를 깬다.
+- **F-005 해소:** 유령 태그 `Analytics` 제거, `Auth`/`Catalog`/`Reports` 추가, 구현이 끝난
+  User/Blog/Reply/SNS 의 "(예정)" 설명 교체. 검사는 **양방향**이다 — 쓰는 태그는 전부
+  선언돼야 하고 선언한 태그는 전부 쓰여야 한다. 한쪽만 보면 유령 태그가 계속 쌓인다.
+- **DOC-003 이행:** 프로젝트 소유 schema 12개의 필드 description 과 요청 DTO 10개의
+  examples 를 채웠다. FastAPI 생성 schema(`HTTPValidationError` 등)는 우리 소유가 아니라
+  명시적 집합으로 제외했다(접두사 제외는 우리 DTO 를 실수로 면제시킨다).
+- **검증 스크립트:** `scripts/review_gate.py` — 6그룹. 규칙을 전부 `문자열 -> 문제 목록`
+  순수 함수로 두어 **일부러 취약한 입력**으로 검출력을 증명한다(46 tests). 통과만 보는
+  게이트는 고장나도 초록이다. CI 는 이 파일을 호출하기만 한다 — 판정 규칙이 두 곳으로
+  갈리면 "CI 에서만 되는" 상태와 "내 컴퓨터에서만 되는" 상태가 동시에 생긴다.
+- **신규 finding 4건 (전부 같은 라운드에 Fixed):**
+  - **F-032(HIGH)** — 의존성 취약점 검사가 없었고, 붙여 보니 **12건**이 나왔다.
+    starlette·sqladmin·aiomysql·pytest 상향으로 12 → 0. Bandit 은 소스만 보므로
+    이 종류는 기존 게이트로는 영원히 안 드러난다.
+  - **F-033(MED)** — Action 이 이동 가능한 태그로, 테스트 이미지가 태그로 고정돼 있었다.
+  - **F-031(MED)** — 자식 프로세스 출력을 인코딩 미지정으로 읽어 **테스트 결과가 콘솔
+    설정에 좌우**됐다. 게이트를 실제로 돌리지 않았으면 드러나지 않았을 항목이다.
+  - **F-034(MED)** — README 가 폐기 별칭을 19곳에서 가르치고 있었고, `get_session` 을
+    "쓰기용" 으로 설명했다. 그 이름은 Phase 2 이후 **동적 라우팅** 별칭이라, 문서를
+    따라 한 쓰기가 승인되지 않은 경로로 나간다.
+- **F-027 이관:** 사용자 결정으로 Accept-out-of-scope → R-011. 동작을 결정하는 Dependency
+  함수 이름은 Phase 2 에서 끝났고, 남은 것은 내부 속성 표기다.
+- **재현 기준선 갱신:** `uv.lock` SHA-256
+  `2CBBBFA5BE0E257904A23F4CC220654EA6B14E5FCEEE34367563E35ECF256D40`
+  (Phase 0 의 `D1BC64A8...` 에서 변경 — 사유는 F-032, R-013 에 기록).
+- **게이트 결과:** 전체 suite **621 passed**(skip·xfail·deselect 0) · `-m mysql` 28 passed ·
+  ruff check/format · mypy · bandit MEDIUM 이상 0 · `alembic heads` 단일(`d4e6f8b12c34`) ·
+  pip-audit 취약점 0 · 문서 경로·환경변수 기계 검사 통과 ·
+  인벤토리 **22 paths / 37 operations**, operation ID 37 고유, component key `__` 0
+- **수렴 판정:** ORM/Raw delivery 범위는 **CONVERGED**. Open Fix 5건이 남아 있으나 전부
+  F-016~F-020 으로, 계획서 §8 이 **독립 작업(Runtime/lifecycle)** 으로 분리한 Phase 1-R2
+  트랙이다. 이 그룹의 계약(ORM/Raw 데이터 접근·예제·문서·게이트)에는 Open Fix 가 없다.
+
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
@@ -315,3 +355,4 @@
 | 7 | 0 | 0 | 0 | 0 | 0 (신설 계층) | NOT CONVERGED (Open Fix 7) |
 | 8 | 0 | 1 | 1 | 1 | 3 (2 Fixed / 1 이월) | NOT CONVERGED (Open Fix 8) |
 | 9 | 0 | 0 | 2 | 1 | 3 (전부 같은 라운드에 Fixed) | NOT CONVERGED (Open Fix 8) |
+| 10 | 0 | 1 | 3 | 0 | 4 (전부 같은 라운드에 Fixed) | CONVERGED (delivery 범위 Open Fix 0 / 이월 5는 Phase 1-R2 트랙) |

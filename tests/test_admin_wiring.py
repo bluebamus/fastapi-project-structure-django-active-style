@@ -250,6 +250,9 @@ def test_admin_layer_is_not_loaded_when_disabled() -> None:
         ],
         capture_output=True,
         text=True,
+        # encoding 을 빼면 로케일(Windows 한국어면 cp949)로 디코딩한다. errors=replace
+        # 덕에 죽지는 않지만 한글이 조용히 깨져 문자열 단언이 환경에 좌우된다.
+        encoding="utf-8",
         errors="replace",
         cwd=_REPO_ROOT,
     )
