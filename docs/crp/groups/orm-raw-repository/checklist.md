@@ -49,12 +49,16 @@
 - [x] 게이트: pytest 401 / ruff / format / mypy / bandit / alembic single head, 인벤토리 19-31 불변
 - [x] 미이행 §8 항목 5건을 F-016~F-020 으로 ledger 등록(프로세스 밖에 두지 않음)
 
-## 이월 — Phase 1-R2 (인프라성, Phase 5 전후 권장)
-- [ ] (F-016) `app/core/resources.py` resource manager + background task 종료 계약
-- [ ] (F-017) bounded logging queue(QueueHandler/Listener), 파일 I/O 를 event loop 밖, bootstrap 1회
-- [ ] (F-018) SQL noise filter + `LOG_SQL_ECHO_ENABLED` opt-in(development/test 한정)
-- [ ] (F-019) Celery prefork `worker_process_init/shutdown`, 단일 worker startup DDL 제한
-- [ ] (F-020) `home/__init__.py` import-time sink 를 명시적 멱등 init hook 으로 이동
+## 이월 — Phase 1-R2 (인프라성) — **완료(2026-08-19)**
+
+별도 작업 그룹 `docs/crp/groups/runtime-lifecycle/` 이 인수해 Round 1 에서 전부 해소했다.
+상세 구현·회귀 테스트·잔여 위험은 그 그룹 문서를 본다.
+
+- [x] (F-016) `app/core/resources.py` resource manager + background task 종료 계약
+- [x] (F-017) bounded logging queue(QueueHandler/Listener), 파일 I/O 를 event loop 밖, bootstrap 1회
+- [x] (F-018) SQL noise filter + `LOG_SQL_ECHO_ENABLED` opt-in(development/test 한정)
+- [x] (F-019) Celery prefork `worker_process_init/shutdown`
+- [x] (F-020) `home/__init__.py` import-time sink 를 명시적 멱등 init hook 으로 이동
 
 ## Round 4 — 2026-08-19 (Phase 3: ORM 모델/Base) — 완료
 - [x] `UUIDPrimaryKeyMixin`/`CreatedAtMixin`/`UpdatedAtMixin` 구성 + 기존 이름 alias 유지
