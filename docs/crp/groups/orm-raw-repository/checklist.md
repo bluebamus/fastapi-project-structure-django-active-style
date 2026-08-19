@@ -130,9 +130,32 @@
 - [x] (F-030) MySQL 하네스 기대 테이블에 예제 2종 추가 — downgrade 검증 범위 확대
 - [x] 골든 4종 갱신 — registry 앱 집합 / route inventory / Admin 모델 집합 / 스키마 스냅샷
 - [x] 게이트: 전체 560 passed / -m mysql 28 / ruff / format / mypy 185 / bandit / alembic single head
-- [ ] **STOP: Phase 9 착수 승인**
+- [x] **STOP: Phase 9 착수 승인** — 사용자 승인 완료
 
-## 예정 — Phase 9
-- [ ] Phase 9 (F-004, F-005) OpenAPI/문서 정리 + `scripts/review_gate.py` + 최종 인벤토리 22/37
+## Round 10 — 2026-08-19 (Phase 9: 문서/OpenAPI/최종 게이트) — 완료
+- [x] (F-004) auth `UserResponse` → `AuthUserResponse`, component key `__` **전면 금지** 규칙
+- [x] (F-005) `Analytics` 제거 · `Auth`/`Catalog`/`Reports` 추가 · "(예정)" 설명 현재화
+- [x] tag 선언·사용 **양방향** 일치 검사
+- [x] (DOC-003) 소유 schema 12개 필드 description · 요청 DTO 10개 examples
+- [x] (DOC-001~005) `tests/test_openapi_contract.py` 15건 — 골든이 아니라 규칙 기반
+- [x] `scripts/review_gate.py` 6그룹 + 취약 fixture 38건으로 검출력 증명
+- [x] CI 가 review_gate 를 호출하도록 배선 — 판정 규칙 단일 소유
+- [x] (F-032) 의존성 취약점 **12 → 0** (starlette/sqladmin/aiomysql/pytest 상향)
+- [x] (F-033) Action commit SHA 고정 · MySQL 이미지 digest 고정
+- [x] (F-031) 자식 프로세스 인코딩 양쪽 고정 — 테스트 결과의 환경 의존 제거
+- [x] (F-027) 사용자 결정으로 잔여 위험 R-011 이관
+- [x] (F-034) README 가 가르치던 폐기 별칭 19곳 교체 + 별칭 검사 규칙 추가
+- [x] 문서 경로·환경변수 기계 검사 통과
+- [x] 최종 인벤토리 **22 paths / 37 operations** — 계획서 목표치와 일치
+- [x] 게이트: 621 passed(skip·deselect 0) / -m mysql 28 / ruff / format / mypy / bandit /
+      alembic single head / pip-audit 0
+- [x] residual-risk 재평가 조건 기록 (R-001~R-013)
+
+## 남은 트랙 — Phase 1-R2 (Runtime/lifecycle, 계획서 §8 독립 작업)
+- [ ] F-016 자원 관리자(`app/core/resources.py`)
+- [ ] F-017 bounded logging queue
+- [ ] F-018 SQL noise filter + `LOG_SQL_ECHO_ENABLED`
+- [ ] F-019 Celery prefork 생명주기
+- [ ] F-020 import-time sink → 명시적 멱등 init hook
 
 > 미닫힘(`[ ]`) 항목이 1개라도 있으면 그 라운드는 GATE 5 Done 이 아니다.

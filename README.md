@@ -31,7 +31,7 @@ Repository 패턴과 계층 분리 아키텍처를 적용한 FastAPI 프로젝�
 
 - **계층 분리 아키텍처**: Router → Service → Repository → Database
 - **명시적 트랜잭션 경계**: 기능 의존성(`get_<name>_service`)은 Service 구성만 담당하고, 커밋은 **쓰기 핸들러 본문**이 `await service.commit()` 로 수행(UnitOfWork 미사용)
-- **읽기/쓰기 세션 분리**: 조회 전용 의존성(`get_<name>_service_readonly`)은 `get_read_session` 을 받아 커밋하지 않음 — 예외 시 세션 teardown이 롤백
+- **읽기/쓰기 세션 분리**: 조회 전용 의존성(`get_<name>_service_readonly`)은 `get_read_only_db_session` 을 받아 커밋하지 않음 — 예외 시 세션 teardown이 롤백
 - **인증(JWT)**: OAuth2 Password 플로우 + JWT access/refresh 토큰, bcrypt 비밀번호 해시 (`auth` 기능, `app/utils/authenticator/`)
 - **N+1 문제 해결**: Eager Loading 전략 내장 (selectin, joined, subquery)
 - **유연한 설정**: Pydantic Settings 기반 환경 변수 관리
@@ -101,9 +101,9 @@ Router(view) → Depends(get_<name>_service) → Service(session) → Repository
 
 트랜잭션 경계는 **쓰기 핸들러 본문**이 담당합니다. `get_<name>_service` 가 세션으로 Service를
 구성해 뷰에 주입하면, 핸들러가 작업을 마친 뒤 응답을 만들기 전에 `await service.commit()` 을
-호출합니다(예외 시 `get_session` teardown 이 롤백). 조회 엔드포인트는
-`get_<name>_service_readonly` 를 써서 `get_read_session` 을 받고 커밋하지 않습니다.
-요청 밖(백그라운드/Celery)에서는 `background_session()` 컨텍스트(별도 풀)를 사용해
+호출합니다(예외 시 `get_writer_db_session` teardown 이 롤백). 조회 엔드포인트는
+`get_<name>_service_readonly` 를 써서 `get_read_only_db_session` 을 받고 커밋하지 않습니다.
+요청 밖(백그라운드/Celery)에서는 `background_db_session()` 컨텍스트(별도 풀)를 사용해
 메인 API 풀 고갈을 방지합니다.
 
 ---
@@ -140,7 +140,7 @@ fastapi-default-project-structure/
 │   │   ├── exception.py         # 공통 예외 계층
 │   │   ├── tags_metadata.py     # OpenAPI 태그 설명
 │   │   ├── db/                  # 세션·라우팅·모델 등록
-│   │   │   ├── session.py       # 엔진, get_session / get_read_session, background_session
+│   │   │   ├── session.py       # 엔진, get_writer_db_session / get_read_only_db_session, background_db_session
 │   │   │   ├── router.py        # 읽기/쓰기 라우팅 (RoutingSession)
 │   │   │   └── models_registry.py  # 모델 import — AppRegistry 위임 facade
 │   │   ├── models/models_base.py   # SQLAlchemy Base + TimestampMixin·UUIDMixin
@@ -180,8 +180,8 @@ fastapi-default-project-structure/
 | `app/features/<name>/admin.py` | 기능이 소유한 SQLAdmin ModelView + `admin_views` (선택) |
 | `app/features/admin.py` | SQLAdmin 인터페이스 생성(`create_admin_interface`)과 `/admin` 마운트만 담당. 뷰 취합은 `registry.install_admin()` 이 수행 — **중앙 뷰 목록 없음** |
 | `scripts/new_app.py` | Django `startapp` 대응 생성기. 이름 검증·경로 이탈·덮어쓰기 방지 포함 |
-| `app/core/db/session.py` | SQLAlchemy 엔진, 세션 팩토리, 커넥션 풀, `background_session` |
-| `app/features/<name>/dependencies/` | 기능 의존성 — Service 구성(쓰기용 `get_session` / 조회용 `get_read_session`). 커밋은 핸들러가 수행 |
+| `app/core/db/session.py` | SQLAlchemy 엔진, 세션 팩토리, 커넥션 풀, `background_db_session` |
+| `app/features/<name>/dependencies/` | 기능 의존성 — Service 구성(쓰기용 `get_writer_db_session` / 조회용 `get_read_only_db_session`). 커밋은 핸들러가 수행 |
 | `app/core/exception.py` | 커스텀 예외 계층 (4xx, 5xx, 비즈니스 예외) |
 | `migrations/env.py` | 런타임과 **같은** `AppRegistry` 로 전 기능 모델을 수집 → Alembic autogenerate. 목록이 갈리면 "운영에 테이블이 없다" 가 배포 뒤에 드러난다 |
 
@@ -245,7 +245,7 @@ Router  →  Depends(get_<name>_service)  →  Service(session)  →  Repository
 | 계층 | 하는 일 | 하지 말 것 |
 |------|---------|-----------|
 | **Router** | 입력 검증(Pydantic), `Depends(get_<name>_service)`로 Service 주입, Service 호출 → **쓰기면 `await service.commit()`** → 응답 변환 | 직접 ORM 쿼리 |
-| **Dependency** | 세션 주입(쓰기 `get_session` / 조회 `get_read_session`) → `Service(session)` 구성 후 **반환**(`yield` 아님) | 비즈니스 로직·커밋 |
+| **Dependency** | 세션 주입(쓰기 `get_writer_db_session` / 조회 `get_read_only_db_session`) → `Service(session)` 구성 후 **반환**(`yield` 아님) | 비즈니스 로직·커밋 |
 | **Service** | `BaseService` 상속, `self.session`/Repository로 데이터 접근·비즈니스 로직 | 커밋 시점 결정(핸들러가 담당) |
 | **Repository** | `BaseRepository` 상속, 쿼리 캡슐화, N+1 회피(`get_all_with`) | 비즈니스 로직·커밋 |
 
@@ -327,7 +327,7 @@ FastAPI 와 Django 는 생명주기와 URL 조립 방식이 다르므로 내부 
        ↓
 6. 응답 반환 (Pydantic 직렬화)
        ↓
-7. 의존성 teardown — 예외로 빠져나갔다면 get_session 이 rollback()
+7. 의존성 teardown — 예외로 빠져나갔다면 get_writer_db_session 이 rollback()
 ```
 
 ### 코드 예시
@@ -335,13 +335,13 @@ FastAPI 와 Django 는 생명주기와 URL 조립 방식이 다르므로 내부 
 ```python
 # dependencies — Service 구성만 담당(커밋하지 않는다)
 async def get_blog_service(
-    session: AsyncSession = Depends(get_session),          # 쓰기용
+    session: AsyncSession = Depends(get_writer_db_session),          # 쓰기용
 ) -> BlogService:
     return BlogService(session)
 
 
 async def get_blog_service_readonly(
-    session: AsyncSession = Depends(get_read_session),     # 조회용 — 커밋 없음
+    session: AsyncSession = Depends(get_read_only_db_session),     # 조회용 — 커밋 없음
 ) -> BlogService:
     return BlogService(session)
 
@@ -374,8 +374,8 @@ async def get_access_logs(
 ### 트랜잭션 & 롤백
 
 - **성공**: 쓰기 핸들러가 응답 생성 전에 `await service.commit()` 을 호출한다.
-- **예외**: 뷰/Service 에서 예외 발생 → 커밋이 실행되지 않고 `get_session` teardown 이 `session.rollback()`.
-- **요청 밖(Celery/백그라운드)**: `async with background_session() as session:` 컨텍스트로 커밋/롤백을 직접 관리(별도 풀).
+- **예외**: 뷰/Service 에서 예외 발생 → 커밋이 실행되지 않고 `get_writer_db_session` teardown 이 `session.rollback()`.
+- **요청 밖(Celery/백그라운드)**: `async with background_db_session() as session:` 컨텍스트로 커밋/롤백을 직접 관리(별도 풀).
 
 ---
 
@@ -444,13 +444,13 @@ UnitOfWork 대신 **쓰기 핸들러**가 커밋 시점을 쥡니다. 기능 의
 ```python
 # app/features/blog/dependencies/blog_dependencies.py — 구성만 한다
 async def get_blog_service(
-    session: AsyncSession = Depends(get_session),          # 쓰기용
+    session: AsyncSession = Depends(get_writer_db_session),          # 쓰기용
 ) -> BlogService:
     return BlogService(session)
 
 
 async def get_blog_service_readonly(
-    session: AsyncSession = Depends(get_read_session),     # 조회용
+    session: AsyncSession = Depends(get_read_only_db_session),     # 조회용
 ) -> BlogService:
     return BlogService(session)
 
@@ -461,14 +461,14 @@ async def create_post(
     service: BlogService = Depends(get_blog_service),
 ) -> PostResponse:
     post = await service.create_post(payload)
-    await service.commit()          # 예외 시 get_session teardown 이 롤백
+    await service.commit()          # 예외 시 get_writer_db_session teardown 이 롤백
     return PostResponse.model_validate(post)
 ```
 
-- 조회 엔드포인트는 `_readonly` 의존성을 써서 `get_read_session` 을 받습니다. 불필요한
+- 조회 엔드포인트는 `_readonly` 의존성을 써서 `get_read_only_db_session` 을 받습니다. 불필요한
   COMMIT 왕복이 사라지고, `DB_ROUTER_ENABLED` 가 켜지면 replica 로 라우팅됩니다.
   읽기 핸들러가 몰래 쓰기를 시도하면 `ReadOnlyRoutingError` 로 즉시 실패합니다.
-- 요청 밖(Celery/백그라운드)에서는 `async with background_session() as session:` 컨텍스트로
+- 요청 밖(Celery/백그라운드)에서는 `async with background_db_session() as session:` 컨텍스트로
   커밋/롤백을 직접 관리합니다(별도 풀 → 메인 API 풀 고갈 방지).
 
 ### 3. Service 패턴
@@ -930,7 +930,7 @@ suspicious = [log for log in logs if log.is_bot and log.response_status == 403]
 
 1. **Non-blocking 저장**: 접속 로그는 `asyncio.create_task()`로 백그라운드에서 저장되어 API 응답 시간에 영향을 주지 않습니다.
 
-2. **분리된 커넥션 풀**: 접속 로그 sink는 `background_session()`(별도 백그라운드 풀)을 사용하여 메인 API 풀 고갈을 방지합니다.
+2. **분리된 커넥션 풀**: 접속 로그 sink는 `background_db_session()`(별도 백그라운드 풀)을 사용하여 메인 API 풀 고갈을 방지합니다.
 
 3. **제외 설정 최적화**: 헬스체크, 정적 파일 등 빈번한 요청은 기본적으로 제외됩니다.
 

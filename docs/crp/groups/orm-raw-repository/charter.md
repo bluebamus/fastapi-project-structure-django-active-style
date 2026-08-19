@@ -24,7 +24,7 @@
 | 문서 | `docs/orm-raw-repository/2026-08-13/**` | 문서 | 설계·계획 기준선 |
 | CI·테스트 인프라 | `.github/workflows/ci.yml`, `compose.test.yaml` | 설정 | Phase 5 완료 — gate/mysql 2개 job |
 | MySQL 통합 테스트 | `tests/integration/**` | 테스트 | 전용 컨테이너(3310) 하네스 |
-| 검증 스크립트 | `scripts/review_gate.py`(신규) | 소스 | Phase 9 결정적 게이트 |
+| 검증 스크립트 | `scripts/review_gate.py` | 소스 | Phase 9 완료 — 6그룹(static/tests/structure/supply/docs/deps) |
 | 테스트 | `tests/**`, `app/features/*/tests/**` | 테스트 | 기준선 271 |
 
 - 총 테스트 수(기준선): **271** (GATE 3 기대치, 신규분 누적)
@@ -75,14 +75,14 @@
 
 ## 3. 인수 기준 (Acceptance Criteria) — GATE 3
 
-- [ ] `pytest` 전량 실행·통과 (기준선 271 + 신규분), skip/xfail/deselected 0
-- [ ] `ruff check .` · `ruff format --check .` · `mypy .` · `bandit -ll -q -r app main.py config.py` 클린
-- [ ] `alembic heads` single head
-- [ ] 라우트 인벤토리가 Phase 별 기대치와 정확히 일치 (18/30 → 19/31 → 22/37)
+- [x] `pytest` 전량 실행·통과 — **621 passed**, skip/xfail/deselected 0
+- [x] `ruff check .` · `ruff format --check .` · `mypy .` · `bandit -ll -q -r app main.py config.py` 클린
+- [x] `alembic heads` single head — `d4e6f8b12c34`
+- [x] 라우트 인벤토리가 Phase 별 기대치와 정확히 일치 — 최종 **22 paths / 37 operations**
 - [ ] 불변식 구조 증거: INV-1~INV-9 각각에 AST 규칙 또는 실행 테스트 1개 이상 연결
-- [ ] MySQL marker 테스트가 **실제 실행**되고 수집 건수 ≥ 1, skip 0 (CI artifact 로 증명)
-- [ ] 문서의 경로·심볼·환경변수가 코드에 실재하는지 기계 검사 통과
-- [ ] ledger 의 Open Fix 0 · residual-risk 재평가 조건 기록 완료
+- [x] MySQL marker 테스트가 **실제 실행** — 28 passed, skip 0
+- [x] 문서의 경로·심볼·환경변수 기계 검사 통과 — `review_gate --group docs`
+- [x] delivery 범위 Open Fix 0 (이월 F-016~F-020 은 Phase 1-R2 트랙) · residual-risk R-001~R-013 기록 완료
 - [ ] 질의 수준(design-baseline §0 = 보통)에 맞춘 P/D 질문 깊이 준수
 
 ## 4. 변경 이력

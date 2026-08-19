@@ -78,6 +78,9 @@ def _run_probe(tmp_path: Path, env_body: str) -> subprocess.CompletedProcess[str
         if key.startswith(("DB_", "MYSQL_")):
             del child_env[key]
     child_env["PYTHONPATH"] = str(PROJECT_ROOT)
+    # 자식이 UTF-8 로 쓰도록 못박는다. 아래 subprocess 도 같은 인코딩으로 읽는다 —
+    # 한쪽만 고정하면 여전히 로케일에 따라 결과가 달라진다.
+    child_env["PYTHONIOENCODING"] = "utf-8"
 
     # 인터프리터·스크립트가 모두 이 파일 안에 고정되어 있고 셸을 거치지 않는다.
     return subprocess.run(  # noqa: S603
@@ -86,6 +89,12 @@ def _run_probe(tmp_path: Path, env_body: str) -> subprocess.CompletedProcess[str
         env=child_env,
         capture_output=True,
         text=True,
+        # 부모·자식 양쪽의 인코딩을 명시적으로 고정한다. 지정하지 않으면 자식은
+        # PYTHONIOENCODING 을, 부모는 로케일(Windows 한국어면 cp949)을 따르는데,
+        # 둘이 어긋나면 디코딩이 실패해 출력이 통째로 None 이 된다. 그러면 테스트
+        # 결과가 코드가 아니라 **실행 환경의 콘솔 설정**에 좌우된다.
+        encoding="utf-8",
+        errors="replace",
         timeout=120,
     )
 
