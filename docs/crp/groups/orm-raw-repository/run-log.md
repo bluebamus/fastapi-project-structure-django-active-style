@@ -202,6 +202,40 @@
   라우트 인벤토리 19 paths / 31 operations 불변
 - **수렴 판정:** `NOT CONVERGED` (Open Fix 7건: F-004·F-005 + 이월 F-016~F-020)
 
+### Round 7 — 2026-08-19 (base SHA: `99b6bdc`) — Phase 6 Raw Base
+- **트리거:** Phase 5 완료 후 사용자 승인.
+- **검수 범위:** Raw SQL 데이터 접근 계층 신설(ORM 과 독립).
+- **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 ☑(Phase 6 한정) 4 □ 5 □
+- **신설:**
+  - `RawCRUDBase` — primitive 4개. 결과 의미를 계약으로 고정하고 애매한 축약을 전부
+    예외로 만든다: `fetch_one` 은 복수 행에서 `MultipleResultsFound`(=`first()` 금지),
+    `fetch_scalar` 도 복수 행에서 실패, `execute` 는 commit 하지 않고 rowcount 를
+    `int | None` 로 돌려주며 드라이버 미지원 표시(`-1`)를 성공 건수로 공개하지 않는다.
+  - 입력 계약 — `TextClause` 만 수용(문자열 금지), multi-statement 거부,
+    `ensure_identifier()` 로 코드 소유 allowlist 를 통과한 식별자만 허용.
+  - `RawRepositoryBase` — 관측 파사드. `query_name`(keyword-only 필수)·소요 시간·
+    성공/실패·예외 타입만 기록하고 SQL 본문과 파라미터 값은 남기지 않는다.
+- **설계 정정 1건(mypy 가 잡음):** 처음에는 `RawRepositoryBase` 가 `RawCRUDBase` 를
+  **상속**하게 두었는데, 하위 클래스가 primitive 에 없는 **필수** 인자(`query_name`)를
+  요구해 Liskov 위반이 됐다. mypy 가 7건으로 지적했고, 상속 대신 **합성**(primitive 를
+  소유)으로 바꿨다. 타입 문제일 뿐 아니라 실제로도 "RawCRUDBase 를 받는 함수" 에 넘기면
+  호출이 깨지는 구조였다.
+- **테스트 범위 정정 1건:** 로그 비노출 테스트가 처음에는 caplog 전체를 봤는데, 이는
+  aiosqlite/SQLAlchemy 가 DEBUG 에서 스스로 찍는 SQL·파라미터까지 잡아 실패했다.
+  그건 이 Base 의 책임이 아니라 로깅 파이프라인의 SQL noise filter 몫이므로
+  (ledger F-018, Phase 1-R2 이월) 검사 범위를 `raw_repository` 로거로 좁히고 그 사실을
+  테스트에 명시했다.
+- **MySQL 통합 검증(Phase 5 하네스 위):** rowcount 실측, `bindparam(expanding=True)` 로
+  `IN` 확장, 주입 시도가 값으로만 처리됨, multi-statement 가 드라이버 도달 전 거부됨,
+  그리고 **Phase 2 의 read-only 계약이 Raw 경로에도 걸리는지**(DML 차단 + SELECT 허용)를
+  실제 MySQL 에서 확인했다 — 두 Phase 가 따로 통과하고 합쳐서 새는 경우를 막는다.
+- **신규 finding:** 0 (신설 계층이라 기존 계약 위반 없음)
+- **게이트 결과:** 전체 suite **497 passed**(Phase 5 458 + 신규 39, skip·deselect 0) ·
+  `-m mysql` **17 passed** · `-m "not mysql"` 480 passed ·
+  ruff check/format · mypy 150 files · bandit 0 issues · alembic single head ·
+  라우트 인벤토리 19 paths / 31 operations 불변
+- **수렴 판정:** `NOT CONVERGED` (Open Fix 7건: F-004·F-005 + 이월 F-016~F-020)
+
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
@@ -212,3 +246,4 @@
 | 4 | 0 | 0 | 0 | 0 | 0 (F-002 해소) | NOT CONVERGED (Open Fix 8) |
 | 5 | 0 | 1 | 2 | 1 | 4 (전부 같은 라운드에 Fixed) | NOT CONVERGED (Open Fix 7) |
 | 6 | 0 | 0 | 0 | 0 | 0 (F-007 해소) | NOT CONVERGED (Open Fix 7) |
+| 7 | 0 | 0 | 0 | 0 | 0 (신설 계층) | NOT CONVERGED (Open Fix 7) |

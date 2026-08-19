@@ -14,7 +14,7 @@
 | 모델 레지스트리 | `app/core/db/models_registry.py` | 소스 | `import_all_models()` — Phase 1 에서 호출 제거 |
 | ORM Base | `app/core/models/models_base.py` | 소스 | Phase 3 mixin·PK generic |
 | ORM Repository | `app/core/repositories/crud_base.py`, `repository_base.py` | 소스 | Phase 3~4 |
-| Raw Repository | `app/core/repositories/raw_crud_base.py`, `raw_repository_base.py` | 소스(신규) | Phase 6 |
+| Raw Repository | `app/core/repositories/raw_crud_base.py`, `raw_repository_base.py` | 소스 | Phase 6 완료 — primitive 4개 + 관측 파사드 |
 | 예제 기능(ORM) | `app/features/catalog/**` | 소스(신규) | Phase 7 |
 | 예제 기능(Raw) | `app/features/reports/**` | 소스(신규) | Phase 8 |
 | 기존 기능 | `app/features/{auth,blog,home,reply,sns,user}/**` | 소스 | 회귀 보존 대상 |
@@ -54,6 +54,9 @@
 - INV-8: OpenAPI component 스키마명에 모듈 경로형 `__` 가 없고 operationId 는 누락·중복이 없다. (검사: 스냅샷 검증)
 - INV-9: 전체 suite 의 skip/xfail/deselected 가 0 이다. (검사: CI `ci.yml` 기존 게이트)
 - INV-10: DB Session Dependency 의 정식 이름은 `*_db_session` 이며, 기존 이름은 **같은 객체**를 가리키는 alias 로만 존재한다. 저장소 안(`app/**`, `tests/**`)에서는 정식 이름만 쓴다. (검사: `tests/core/test_session_dependency_names.py` 의 동일성 단언 + AST 스캔)
+- INV-19: Raw primitive 의 결과 의미는 고정이다 — `fetch_one`(0행 None/복수행 오류), `fetch_all`(0행 빈 sequence), `fetch_scalar`(0행·NULL 모두 None/복수행 오류), `execute`(commit 없음, rowcount `int | None`, `-1` 비공개). (검사: `tests/core/test_raw_crud_base.py` + `tests/integration/test_raw_primitives_mysql.py`)
+- INV-20: Raw 계층은 `TextClause` 만 받고 multi-statement 를 거부하며, 식별자는 코드 소유 allowlist(`ensure_identifier`)를 통과한 값만 쓴다. (검사: 같은 파일)
+- INV-21: Raw Repository 로그에는 `query_name`·소요 시간·성공/실패·예외 타입만 남긴다. SQL 본문과 파라미터 값은 남기지 않는다. (검사: `tests/core/test_raw_repository_base.py`)
 - INV-18: MySQL 통합 테스트는 **실제로 실행**되어야 한다. MySQL 부재로 전부 skip 된 초록은 실패로 처리한다. gate job(`-m "not mysql"`)과 mysql job(`-m mysql` + 전체 suite)은 정확히 상보 관계여서 어느 쪽에서도 실행되지 않는 테스트가 없다. (검사: `ci.yml` 의 두 판정 단계)
 - INV-15: `BaseRepository` 의 공개 표면은 8개(create/get_by_id/get_by_id_or_raise/get_all/count/exists/update/delete), `CRUDBase` 는 primitive 5개(+`_pk`)로 고정한다. 고급 조회는 기능 Repository 가 소유한다. (검사: `tests/core/test_repository_contract.py` 표면 단언)
 - INV-16: Repository 는 호출자가 넘긴 mapping 을 변경하지 않으며 PK 를 임의로 주입하지 않는다. (검사: 같은 파일)
