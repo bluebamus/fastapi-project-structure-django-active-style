@@ -125,3 +125,55 @@ class RedactingFilter(logging.Filter):
             record.msg = redacted
             record.args = ()
         return True
+
+
+class SQLNoiseFilter(logging.Filter):
+    """SQL·드라이버 로거의 DEBUG·INFO 를 차단한다 (계획서 §8, ADR-004).
+
+    ## 왜 레벨이 아니라 필터인가
+
+    이 저장소는 **앱별 로거를 등록하지 않는다**(`config.py` 참고). 핸들러는 root 에만
+    붙고 레벨도 root 하나다. `loggers` 항목을 추가하면 "새 기능 추가 시 로깅 설정에
+    손댈 곳이 0" 이라는 성질이 깨진다. 필터는 그 설계를 건드리지 않고 목적을 이룬다.
+
+    ## 왜 차단해야 하는가
+
+    SQLAlchemy 의 `echo` 계열 로그는 **SQL 본문과 바인딩된 파라미터를 그대로** 찍는다.
+    거기에는 사용자 식별자·검색어·이메일이 들어 있다. `RedactingFilter` 는 알려진
+    키워드(password 등)만 마스킹하므로 SQL 전문 노출을 막지 못한다 — 둘은 역할이
+    다르고 둘 다 필요하다.
+
+    ## WARNING 이상은 통과시킨다
+
+    "SQL 로그를 전부 끈다" 가 아니다. 커넥션 풀 고갈, 재연결 실패, 드라이버 경고는
+    장애 진단에 반드시 필요하다. 차단 대상은 **정상 동작의 소음**(DEBUG·INFO)뿐이다.
+
+    ## opt-in
+
+    `LOG_SQL_ECHO_ENABLED=true` 로 켤 수 있으나 development/test 에서만 유효하다.
+    staging/production 에서 켜면 기동이 실패한다(`config.validate_deployment_safety`).
+    환경 제한이 없으면 "잠깐 켜둔" 설정이 운영에 그대로 남는다.
+    """
+
+    # 소음을 내는 로거들. 접두사 일치로 하위 로거까지 포함한다
+    # (`sqlalchemy.engine.Engine`, `aiomysql.cursors` 등).
+    NOISY_PREFIXES = ("sqlalchemy", "aiomysql", "aiosqlite", "asyncmy", "pymysql", "alembic.ddl")
+
+    def __init__(self, name: str = "", *, allow_sql_echo: bool | None = None) -> None:
+        super().__init__(name)
+        if allow_sql_echo is None:
+            from config import app_settings, log_settings
+
+            # 설정이 켜져 있어도 운영 환경이면 무시한다. 이중 방어 — 배포 검증이
+            # 먼저 막지만, 검증을 우회하는 경로가 생겨도 여기서 한 번 더 걸린다.
+            allow_sql_echo = bool(getattr(log_settings, "LOG_SQL_ECHO_ENABLED", False)) and getattr(
+                app_settings, "ENV", "development"
+            ) in ("development", "test")
+        self._allow_sql_echo = allow_sql_echo
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if self._allow_sql_echo:
+            return True
+        if record.levelno >= logging.WARNING:
+            return True
+        return not record.name.startswith(self.NOISY_PREFIXES)

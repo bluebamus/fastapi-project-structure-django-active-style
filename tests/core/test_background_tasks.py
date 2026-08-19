@@ -52,3 +52,87 @@ async def test_completed_tasks_are_not_retained() -> None:
     await runner.drain(timeout=1.0)
 
     assert runner.active == 0, "완료된 태스크는 추적 집합에서 제거되어야 함(누수 방지)"
+
+
+# ---------------------------------------------------------------- Phase 1-R2
+# ADR-002 / INV-3·INV-4 — drain 은 버리지 않고 정리한다.
+
+
+async def test_drain_closes_admission_before_waiting() -> None:
+    """admission 을 먼저 닫지 않으면 drain 중 들어온 태스크 때문에 종료가 안 끝난다."""
+    runner = BackgroundTaskRunner(max_concurrent=10)
+
+    async def work() -> None:
+        await asyncio.sleep(0.01)
+
+    runner.spawn(work())
+    await runner.drain(timeout=1.0)
+
+    assert runner.closed is True
+    assert runner.spawn(work()) is False, "종료 후에도 태스크를 받았습니다."
+    assert runner.rejected_after_close == 1
+
+
+async def test_drain_cancels_and_awaits_unfinished_tasks() -> None:
+    """timeout 후 태스크를 **버리지 않고** 취소하고, 취소 완료까지 기다린다.
+
+    버려진 태스크는 사라지지 않는다 — 곧 dispose 될 엔진을 건드리다 실패하고,
+    그 예외는 아무도 읽지 않는다.
+    """
+    runner = BackgroundTaskRunner(max_concurrent=10)
+    started = asyncio.Event()
+
+    async def never_ends() -> None:
+        started.set()
+        await asyncio.sleep(3600)
+
+    runner.spawn(never_ends())
+    await started.wait()
+    tracked = next(iter(runner._tasks))
+
+    await runner.drain(timeout=0.05)
+
+    assert tracked.cancelled() or tracked.done(), "미완료 태스크가 취소되지 않았습니다."
+    assert runner.active == 0, "drain 후 추적 집합이 비어 있지 않습니다."
+
+
+async def test_drain_empties_the_tracking_set() -> None:
+    runner = BackgroundTaskRunner(max_concurrent=10)
+
+    async def work() -> None:
+        await asyncio.sleep(0.01)
+
+    for _ in range(3):
+        runner.spawn(work())
+
+    await runner.drain(timeout=2.0)
+
+    assert runner.active == 0
+
+
+async def test_drain_consumes_task_exceptions(caplog) -> None:
+    """예외를 읽지 않으면 종료 시 'never retrieved' 로만 남아 원인을 알 수 없다."""
+    runner = BackgroundTaskRunner(max_concurrent=10)
+
+    async def boom() -> None:
+        raise ValueError("업무 실패")
+
+    runner.spawn(boom())
+    with caplog.at_level("WARNING", logger="background_tasks"):
+        await runner.drain(timeout=1.0)
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("error_type=ValueError" in message for message in messages)
+    assert not any("업무 실패" in message for message in messages), "예외 원문이 로그에 남았습니다."
+
+
+async def test_drain_on_empty_runner_still_closes_admission() -> None:
+    """태스크가 없어도 종료는 종료다 — 이후 spawn 을 받으면 안 된다."""
+    runner = BackgroundTaskRunner(max_concurrent=10)
+
+    await runner.drain(timeout=1.0)
+
+    async def work() -> None:
+        return None
+
+    assert runner.spawn(work()) is False

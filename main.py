@@ -29,8 +29,10 @@ from app.core.middlewares.background_tasks import access_log_tasks
 from app.core.middlewares.cors_middleware import CustomCORSMiddleware
 from app.core.middlewares.user_info_middleware import setup_user_info_middleware
 from app.core.registry import AppRegistry
+from app.core.resources import ResourceManager
 from app.core.tags_metadata import tags_metadata
 from app.utils.logs import get_logger
+from app.utils.logs.queue_logging import stop_queue_listener
 from config import app_settings
 
 logger = get_logger("main")
@@ -48,6 +50,9 @@ logger = get_logger("main")
 # =============================================================================
 registry = AppRegistry()
 registry.discover()
+# 발견과 초기화를 분리한다. discover() 는 부작용이 없고(C-5), 부팅 시 한 번
+# 해야 하는 앱별 결선은 여기서 **명시적으로** 요청한다.
+registry.install_hooks()
 registry.import_models()
 logger.info("앱 자동 발견: %s", [m.name for m in registry.enabled_apps])
 
@@ -66,9 +71,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     logger.info("[Startup] 애플리케이션 시작 (DEBUG=%s)", app_settings.DEBUG)
 
-    # 정리는 finally 에 둔다. yield 뒤에만 두면 startup 이 실패했을 때(테이블 생성
-    # 실패 등) 도달하지 못해 엔진이 회수되지 않는다 — 기동을 재시도하는 컨테이너에서
-    # 커넥션이 계속 쌓인다.
+    # 정리 책임을 ResourceManager 에 맡긴다. 등록은 **start 이전에** 끝내므로
+    # startup 이 중간에 실패해도 그 시점까지 확보된 자원이 회수된다. 정리는 등록의
+    # 역순이고, 하나가 실패해도 나머지가 계속 실행된다 (ADR-001).
+    #
+    # 예산은 단일 monotonic deadline 에서 배분한다 — 단계 timeout 의 **합**으로
+    # 정의하면 최악의 경우 오케스트레이터의 강제 종료에 걸려 정리가 아예 안 된다
+    # (ADR-007).
+    resources = ResourceManager()
+    app.state.resources = resources
+
+    # 등록 순서 = 정리의 역순. 로깅을 가장 먼저 등록해 **가장 나중에** 정리한다 —
+    # 앞선 자원들의 종료 로그가 파일에 남아야 하기 때문이다. 백그라운드 태스크는 DB
+    # 엔진을 쓰므로 엔진보다 나중에 등록해 먼저 정리한다.
+    resources.register("logging-queue", stop_queue_listener, budget=5.0)
+    resources.register("db-engines", dispose_engine, budget=10.0)
+    resources.register("background-tasks", access_log_tasks.drain, budget=5.0)
+
     try:
         # DEBUG 모드일 때만 테이블 자동 생성
         # 운영 환경에서는 Alembic 마이그레이션 사용 권장
@@ -85,10 +104,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         yield
     finally:
         logger.info("[Shutdown] 애플리케이션 종료 시작")
-        # 엔진 정리 전에 진행 중인 백그라운드 로그 태스크를 drain (W1) —
-        # dispose 와의 경합으로 인한 마지막 로그 유실을 줄인다.
-        await access_log_tasks.drain()
-        await dispose_engine()
+        await resources.close()
+        # 닫힌 자원 참조를 state 에 남기지 않는다 — 남기면 재진입 시 이전 자원을
+        # 가리키는 핸들이 살아 있게 된다.
+        app.state.resources = None
         logger.info("[Shutdown] 애플리케이션 종료 완료")
 
 

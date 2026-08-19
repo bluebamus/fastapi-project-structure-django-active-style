@@ -401,13 +401,28 @@ async def dispose_engine() -> None:
         데이터베이스에 좀비 연결이 남을 수 있습니다.
     """
     logger.info("[dispose_engine] Disposing database engines...")
-    await engine.dispose()
-    logger.info("[dispose_engine] Main engine disposed")
 
-    # replica 엔진도 함께 정리한다 (복제 비활성이면 빈 목록이라 no-op).
-    for index, read_engine in enumerate(read_engines):
-        await read_engine.dispose()
-        logger.info("[dispose_engine] Read replica engine #%d disposed", index)
+    # 순차 호출이 아니라 **전부 시도**한다. 앞의 dispose 가 예외를 내면 뒤의 엔진이
+    # 회수되지 않아 커넥션이 남는데, 그 증상은 한참 뒤 "커넥션 소진" 으로만 나타난다.
+    # 정리는 "가능한 만큼 회수" 가 목표이지 "첫 실패에서 멈추기" 가 아니다.
+    targets: list[tuple[str, AsyncEngine]] = [("writer", engine)]
+    targets += [(f"reader#{index}", read_engine) for index, read_engine in enumerate(read_engines)]
+    targets.append(("background", background_engine))
 
-    await background_engine.dispose()
-    logger.info("[dispose_engine] Background engine disposed - ALL DONE")
+    failed: list[str] = []
+    for name, target in targets:
+        try:
+            await target.dispose()
+        except Exception as error:
+            # 예외 원문은 남기지 않는다 — DSN 자격증명이 실려올 수 있다.
+            failed.append(name)
+            logger.warning(
+                "[dispose_engine] %s 엔진 정리 실패 error_type=%s", name, type(error).__name__
+            )
+        else:
+            logger.info("[dispose_engine] %s 엔진 정리 완료", name)
+
+    if failed:
+        logger.warning("[dispose_engine] %d개 엔진 정리 실패: %s", len(failed), ", ".join(failed))
+    else:
+        logger.info("[dispose_engine] 전체 엔진 정리 완료 - ALL DONE")

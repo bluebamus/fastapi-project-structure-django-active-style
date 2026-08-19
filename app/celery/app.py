@@ -6,6 +6,7 @@
 
 from celery import Celery
 
+from app.celery.worker_lifecycle import register_worker_signals
 from config import redis_settings, timezone_settings
 
 celery_app = Celery(
@@ -24,3 +25,8 @@ celery_app.conf.update(
     enable_utc=False,
     beat_schedule={},
 )
+
+# prefork 자식 프로세스의 자원 생명주기를 연결한다 (ADR-005).
+# fork 로 상속된 커넥션 풀을 버리지 않으면 부모·자식이 같은 소켓을 공유해 MySQL
+# 패킷 순서가 엉킨다. solo/threads 풀에서는 이 신호가 오지 않으므로 no-op 이다.
+register_worker_signals()

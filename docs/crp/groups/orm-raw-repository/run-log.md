@@ -348,6 +348,17 @@
   F-016~F-020 으로, 계획서 §8 이 **독립 작업(Runtime/lifecycle)** 으로 분리한 Phase 1-R2
   트랙이다. 이 그룹의 계약(ORM/Raw 데이터 접근·예제·문서·게이트)에는 Open Fix 가 없다.
 
+### Round 11 — 2026-08-19 (base SHA: `50cf194`) — 이월 결함 해소(연쇄)
+
+- **트리거:** 별도 작업 그룹 `docs/crp/groups/runtime-lifecycle/` 의 Round 1 완료.
+- **검수 범위:** 이 그룹의 이월 결함 F-016~F-020 상태 전환만. 코드는 그 그룹이 변경했다.
+- **결과:** 5건 전부 **Closed**. 계획서 §8 이 "Runtime/lifecycle 독립 작업" 으로 분리했던
+  트랙이 완료되면서, 이 그룹의 **Open Fix 가 0** 이 됐다.
+- **확인:** 그 그룹의 변경은 C-1(ORM/Raw Base·예제 기능 diff 0)을 기계 검증으로 지켰고,
+  라우트 인벤토리 22 paths / 37 operations 와 alembic head `d4e6f8b12c34` 도 불변이다.
+  즉 이 그룹의 산출물은 그대로다.
+- **수렴 판정:** `CONVERGED` — delivery 범위뿐 아니라 **이월분까지 포함해** Open Fix 0.
+
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
@@ -362,3 +373,4 @@
 | 8 | 0 | 1 | 1 | 1 | 3 (2 Fixed / 1 이월) | NOT CONVERGED (Open Fix 8) |
 | 9 | 0 | 0 | 2 | 1 | 3 (전부 같은 라운드에 Fixed) | NOT CONVERGED (Open Fix 8) |
 | 10 | 0 | 1 | 3 | 0 | 4 (전부 같은 라운드에 Fixed) | CONVERGED (delivery 범위 Open Fix 0 / 이월 5는 Phase 1-R2 트랙) |
+| 11 | 0 | 0 | 0 | 0 | 0 (이월 5건 Closed) | **CONVERGED** (Open Fix 0 — 이월분 포함) |

@@ -152,11 +152,13 @@
 - [x] **CI 실전 검증** — push 후 GitHub Actions 두 job 모두 success (run `32227295666`)
 - [x] residual-risk 재평가 조건 기록 (R-001~R-014)
 
-## 남은 트랙 — Phase 1-R2 (Runtime/lifecycle, 계획서 §8 독립 작업)
-- [ ] F-016 자원 관리자(`app/core/resources.py`)
-- [ ] F-017 bounded logging queue
-- [ ] F-018 SQL noise filter + `LOG_SQL_ECHO_ENABLED`
-- [ ] F-019 Celery prefork 생명주기
-- [ ] F-020 import-time sink → 명시적 멱등 init hook
+## 완료된 트랙 — Phase 1-R2 (Runtime/lifecycle)
 
-> 미닫힘(`[ ]`) 항목이 1개라도 있으면 그 라운드는 GATE 5 Done 이 아니다.
+별도 작업 그룹 `docs/crp/groups/runtime-lifecycle/` 이 인수해 2026-08-19 Round 1 에서
+F-016~F-020 을 전부 해소했다. 상세 내용·회귀 테스트·잔여 위험은 그 그룹 문서 참조.
+
+- [x] F-016 자원 관리자(`app/core/resources.py`)
+- [x] F-017 bounded logging queue
+- [x] F-018 SQL noise filter + `LOG_SQL_ECHO_ENABLED`
+- [x] F-019 Celery prefork 생명주기
+- [x] F-020 import-time sink → 명시적 멱등 init hook

@@ -59,7 +59,7 @@ def build_dictconfig() -> dict:
             "class": "logging.StreamHandler",
             "stream": "ext://sys.stdout",
             "formatter": "app",
-            "filters": ["context", "redact"],
+            "filters": ["context", "redact", "sql_noise"],
             "level": log_settings.get_effective_console_level(app_settings.DEBUG),
         },
     }
@@ -89,7 +89,20 @@ def build_dictconfig() -> dict:
             "filters": ["context", "redact"],
             "level": "ERROR",
         }
-        root_handlers += ["file", "error_file"]
+        # 파일 핸들러를 root 에 **직접 붙이지 않는다.** 붙이면 로그를 남기는 코루틴이
+        # 파일 쓰기와 로테이션을 직접 수행해 event loop 가 그만큼 멈춘다.
+        # queue handler 가 레코드를 큐에 넣고(빠름), listener 가 별도 스레드에서
+        # 실제 파일 I/O 를 한다 (ADR-003).
+        handlers["queue"] = {
+            "class": "app.utils.logs.queue_logging.BoundedQueueHandler",
+            "queue": {"()": "app.utils.logs.queue_logging.make_log_queue"},
+            "handlers": ["file", "error_file"],
+            "respect_handler_level": True,
+            # 소음 차단은 큐 **앞에서** 한다. 뒤에서 하면 버릴 레코드까지 큐 자리를
+            # 차지해 정작 필요한 로그가 상한에 걸려 드롭된다.
+            "filters": ["sql_noise"],
+        }
+        root_handlers += ["queue"]
 
     return {
         "version": 1,
@@ -97,6 +110,7 @@ def build_dictconfig() -> dict:
         "filters": {
             "context": {"()": "app.utils.logs.filters.ContextFilter"},
             "redact": {"()": "app.utils.logs.filters.RedactingFilter"},
+            "sql_noise": {"()": "app.utils.logs.filters.SQLNoiseFilter"},
         },
         "formatters": {
             "app": {
