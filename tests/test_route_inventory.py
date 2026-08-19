@@ -30,6 +30,8 @@ EXPECTED: dict[str, frozenset[str]] = {
     # catalog 도메인 (Phase 7 — ORM 예제, main.py 무수정 자동배선)
     "/api/v1/catalog/products": frozenset({"GET", "POST"}),
     "/api/v1/catalog/products/{product_id}": frozenset({"GET", "PATCH", "DELETE"}),
+    # reports 도메인 (Phase 8 — Raw SQL 예제, main.py 무수정 자동배선)
+    "/api/v1/reports/sales/daily": frozenset({"GET"}),
     # auth 도메인 (Phase B)
     "/api/v1/auth/register": frozenset({"POST"}),
     "/api/v1/auth/login": frozenset({"POST"}),

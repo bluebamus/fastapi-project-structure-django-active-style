@@ -16,7 +16,7 @@
 | ORM Repository | `app/core/repositories/crud_base.py`, `repository_base.py` | 소스 | Phase 3~4 |
 | Raw Repository | `app/core/repositories/raw_crud_base.py`, `raw_repository_base.py` | 소스 | Phase 6 완료 — primitive 4개 + 관측 파사드 |
 | 예제 기능(ORM) | `app/features/catalog/**` | 소스 | Phase 7 완료 — 상품 CRUD 5 operations |
-| 예제 기능(Raw) | `app/features/reports/**` | 소스(신규) | Phase 8 |
+| 예제 기능(Raw) | `app/features/reports/**` | 소스 | Phase 8 완료 — 일별 매출 리포트 1 operation |
 | 기존 기능 | `app/features/{auth,blog,home,reply,sns,user}/**` | 소스 | 회귀 보존 대상 |
 | Admin | `app/features/admin.py`, 기능별 `admin.py` | 소스 | 인증 백엔드 미주입(F-006) |
 | 설정 | `config.py`, `.env.example` | 설정 | staging/production fail-fast |

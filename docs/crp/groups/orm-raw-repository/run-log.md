@@ -268,6 +268,40 @@
   MySQL 통합에서 신규 revision 의 head → base → head 왕복과 모델 대조까지 통과
 - **수렴 판정:** `NOT CONVERGED` (Open Fix 8건: F-004·F-005·F-027 + 이월 F-016~F-020)
 
+### Round 9 — 2026-08-19 (base SHA: `40cf36a`) — Phase 8 reports (Raw 예제)
+- **트리거:** Phase 7 완료 후 사용자 승인.
+- **검수 범위:** 신규 기능 reports 전 계층 + Raw 계약의 실전 적용.
+- **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 ☑(Phase 8 한정) 4 □ 5 □
+- **의미:** Phase 6 에서 만든 Raw Base 를 **신규 기능에 처음 적용**하는 자리였다.
+  그래서 집계 숫자보다 "그 계약이 실전에서 그대로 서는가" 를 봤다.
+- **구현:** 원본 모델 `SalesOrder`(집계 전용 모델 없음)·migration(`d4e6f8b12c34`)·
+  읽기 전용 Admin·`SalesReportRawRepository`·Service·read-only Dependency·DTO·View·router.
+  라우트 1 operation, prefix `/v1/reports`, tag `Reports`, operation ID `getDailySalesReport`.
+  **`main.py` 무수정**으로 자동 발견·마운트됐다(C-1). 인벤토리 21 → **22 paths / 37 operations**
+  — 계획서 §11 의 최종 목표치와 정확히 일치한다.
+- **이 Phase 의 핵심 검증 — 기간 경계:** 집계 SQL 을 흔한 실수인 `created_at <= :end_date`
+  로 바꿔 보니 MySQL 통합 4건이 깨졌다("종료일 후반부 주문이 누락됐습니다" 포함).
+  `created_at` 은 시각이고 파라미터는 날짜라 `<=` 는 종료일을 통째로 날린다. 이 결함은
+  SQLite 에서도 조용히 통과하고 운영에서 "어제 매출이 0" 으로만 드러난다.
+- **신규 finding 3건 (전부 같은 라운드에 Fixed):**
+  - **F-028(MED)** — 생성기 CLI 가 앱을 만들고도 종료 코드 1 로 죽었다(cp949 × em dash).
+    "성공했는데 실패로 보이는" 실패라 체이닝이 조용히 끊긴다.
+  - **F-029(MED)** — 지침서 §6 이 요구하는 Raw SQL 정적 검사가 없었다. Phase 6 은 런타임
+    계약만 세웠고, 기능이 SQL 을 소유하기 시작한 지금 비로소 실효를 갖는다.
+  - **F-030(LOW)** — MySQL 하네스의 기대 테이블 집합이 Phase 5 에 머물러 예제 테이블의
+    downgrade 가 검증되지 않고 있었다.
+- **SCN-RAW-002(Raw 쓰기):** 운영 HTTP endpoint 를 만들지 않고 테스트 전용 Service/UoW 가
+  writer session 의 commit/rollback 을 소유한다. rowcount 실측, 성공 commit 1회, 실패 시
+  예외 전파 + DB 상태 불변, read-only 세션의 Raw DML 차단을 MySQL 에서 확인했다.
+- **갱신한 골든 4종:** registry 앱 집합(8개), route inventory, Admin 관리 모델 집합,
+  스키마 스냅샷. 이 넷이 함께 바뀐 것 자체가 자동배선이 동작했다는 증거다.
+- **판단 1건:** 기능 테스트는 MySQL 방언에 의존하는 **한 지점만**(`daily_sales`) 대체하고
+  실제 SQL 은 MySQL 통합이 확인한다. 운영 SQL 을 테스트 편의로 문자열 치환하지 않았다.
+- **게이트 결과:** 전체 suite **560 passed**(Phase 7 520 + 신규 40, skip·deselect 0) ·
+  `-m mysql` 28 passed(skip 0) · ruff check/format · mypy 185 files · bandit MEDIUM 이상 0 ·
+  `alembic heads` 단일(`d4e6f8b12c34`) · 인벤토리 22 paths / 37 operations, operation ID 37 고유
+- **수렴 판정:** `NOT CONVERGED` (Open Fix 8건: F-004·F-005·F-027 + 이월 F-016~F-020)
+
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
@@ -280,3 +314,4 @@
 | 6 | 0 | 0 | 0 | 0 | 0 (F-007 해소) | NOT CONVERGED (Open Fix 7) |
 | 7 | 0 | 0 | 0 | 0 | 0 (신설 계층) | NOT CONVERGED (Open Fix 7) |
 | 8 | 0 | 1 | 1 | 1 | 3 (2 Fixed / 1 이월) | NOT CONVERGED (Open Fix 8) |
+| 9 | 0 | 0 | 2 | 1 | 3 (전부 같은 라운드에 Fixed) | NOT CONVERGED (Open Fix 8) |

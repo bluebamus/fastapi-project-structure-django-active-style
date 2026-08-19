@@ -31,6 +31,10 @@ _EXPECTED_TABLES = {
     "blog_posts",
     "replies",
     "sns_posts",
+    # 예제 기능(Phase 7·8). 신규 revision 의 upgrade/downgrade 가 MySQL 에서 실제로
+    # 도는지 확인하려면 기대 집합에 들어 있어야 한다.
+    "catalog_products",
+    "sales_orders",
 }
 
 

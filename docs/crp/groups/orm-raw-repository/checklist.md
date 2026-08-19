@@ -111,10 +111,28 @@
 - [x] (F-025) 생성기 dependency 템플릿 교정 + 재발 방지 테스트
 - [x] 골든 4종 갱신 — registry 앱 집합 / route inventory / Admin 모델 집합 / 스키마 스냅샷
 - [x] 게이트: 전체 520 passed / ruff / format / mypy 167 / bandit / alembic single head / MySQL 체인
-- [ ] **STOP: Phase 8 착수 승인**
+- [x] **STOP: Phase 8 착수 승인** — 사용자 승인 완료
 
-## 예정 — Phase 8 이후
-- [ ] Phase 8 reports(Raw) 예제 자동배선
+## Round 9 — 2026-08-19 (Phase 8: reports Raw 예제) — 완료
+- [x] 생성기(`scripts/new_app.py`)로 골격 생성 후 전 계층 구현
+- [x] 원본 모델 `SalesOrder` — 집계 전용 모델 없음, migration `d4e6f8b12c34`(upgrade/downgrade)
+- [x] `created_at` 인덱스 — 집계 SQL 의 유일한 필터 컬럼
+- [x] Admin — `SalesOrderAdmin` create/edit/delete **금지**, details/export 허용, `customer_email` 제외
+- [x] Raw Repository — SQL 은 모듈 상수, named bind, `query_name="sales_report.daily_sales"`
+- [x] Service — 기간 규칙 소유, `RowMapping` → DTO 경계
+- [x] Dependency — read-only 하나만. 기능 전체에 `get_writer_db_session` 없음을 테스트로 고정
+- [x] 라우트 1 operation `getDailySalesReport`, tag `Reports`
+- [x] **`main.py` 무수정 자동배선 확인** (C-1) — 인벤토리 21 → **22 paths / 37 operations**
+- [x] **기간 경계 fail-on-revert** — `<= :end_date` 로 바꾸면 MySQL 4건이 깨짐을 확인
+- [x] SCN-RAW-002 — 테스트 전용 UoW 의 rowcount·commit 1회·rollback·read-only 차단 (MySQL)
+- [x] (F-029) Raw SQL 정적 가드 추가 — `text()` 인자는 리터럴만 (app/·main.py·scripts/·migrations/)
+- [x] (F-028) 생성기 CLI 가 cp949 콘솔에서 죽지 않도록 수정 + 회귀 테스트
+- [x] (F-030) MySQL 하네스 기대 테이블에 예제 2종 추가 — downgrade 검증 범위 확대
+- [x] 골든 4종 갱신 — registry 앱 집합 / route inventory / Admin 모델 집합 / 스키마 스냅샷
+- [x] 게이트: 전체 560 passed / -m mysql 28 / ruff / format / mypy 185 / bandit / alembic single head
+- [ ] **STOP: Phase 9 착수 승인**
+
+## 예정 — Phase 9
 - [ ] Phase 9 (F-004, F-005) OpenAPI/문서 정리 + `scripts/review_gate.py` + 최종 인벤토리 22/37
 
 > 미닫힘(`[ ]`) 항목이 1개라도 있으면 그 라운드는 GATE 5 Done 이 아니다.
