@@ -1,0 +1,70 @@
+# 테스트 전용 MySQL — 로컬과 CI 가 **같은 파일**을 쓴다 (계획서 §9).
+#
+# 포트를 3310 으로 둔 이유. 개발 머신의 3306 에는 보통 다른 MySQL 이 이미 떠 있고,
+# 3307 은 IDE(VS Code)의 포트 포워딩이 선점하는 경우가 있다. 3308·3309 는 sibling
+# 저장소(fastapi-default-project-structure / -django-passive-style)의 테스트
+# 컨테이너가 쓴다. 그래서 이 저장소는 3310 이다.
+#
+# 공유 인스턴스에 테스트 스키마를 만들지 않는다 — 남의 데이터와 섞이고, 테스트가
+# DROP 하면 사고가 된다. 전용 컨테이너를 별도 포트로 띄워 완전히 격리한다.
+#
+# **격리는 포트가 아니라 자격증명으로 보장한다.** 포트만 나누면 실수로 겹쳤을 때
+# 남의 컨테이너에 조용히 붙어 스키마를 지운다. DB·계정 이름을 이 저장소 전용으로
+# 두면 그 경우 접속이 거부되어 실패가 눈에 보인다.
+#
+# 데이터 디렉터리는 tmpfs 다 — 테스트 DB 는 매번 새로 만들어야 하고 디스크에 남길
+# 이유가 없다. 재시작하면 깨끗한 상태로 돌아온다.
+#
+#   docker compose -f compose.test.yaml up -d --wait   # 기동 (healthy 까지 대기)
+#   pytest -m mysql                                    # 통합 테스트만
+#   docker compose -f compose.test.yaml down -v        # 정리
+#
+# WSL 에서 컨테이너를 띄우고 Windows 쪽 pytest 로 접속해도 된다 — WSL2 의 localhost
+# forwarding 으로 127.0.0.1:3310 이 그대로 연결된다.
+#
+# 다만 함정이 하나 있다(실측). Windows 쪽에 붙어 있는 wsl.exe 프로세스가 하나도
+# 없으면 WSL 배포판이 통째로 내려가고, 그때 컨테이너도 함께 정지한다. 증상은
+# "방금 5 passed 였는데 다음 실행에서 전부 skip" 이다. 배포판 안에서 nohup 으로
+# 붙잡아 두는 것은 소용없다 — 배포판 종료 시 그 프로세스도 같이 죽는다.
+# 테스트를 도는 동안 Windows 쪽에서 세션 하나를 잡아둔다:
+#
+#   wsl.exe -e bash -lc "sleep 3000"   # 별도 터미널에 띄워 둔 채로 pytest 실행
+#
+# 컨테이너가 "Exited (0)" 이면 배포판 종료에 딸려 정상 종료된 것이고,
+# "Exited (255)" 면 VM 이 강제로 내려간 경우다. 둘 다 up -d --wait 로 복구된다.
+#
+# 포트를 옮겨야 하면 MYSQL_TEST_PORT 로 덮어쓴다 — tests/integration/conftest.py 도
+# 같은 환경변수를 읽으므로 한 곳만 바꾸면 된다.
+
+services:
+  mysql-test:
+    image: mysql:8.4
+    container_name: fastapi-active-mysql-test
+    command:
+      # 이 저장소의 운영 설정과 맞춘다(이모지 등 4바이트 UTF-8).
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      # 테스트는 내구성보다 속도가 중요하다. 데이터는 어차피 tmpfs 다.
+      - --innodb-flush-log-at-trx-commit=2
+      - --innodb-flush-method=nosync
+    environment:
+      MYSQL_ROOT_PASSWORD: active_test_root_password
+      MYSQL_DATABASE: fastapi_active_test
+      MYSQL_USER: fastapi_active_test
+      MYSQL_PASSWORD: fastapi_active_test_password
+      TZ: Asia/Seoul
+    ports:
+      # 호스트 3310 -> 컨테이너 3306. 기존 MySQL 및 sibling 테스트 컨테이너와 겹치지 않는다.
+      # 127.0.0.1 에만 바인딩한다 — 포트만 적으면 docker 는 0.0.0.0 에 열어
+      # 같은 네트워크의 다른 기기에서 테스트 DB 에 접속할 수 있게 된다.
+      - "127.0.0.1:${MYSQL_TEST_PORT:-3310}:3306"
+    tmpfs:
+      - /var/lib/mysql
+    healthcheck:
+      # mysqladmin ping 은 서버가 **연결을 받을 준비**가 됐을 때만 성공한다.
+      # 컨테이너 시작 != 접속 가능이라, 이 게이트 없이 붙으면 첫 테스트가 깨진다.
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-pactive_test_root_password"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 30s

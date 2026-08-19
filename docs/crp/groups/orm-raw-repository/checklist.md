@@ -76,10 +76,20 @@
 - [x] (F-023) 예외 detail·로그에서 드라이버 오류 원문 제거
 - [x] (F-024) `exists` 를 COUNT → EXISTS 로 교체
 - [x] 게이트: pytest 453 / ruff / format / mypy / bandit / alembic single head
-- [ ] **STOP: Phase 5 착수 승인**
+- [x] **STOP: Phase 5 착수 승인** — 사용자 제안으로 WSL 컨테이너 경로 확정
 
-## 예정 — Phase 5 이후
-- [ ] Phase 5 (F-007) `compose.test.yaml` + CI MySQL service, Alembic chain up/down/re-up smoke
+## Round 6 — 2026-08-19 (Phase 5: MySQL 테스트 인프라) — 완료
+- [x] `compose.test.yaml` 신규 — mysql:8.4, 포트 3310, tmpfs, healthcheck, 전용 DB·계정
+- [x] `tests/integration/` 하네스 — registry metadata 경로로 스키마 생성, skip 사유 노출
+- [x] `mysql` 마커 등록(pyproject)
+- [x] `ci.yml` — gate 를 `-m "not mysql"` 로 분리, `mysql` job 신설(skip 금지 + 전체 suite 전수)
+- [x] (F-007) MySQL 통합 게이트 확립 — 로컬 실측 `-m mysql` 5 passed(skip 0)
+- [x] Alembic chain MySQL 에서 head → base → head 왕복 + 모델 대조 diff 0
+- [x] 전체 suite 458 passed, skip·deselect 0 (MySQL 기동 상태)
+- [x] WSL 운영 함정 기록 — `compose.test.yaml` 주석 + residual-risk R-010
+- [ ] **STOP: Phase 6 착수 승인**
+
+## 예정 — Phase 6 이후
 - [ ] Phase 6 Raw Base — one/all/scalar/rowcount·binding·query name·예외·read-only 계약
 - [ ] Phase 7 catalog(ORM) 예제 자동배선
 - [ ] Phase 8 reports(Raw) 예제 자동배선
