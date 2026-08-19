@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import keyword
 import pathlib
+import sys
 
 # ---------------------------------------------------------------------------
 # Template constants
@@ -248,7 +249,17 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """CLI 진입점.
+
+    안내문에는 한글과 em dash 가 섞여 있는데, Windows 한국어 콘솔(cp949)은 em dash 를
+    인코딩하지 못한다. 그대로 두면 앱은 정상 생성됐는데 **프로세스가 1 로 죽어서**
+    `python -m scripts.new_app x && <다음 단계>` 같은 조합이 조용히 끊긴다.
+    안내문은 사람이 읽는 부가 정보이므로, 표현할 수 없는 글자는 대체하고 넘어간다.
+    """
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
+
     args = _build_parser().parse_args()
     scaffold(
         args.name,
@@ -267,3 +278,7 @@ if __name__ == "__main__":
     if args.with_admin:
         print(f"  - admin: admin.py 의 admin_views 에 {class_name}Admin 을 추가하면 자동 노출")
     print("  - 서버 재시작 시 라우터가 마운트됩니다")
+
+
+if __name__ == "__main__":
+    main()

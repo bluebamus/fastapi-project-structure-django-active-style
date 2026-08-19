@@ -74,7 +74,7 @@ def test_discover_real_features_is_deterministic():
     assert names == sorted(names)
     assert not any(n.startswith("_") for n in names)
     # 기반 저장소의 여섯 기능이 모두 발견돼야 한다 (BC-01 의 전제).
-    assert set(names) == {"auth", "blog", "catalog", "home", "reply", "sns", "user"}
+    assert set(names) == {"auth", "blog", "catalog", "home", "reply", "reports", "sns", "user"}
 
 
 def _fake_path() -> str:

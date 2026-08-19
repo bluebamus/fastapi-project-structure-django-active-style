@@ -140,3 +140,24 @@ def test_scaffold_does_not_teach_commit_in_dependency(tmp_path):
 
     assert "yield service" not in deps, "템플릿이 yield dependency 패턴을 가르칩니다."
     assert "Dependency 는 조립만 한다" in deps
+
+
+def test_cli_survives_a_console_that_cannot_encode_its_message(root, monkeypatch, capsys):
+    """Windows 한국어 콘솔(cp949)에서 안내문 때문에 프로세스가 죽지 않는다.
+
+    안내문에 em dash 가 있어 cp949 콘솔에서 `UnicodeEncodeError` 가 났다. 앱은 정상
+    생성됐는데 종료 코드가 1 이라서 `python -m scripts.new_app x && <다음 단계>` 가
+    조용히 끊겼다 — "성공했는데 실패로 보이는" 실패라 원인을 찾기 어렵다.
+    """
+    import io
+    import sys
+
+    from scripts.new_app import main
+
+    monkeypatch.chdir(root)
+    monkeypatch.setattr(sys, "argv", ["new_app", "widget", "--with-admin"])
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(io.BytesIO(), encoding="cp949"))
+
+    main()
+
+    assert (root / "app/features/widget/api/routers/router.py").exists()
