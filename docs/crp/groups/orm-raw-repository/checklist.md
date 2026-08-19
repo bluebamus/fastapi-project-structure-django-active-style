@@ -63,7 +63,7 @@
 - [x] `BaseRepository` 의 `self.model.id` 10곳·`id: str` 시그니처를 PK 타입으로 관통
 - [x] **schema diff 0** — 사전 골든(`baseline/schema.json`) 대조 + 기존 마이그레이션 대조 테스트
 - [x] 게이트: pytest 436 / ruff / format / mypy / bandit / alembic single head
-- [ ] **STOP: Phase 4 착수 승인**
+- [x] **STOP: Phase 4 착수 승인** — 사용자 승인 완료
 
 ## Round 5 — 2026-08-19 (Phase 4: ORM Repository) — 완료
 - [x] 사용처 조사 — 28개 중 20개 호출부 0건 확인, 오탐 분리
@@ -79,7 +79,6 @@
 - [ ] **STOP: Phase 5 착수 승인**
 
 ## 예정 — Phase 5 이후
-- [ ] Phase 4 ORM Repository 최소 CRUD·입력 불변성·EXISTS·예외 변환
 - [ ] Phase 5 (F-007) `compose.test.yaml` + CI MySQL service, Alembic chain up/down/re-up smoke
 - [ ] Phase 6 Raw Base — one/all/scalar/rowcount·binding·query name·예외·read-only 계약
 - [ ] Phase 7 catalog(ORM) 예제 자동배선
