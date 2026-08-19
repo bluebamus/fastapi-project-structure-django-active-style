@@ -13,7 +13,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from app.core.db.session import Base, get_read_only_db_session
+from app.core.db.session import Base, get_writer_db_session
 from main import app
 
 
@@ -32,7 +32,7 @@ async def client():
         async with maker() as session:
             yield session
 
-    app.dependency_overrides[get_read_only_db_session] = _override
+    app.dependency_overrides[get_writer_db_session] = _override
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
@@ -51,7 +51,7 @@ async def broken_client():
     async def _override():
         yield _BrokenSession()
 
-    app.dependency_overrides[get_read_only_db_session] = _override
+    app.dependency_overrides[get_writer_db_session] = _override
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
@@ -64,14 +64,18 @@ async def test_ready_returns_200_when_db_reachable(client):
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ready"
-    assert body["database"] == "ok"
+    # 사양: 200 응답은 HealthResponse 계약(status + version)을 따른다.
+    assert "version" in body
 
 
 async def test_ready_returns_503_when_db_unreachable(broken_client):
     response = await broken_client.get("/ready")
 
     assert response.status_code == 503
-    assert response.json()["status"] == "not_ready"
+    # 사양: 실패는 프로젝트 표준 오류 응답(ErrorResponse)을 쓴다.
+    body = response.json()
+    assert body["error_code"]
+    assert body["detail"] is None
 
 
 async def test_ready_error_does_not_leak_dsn_or_credentials(broken_client):
@@ -88,10 +92,26 @@ def test_ready_is_in_openapi_with_health_tag():
     assert "/ready" in spec["paths"], "/ready 가 OpenAPI 에 없습니다."
     operation = spec["paths"]["/ready"]["get"]
     assert operation["tags"] == ["Health"]
-    assert operation["operationId"] == "readinessCheck"
+    assert operation["operationId"] == "getReadiness"
 
 
 @pytest.mark.parametrize("path", ["/health", "/ready"])
 def test_liveness_and_readiness_are_separate(path):
     """둘은 서로 다른 엔드포인트다 — 하나로 합치지 않는다."""
     assert path in app.openapi()["paths"]
+
+
+def test_ready_declares_503_response():
+    operation = app.openapi()["paths"]["/ready"]["get"]
+
+    assert "503" in operation["responses"]
+
+
+def test_ready_check_has_a_timeout():
+    """DB 가 응답하지 않을 때 readiness 가 무한정 매달리면 안 된다."""
+    import inspect
+
+    import main
+
+    source = inspect.getsource(main)
+    assert "asyncio.timeout" in source, "/ready 의 DB 점검에 timeout 이 없습니다."

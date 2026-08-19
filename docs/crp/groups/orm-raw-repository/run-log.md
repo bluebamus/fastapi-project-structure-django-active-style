@@ -91,9 +91,33 @@
   대가를 명시). R-009 신규 — `session.info` 는 보안 경계가 아니며 운영은 read-only credential 을
   최종 방어선으로 둔다.
 
+### Round 3 — 2026-08-19 (base SHA: `cbb147f`) — Phase 1-R 잔여 정리
+- **트리거:** 사용자 요청 "남은 작업 정리" → 정리 중 **Phase 1 완료 보고가 부정확했음을 발견**.
+  Phase 1 은 계획서 §10 의 요약 줄만 보고 수행했고, 상세 사양인 **§8** 의 항목들이 남아 있었다.
+  사용자가 권장안(잔여 상위 5건 선처리 → Phase 3)을 승인해 이 라운드를 열었다.
+- **검수 범위:** 계획서 §8 전 항목을 현재 코드와 1:1 대조.
+- **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 □ 4 □ 5 □
+- **신규 finding 10건 등록:** F-011(HIGH) · F-012~F-013(MED) · F-014~F-015(LOW) → 이번 라운드 Fixed.
+  F-016~F-020 은 인프라성이라 **Phase 1-R2 로 이월**하고 Open 으로 추적한다(프로세스 밖에 두지 않는다).
+- **처리 요약:**
+  - F-011 `TRUST_PROXY_HEADERS`(기본 false) — 전달 헤더는 신뢰 proxy 설정이 있을 때만 채택
+  - F-012 access/refresh 서명 키 동일 사용 거부
+  - F-013 `/ready` 4건 사양 정렬 — `getReadiness`, `HealthResponse` 200 / `ErrorResponse` 503,
+    **writer** `SELECT 1`, 2초 timeout
+  - F-014 전역 예외 핸들러 — 응답 detail 항상 None, 로그는 route template
+  - F-015 `ADMIN=false` lazy import 회귀 테스트(서브프로세스 + 대조군)
+- **기존 계약 테스트가 잡은 것 1건:** `test_every_config_field_is_documented_in_env_example` 가
+  신규 `TRUST_PROXY_HEADERS` 의 `.env.example` 누락을 즉시 잡았다. 문서화 후 통과.
+- **fail-on-revert 확인:** F-014 의 누출을 일부러 되돌리자 테스트가 실패했고, 복원하니 통과했다.
+- **게이트 결과:** pytest **401 passed**(Phase 2 385 + 신규 16), skip/xfail/deselected 0 ·
+  ruff check/format · mypy 148 files · bandit 0 issues · alembic single head ·
+  라우트 인벤토리 19 paths / 31 operations 불변
+- **수렴 판정:** `NOT CONVERGED` (Open Fix 9건: F-002·F-004·F-005·F-007 + 이월 F-016~F-020)
+
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
 | 0 | 0 | 3 | 3 | 1 | 7 | NOT CONVERGED |
 | 1 | 0 | 1 | 2 | 0 | 3 (전부 같은 라운드에 Fixed) | NOT CONVERGED (Open Fix 5 → Phase 2~9) |
 | 2 | 0 | 0 | 0 | 0 | 0 (F-003 해소) | NOT CONVERGED (Open Fix 4 → Phase 3·5·9) |
+| 3 | 0 | 1 | 6 | 3 | 10 (5 Fixed / 5 이월) | NOT CONVERGED (Open Fix 9) |

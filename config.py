@@ -683,6 +683,19 @@ class MiddlewareSettings(BaseSettings):
         extra="ignore",
     )
 
+    # 프록시가 붙인 전달 헤더(X-Forwarded-For / X-Real-IP)를 접속 IP 로 신뢰할지.
+    #
+    # 기본값이 False 인 것은 의도다. 이 헤더는 클라이언트가 그냥 보낼 수 있는 값이라,
+    # 프록시 뒤가 아닌데 신뢰하면 아무나 헤더 한 줄로 접속 로그의 IP 를 위조하고
+    # IP 기반 조회를 오염시킨다. 리버스 프록시 뒤에 둔 배포에서만 명시적으로 켠다.
+    #
+    # ponytail: bool 한 개로 "신뢰/불신뢰" 만 가른다. 신뢰할 프록시를 CIDR 목록으로
+    # 좁혀야 할 만큼 토폴로지가 복잡해지면 그때 목록 설정으로 올린다.
+    TRUST_PROXY_HEADERS: bool = Field(
+        default=False,
+        description="X-Forwarded-For/X-Real-IP 를 접속 IP 로 신뢰할지 (리버스 프록시 뒤에서만 true)",
+    )
+
     # 접속 로그 수집 활성화
     ACCESS_LOG_ENABLED: bool = Field(
         default=True,
@@ -1126,6 +1139,13 @@ def validate_deployment_safety() -> None:
         if value.startswith(_PLACEHOLDER_SECRET_PREFIX):
             # 값 자체는 절대 메시지에 담지 않는다 (C-5).
             problems.append(f"{name} 이 기본 placeholder 입니다. 실제 키로 교체하세요.")
+
+    if jwt_settings.ACCESS_TOKEN_SECRET_KEY == jwt_settings.REFRESH_TOKEN_SECRET_KEY:
+        # 같은 키로 서명하면 refresh 토큰이 access 토큰으로도 검증을 통과한다.
+        problems.append(
+            "ACCESS_TOKEN_SECRET_KEY 와 REFRESH_TOKEN_SECRET_KEY 가 동일합니다. "
+            "서로 다른 키를 사용하세요."
+        )
 
     if "*" in cors_settings.CORS_ALLOW_ORIGINS:
         problems.append("CORS_ALLOW_ORIGINS 에 와일드카드('*') 가 있습니다. 출처를 명시하세요.")
