@@ -27,6 +27,10 @@
 | F-018 | MED | 계획서 §8 SQL noise filter | Fix | **Open** | queue handler 의 SQL/driver DEBUG·INFO 차단(WARNING 이상 유지)과 development/test 한정 `LOG_SQL_ECHO_ENABLED` opt-in 이 없다. Phase 1 의 `RedactingFilter` 는 마스킹이지 noise 차단이 아니다. | **Phase 1-R2 로 이월**. F-017 의 queue handler 위에 얹는다. |
 | F-019 | MED | 계획서 §8 Celery 생명주기 | Fix | **Open** | prefork `worker_process_init`/`worker_process_shutdown` 에서 child engine/loop 생성·부모 pool 폐기·멱등 정리가 없다. 개발 startup DDL 을 단일 worker 로 제한하는 장치도 없다. | **Phase 1-R2 로 이월**. serializer JSON-only 는 이미 충족(`app/celery/app.py:19-21`). |
 | F-020 | LOW | C-9 (발견 단계 부작용) | Fix | **Open** | `home/__init__.py` 의 import-time `register_sink()` 가 남아 있다. 계획서 §3 은 "제거하거나 명시적 멱등 init hook 으로 이동" 을 요구한다. | **Phase 1-R2 로 이월**. 현재도 멱등이고 DB I/O 는 없다(Phase 1 에서 지연 import 로 분리). |
+| F-021 | MED | §4 입력 불변성 / PK 소유권 | Fix | **Fixed** | `create()` 가 호출자 dict 에 `data["id"] = str(uuid4())` 를 직접 써넣었다. 호출자 자료구조를 바꾸는 부작용이자, PK 생성 책임을 모델(mixin default)에서 Base 로 끌어온 것이다. 정수 PK·시퀀스·외부 키를 쓰는 모델에서 어긋난다. | Phase 4. 입력을 복사해 쓰고 id 주입을 제거. 회귀: `tests/core/test_repository_contract.py`. |
+| F-022 | MED | §4 update/delete 계약 | Fix | **Fixed** | `update()`/`delete()` 가 bulk DML(`update().where()` / `delete().where()`)로 동작해 "없는 행" 과 "변경 없는 행" 을 구분하지 못했고, unknown 필드·PK 변경을 거르지 않았으며 빈 PATCH 의 의미도 정의돼 있지 않았다. | Phase 4. 단일 엔티티 선조회로 전환, unknown/PK 변경 거부, 빈 PATCH 는 존재 확인 후 no-op. |
+| F-023 | HIGH | C-5 (오류 응답 비노출) | Fix | **Fixed** | 예외 `detail` 에 `str(e.orig)` / `str(e)` 로 **드라이버 오류 원문**을 담았고, 이 detail 은 `AppException.to_response()` 를 통해 그대로 API 응답으로 나갔다. 제약 이름·컬럼·값 조각이 클라이언트에 노출될 수 있었다. | Phase 4. `_log_db_error()` 로 연산·모델·예외 타입만 남기고 응답 detail 에서 원문 제거. 회귀: 응답 렌더링에 드라이버 문자열이 없음을 단언. |
+| F-024 | LOW | §4 exists | Fix | **Fixed** | `exists()` 가 `COUNT(*)` 로 조건에 맞는 행을 끝까지 셌다. | Phase 4. `EXISTS` 로 교체해 첫 행에서 멈춘다. |
 
 <!--
 규칙:

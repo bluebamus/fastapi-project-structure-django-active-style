@@ -145,6 +145,31 @@
   라우트 인벤토리 19 paths / 31 operations 불변
 - **수렴 판정:** `NOT CONVERGED` (Open Fix 8건: F-004·F-005·F-007 + 이월 F-016~F-020)
 
+### Round 5 — 2026-08-19 (base SHA: `d6ca983`) — Phase 4 ORM Repository
+- **트리거:** 사용자 승인 후 Phase 4 착수.
+- **검수 범위:** `CRUDBase` / `BaseRepository` 전 표면과 그 호출부.
+- **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 ☑(Phase 4 한정) 4 □ 5 □
+- **사용처 조사(계획서가 정한 첫 단계):** 공개 메서드 28개 중 **20개는 프로덕션·테스트
+  호출부가 0건**이었다. `exists` 의 테스트 12회는 전부 `Path.exists()` 오탐이었고,
+  `update`/`delete` 의 일부 hit 도 `dict.update()` / `session.delete()` 오탐이었다.
+  실제로 이전이 필요한 것은 `get_one` 2곳뿐이었다.
+- **STOP 이행:** 제거 목록을 사용자에게 제시하고 승인받은 뒤 삭제했다.
+- **처리 순서(계획서 §4):** 사용처 조사 → 호출부 전환 → 제거 → 계약 구현.
+  호출부가 0건이라 `get_one` 외에는 호환 wrapper 단계가 불필요했다.
+  - `auth_service.get_user_by_id()` 의 `get_one(id=...)` 는 PK 조회라 `get_by_id()` 로 동등 대체
+  - `user_repository.get_by_username()` 은 기능 Repository 가 직접 소유하도록 이관
+- **신규 finding 4건:** F-021(MED) · F-022(MED) · F-023(HIGH) · F-024(LOW) → 전부 같은 라운드 Fixed.
+  특히 **F-023 은 드라이버 오류 원문이 API 응답으로 나가던 C-5 위반**이다.
+- **표면 축소 결과:** `BaseRepository` 28 → **8**, `repository_base.py` 1012 → 439행.
+  `CRUDBase` 는 `_update`(= `_add` 별칭) 를 걷어내고 계획서가 정한 primitive
+  (`_get`/`_add`/`_delete`/`_flush`/`_refresh`)로 정리했다.
+- **자체 결함 1건:** 신규 계약 테스트가 `User` 를 함수 안에서 import 해 `create_all` 시점에
+  `users` 테이블이 없었다 — 단독 실행 시에만 깨지는 순서 의존이었다. 모듈 최상단 import 로 교정.
+- **게이트 결과:** pytest **453 passed**(Phase 3 436 + 신규 17), skip/xfail/deselected 0 ·
+  ruff check/format · mypy 148 files · bandit 0 issues · alembic single head ·
+  라우트 인벤토리 19 paths / 31 operations 불변
+- **수렴 판정:** `NOT CONVERGED` (Open Fix 7건: F-004·F-005·F-007 + 이월 F-016~F-020)
+
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
@@ -153,3 +178,4 @@
 | 2 | 0 | 0 | 0 | 0 | 0 (F-003 해소) | NOT CONVERGED (Open Fix 4 → Phase 3·5·9) |
 | 3 | 0 | 1 | 6 | 3 | 10 (5 Fixed / 5 이월) | NOT CONVERGED (Open Fix 9) |
 | 4 | 0 | 0 | 0 | 0 | 0 (F-002 해소) | NOT CONVERGED (Open Fix 8) |
+| 5 | 0 | 1 | 2 | 1 | 4 (전부 같은 라운드에 Fixed) | NOT CONVERGED (Open Fix 7) |
