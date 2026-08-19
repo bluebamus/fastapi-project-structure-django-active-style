@@ -168,7 +168,7 @@
 - **게이트 결과:** pytest **453 passed**(Phase 3 436 + 신규 17), skip/xfail/deselected 0 ·
   ruff check/format · mypy 148 files · bandit 0 issues · alembic single head ·
   라우트 인벤토리 19 paths / 31 operations 불변
-- **수렴 판정:** `NOT CONVERGED` (Open Fix 7건: F-004·F-005·F-007 + 이월 F-016~F-020)
+- **수렴 판정:** `NOT CONVERGED` (Open Fix **8건**: F-004·F-005·F-007 + 이월 F-016~F-020)
 
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
