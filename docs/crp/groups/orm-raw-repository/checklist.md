@@ -65,7 +65,20 @@
 - [x] 게이트: pytest 436 / ruff / format / mypy / bandit / alembic single head
 - [ ] **STOP: Phase 4 착수 승인**
 
-## 예정 — Phase 4 이후
+## Round 5 — 2026-08-19 (Phase 4: ORM Repository) — 완료
+- [x] 사용처 조사 — 28개 중 20개 호출부 0건 확인, 오탐 분리
+- [x] **STOP: 제거 목록 사용자 승인**
+- [x] `get_one` 호출부 2곳 이전 (auth_service → `get_by_id`, user_repository → 직접 구현)
+- [x] 20개 메서드 제거 — 공개 표면 28 → 8, `repository_base.py` 1012 → 439행
+- [x] `CRUDBase` primitive 정리 — `_update` 제거, `_flush`/`_refresh` 도입
+- [x] (F-021) 입력 mapping 복사 + PK 임의 주입 제거
+- [x] (F-022) update/delete 단일 엔티티 선조회, unknown/PK 변경 거부, 빈 PATCH no-op
+- [x] (F-023) 예외 detail·로그에서 드라이버 오류 원문 제거
+- [x] (F-024) `exists` 를 COUNT → EXISTS 로 교체
+- [x] 게이트: pytest 453 / ruff / format / mypy / bandit / alembic single head
+- [ ] **STOP: Phase 5 착수 승인**
+
+## 예정 — Phase 5 이후
 - [ ] Phase 4 ORM Repository 최소 CRUD·입력 불변성·EXISTS·예외 변환
 - [ ] Phase 5 (F-007) `compose.test.yaml` + CI MySQL service, Alembic chain up/down/re-up smoke
 - [ ] Phase 6 Raw Base — one/all/scalar/rowcount·binding·query name·예외·read-only 계약

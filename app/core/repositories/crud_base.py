@@ -96,17 +96,17 @@ class CRUDBase(Generic[ModelType, PrimaryKeyType]):
         await self.session.refresh(entity)
         return entity
 
-    async def _update(self, entity: ModelType) -> ModelType:
-        """
-        엔티티를 업데이트합니다 (내부용).
+    async def _flush(self) -> None:
+        """보류 중인 변경을 DB 로 내보낸다 (내부용).
 
-        Args:
-            entity: 업데이트할 모델 인스턴스
-
-        Returns:
-            업데이트된 모델 인스턴스
+        commit 하지 않는다 — 트랜잭션 경계는 쓰기 View 가 소유한다(ADR-004).
         """
-        return await self._add(entity)
+        await self.session.flush()
+
+    async def _refresh(self, entity: ModelType) -> ModelType:
+        """DB 가 채운 값(server default, onupdate 등)을 엔티티에 되읽는다 (내부용)."""
+        await self.session.refresh(entity)
+        return entity
 
     async def _delete(self, entity: ModelType) -> None:
         """

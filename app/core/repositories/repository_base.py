@@ -19,14 +19,13 @@ CRUD 작업과 N+1 문제 해결을 위한 Eager Loading 메서드를 제공합�
 """
 
 from collections.abc import Sequence
-from typing import Any, Generic, cast
-from uuid import uuid4
+from typing import Any, Generic
 
-from sqlalchemy import CursorResult, delete, func, select, update
+from sqlalchemy import exists as sql_exists
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import (
-    contains_eager,
     defer,
     joinedload,
     load_only,
@@ -35,7 +34,12 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.sql import Select
 
-from app.core.exception import DatabaseException, DuplicateException, NotFoundException
+from app.core.exception import (
+    DatabaseException,
+    DuplicateException,
+    NotFoundException,
+    ValidationException,
+)
 from app.core.repositories.crud_base import CRUDBase, ModelType, PrimaryKeyType
 from app.utils.logs import get_logger
 
@@ -167,6 +171,19 @@ class BaseRepository(CRUDBase[ModelType, PrimaryKeyType], Generic[ModelType, Pri
     # CREATE (생성)
     # ========================================================================
 
+    def _log_db_error(self, operation: str, error: Exception) -> None:
+        """DB 오류를 안전한 context 만으로 기록한다.
+
+        예외 원문에는 SQL 조각과 파라미터 값이 그대로 실려 온다. 응답은 물론
+        로그에도 남기지 않고 연산·모델·예외 타입만 남긴다 (C-5).
+        """
+        logger.error(
+            "[%s] 데이터베이스 오류 model=%s error_type=%s",
+            operation,
+            self.model.__name__,
+            type(error).__name__,
+        )
+
     async def create(self, data: dict[str, Any]) -> ModelType:
         """
         새로운 레코드를 생성합니다.
@@ -184,70 +201,26 @@ class BaseRepository(CRUDBase[ModelType, PrimaryKeyType], Generic[ModelType, Pri
         Example:
             user = await repo.create({"name": "John", "email": "john@example.com"})
         """
-        if "id" not in data:
-            data["id"] = str(uuid4())
+        # 호출자의 dict 를 그대로 쓰지 않는다 — Repository 가 호출자 자료구조를
+        # 바꾸면, 같은 dict 를 재사용하는 쪽에서 원인 찾기 어려운 버그가 난다.
+        payload = dict(data)
 
+        # PK 생성은 **모델**이 소유한다(UUIDPrimaryKeyMixin 의 default). Base 가
+        # id 를 끼워넣으면 정수 PK·시퀀스·외부 시스템 키를 쓰는 모델에서 어긋난다.
         try:
-            instance = self.model(**data)
+            instance = self.model(**payload)
             return await self._add(instance)  # CRUDBase 메서드 활용
         except IntegrityError as e:
-            logger.error(f"[CREATE] 중복 데이터 오류: {e}")
+            self._log_db_error("CREATE", e)
             raise DuplicateException(
                 message="이미 존재하는 데이터입니다.",
-                detail={"model": self.model.__name__, "error": str(e.orig)},
+                detail={"model": self.model.__name__},
             ) from e
         except SQLAlchemyError as e:
-            logger.error(f"[CREATE] 데이터베이스 오류: {e}")
+            self._log_db_error("CREATE", e)
             raise DatabaseException(
                 message="데이터 생성 중 오류가 발생했습니다.",
-                detail={"model": self.model.__name__, "error": str(e)},
-            ) from e
-
-    async def bulk_create(self, data_list: list[dict[str, Any]]) -> list[ModelType]:
-        """
-        여러 레코드를 일괄 생성합니다.
-
-        Args:
-            data_list: 생성할 데이터 딕셔너리 목록
-
-        Returns:
-            생성된 모델 인스턴스 목록
-
-        Raises:
-            DuplicateException: 중복 데이터가 존재하는 경우
-            DatabaseException: 데이터베이스 오류가 발생한 경우
-
-        Example:
-            users = await repo.bulk_create([
-                {"name": "John"},
-                {"name": "Jane"},
-            ])
-        """
-        try:
-            instances = []
-            for data in data_list:
-                if "id" not in data:
-                    data["id"] = str(uuid4())
-                instances.append(self.model(**data))
-
-            self.session.add_all(instances)
-            await self.session.flush()
-
-            for instance in instances:
-                await self.session.refresh(instance)
-
-            return instances
-        except IntegrityError as e:
-            logger.error(f"[BULK_CREATE] 중복 데이터 오류: {e}")
-            raise DuplicateException(
-                message="일괄 생성 중 중복 데이터가 발견되었습니다.",
-                detail={"model": self.model.__name__, "error": str(e.orig)},
-            ) from e
-        except SQLAlchemyError as e:
-            logger.error(f"[BULK_CREATE] 데이터베이스 오류: {e}")
-            raise DatabaseException(
-                message="일괄 데이터 생성 중 오류가 발생했습니다.",
-                detail={"model": self.model.__name__, "error": str(e)},
+                detail={"model": self.model.__name__},
             ) from e
 
     # ========================================================================
@@ -292,47 +265,6 @@ class BaseRepository(CRUDBase[ModelType, PrimaryKeyType], Generic[ModelType, Pri
                 detail={"model": self.model.__name__, "id": id},
             )
         return instance
-
-    async def get_one(self, **filters: Any) -> ModelType | None:
-        """
-        필터 조건으로 단일 레코드를 조회합니다.
-
-        Args:
-            **filters: 필터 조건 (컬럼명=값)
-
-        Returns:
-            모델 인스턴스 또는 None
-
-        Example:
-            user = await repo.get_one(email="john@example.com")
-        """
-        stmt = select(self.model).filter_by(**filters)
-        result = await self.session.execute(stmt)
-        return result.scalar_one_or_none()
-
-    async def get_many(
-        self,
-        skip: int = 0,
-        limit: int = 100,
-        **filters: Any,
-    ) -> Sequence[ModelType]:
-        """
-        필터 조건으로 여러 레코드를 조회합니다.
-
-        Args:
-            skip: 건너뛸 레코드 수 (offset)
-            limit: 최대 조회 수
-            **filters: 필터 조건 (컬럼명=값)
-
-        Returns:
-            모델 인스턴스 목록
-
-        Example:
-            active_users = await repo.get_many(is_active=True, limit=50)
-        """
-        stmt = select(self.model).filter_by(**filters).offset(skip).limit(limit)
-        result = await self.session.execute(stmt)
-        return result.scalars().all()
 
     async def get_all(
         self,
@@ -390,386 +322,11 @@ class BaseRepository(CRUDBase[ModelType, PrimaryKeyType], Generic[ModelType, Pri
             if await repo.exists("user-123"):
                 print("User exists")
         """
-        stmt = select(func.count()).select_from(self.model).where(self._pk == id)
+        # COUNT(*) 는 조건에 맞는 행을 끝까지 센다. 존재 여부만 알면 되므로
+        # EXISTS 로 첫 행에서 멈춘다.
+        stmt = select(sql_exists().where(self._pk == id))
         result = await self.session.execute(stmt)
-        return result.scalar_one() > 0
-
-    async def exists_by(self, **filters: Any) -> bool:
-        """
-        필터 조건으로 레코드 존재 여부를 확인합니다.
-
-        Args:
-            **filters: 필터 조건
-
-        Returns:
-            존재 여부 (True/False)
-
-        Example:
-            if await repo.exists_by(email="john@example.com"):
-                print("Email already exists")
-        """
-        stmt = select(func.count()).select_from(self.model).filter_by(**filters)
-        result = await self.session.execute(stmt)
-        return result.scalar_one() > 0
-
-    # ========================================================================
-    # READ - Eager Loading (N+1 문제 해결)
-    # ========================================================================
-
-    async def get_by_id_with(
-        self,
-        id: PrimaryKeyType,
-        relations: list[str] | None = None,
-        strategy: str = "selectin",
-    ) -> ModelType | None:
-        """
-        ID로 조회하면서 관계 데이터를 함께 로드합니다.
-
-        N+1 문제를 방지하여 관계 데이터에 접근할 때 추가 쿼리가 발생하지 않습니다.
-
-        Args:
-            id: 조회할 레코드 ID
-            relations: 함께 로드할 관계 목록 (예: ["posts", "profile"])
-            strategy: 로딩 전략 ("selectin", "joined", "subquery")
-
-        Returns:
-            관계가 로드된 모델 인스턴스 또는 None
-
-        Example:
-            user = await repo.get_by_id_with(
-                id="user-123",
-                relations=["posts", "profile"],
-                strategy="joined"
-            )
-            print(user.posts)  # 추가 쿼리 없음
-        """
-        stmt = select(self.model).where(self._pk == id)
-        stmt = self._apply_eager_loading(stmt, relations, strategy)
-
-        result = await self.session.execute(stmt)
-        return result.scalar_one_or_none()
-
-    async def get_one_with(
-        self,
-        relations: list[str] | None = None,
-        strategy: str = "selectin",
-        **filters: Any,
-    ) -> ModelType | None:
-        """
-        필터 조건으로 단일 조회하면서 관계를 함께 로드합니다.
-
-        Args:
-            relations: 함께 로드할 관계 목록
-            strategy: 로딩 전략
-            **filters: 필터 조건
-
-        Returns:
-            관계가 로드된 모델 인스턴스 또는 None
-
-        Example:
-            user = await repo.get_one_with(
-                relations=["posts"],
-                email="john@example.com"
-            )
-        """
-        stmt = select(self.model).filter_by(**filters)
-        stmt = self._apply_eager_loading(stmt, relations, strategy)
-
-        result = await self.session.execute(stmt)
-        return result.scalar_one_or_none()
-
-    async def get_many_with(
-        self,
-        relations: list[str] | None = None,
-        strategy: str = "selectin",
-        skip: int = 0,
-        limit: int = 100,
-        **filters: Any,
-    ) -> Sequence[ModelType]:
-        """
-        여러 레코드를 관계 데이터와 함께 조회합니다.
-
-        Args:
-            relations: 함께 로드할 관계 목록
-            strategy: 로딩 전략
-            skip: 건너뛸 레코드 수
-            limit: 최대 조회 수
-            **filters: 필터 조건
-
-        Returns:
-            관계가 로드된 모델 인스턴스 목록
-
-        Example:
-            users = await repo.get_many_with(
-                relations=["posts", "posts.comments"],  # 중첩 관계
-                is_active=True,
-                limit=50
-            )
-        """
-        stmt = select(self.model).filter_by(**filters).offset(skip).limit(limit)
-        stmt = self._apply_eager_loading(stmt, relations, strategy)
-
-        result = await self.session.execute(stmt)
-        return result.scalars().unique().all()
-
-    async def get_all_with(
-        self,
-        relations: list[str] | None = None,
-        strategy: str = "selectin",
-        skip: int = 0,
-        limit: int = 100,
-    ) -> Sequence[ModelType]:
-        """
-        전체 레코드를 관계 데이터와 함께 조회합니다.
-
-        Args:
-            relations: 함께 로드할 관계 목록
-            strategy: 로딩 전략
-            skip: 건너뛸 레코드 수
-            limit: 최대 조회 수
-
-        Returns:
-            관계가 로드된 모델 인스턴스 목록
-
-        Example:
-            users = await repo.get_all_with(
-                relations=["profile", "posts"],
-                strategy="selectin",
-                limit=100
-            )
-        """
-        stmt = select(self.model).offset(skip).limit(limit)
-        stmt = self._apply_eager_loading(stmt, relations, strategy)
-
-        result = await self.session.execute(stmt)
-        return result.scalars().unique().all()
-
-    async def get_by_ids_with(
-        self,
-        ids: list[PrimaryKeyType],
-        relations: list[str] | None = None,
-        strategy: str = "selectin",
-    ) -> Sequence[ModelType]:
-        """
-        여러 ID를 한 번에 조회하면서 관계도 함께 로드합니다.
-
-        Args:
-            ids: 조회할 ID 목록
-            relations: 함께 로드할 관계 목록
-            strategy: 로딩 전략
-
-        Returns:
-            관계가 로드된 모델 인스턴스 목록
-
-        Example:
-            users = await repo.get_by_ids_with(
-                ids=["id1", "id2", "id3"],
-                relations=["posts", "profile"]
-            )
-        """
-        if not ids:
-            return []
-
-        stmt = select(self.model).where(self._pk.in_(ids))
-        stmt = self._apply_eager_loading(stmt, relations, strategy)
-
-        result = await self.session.execute(stmt)
-        return result.scalars().unique().all()
-
-    # ========================================================================
-    # READ - Partial Loading (컬럼 최적화)
-    # ========================================================================
-
-    async def get_partial(
-        self,
-        columns: list[str],
-        skip: int = 0,
-        limit: int = 100,
-        **filters: Any,
-    ) -> Sequence[ModelType]:
-        """
-        필요한 컬럼만 선택적으로 조회합니다.
-
-        대용량 컬럼(TEXT, BLOB 등)을 제외하여 성능을 최적화합니다.
-
-        Args:
-            columns: 로드할 컬럼 목록
-            skip: 건너뛸 레코드 수
-            limit: 최대 조회 수
-            **filters: 필터 조건
-
-        Returns:
-            부분 로드된 모델 인스턴스 목록
-
-        Example:
-            # content 컬럼 제외하고 조회 (목록용)
-            posts = await repo.get_partial(
-                columns=["id", "title", "created_at"],
-                is_published=True
-            )
-        """
-        stmt = select(self.model).filter_by(**filters).offset(skip).limit(limit)
-        stmt = self._apply_column_loading(stmt, only_columns=columns)
-
-        result = await self.session.execute(stmt)
-        return result.scalars().all()
-
-    async def get_by_id_partial(
-        self,
-        id: PrimaryKeyType,
-        columns: list[str],
-    ) -> ModelType | None:
-        """
-        ID로 조회하면서 필요한 컬럼만 로드합니다.
-
-        Args:
-            id: 조회할 레코드 ID
-            columns: 로드할 컬럼 목록
-
-        Returns:
-            부분 로드된 모델 인스턴스 또는 None
-
-        Example:
-            post = await repo.get_by_id_partial(
-                id="post-123",
-                columns=["id", "title", "author_id"]
-            )
-        """
-        stmt = select(self.model).where(self._pk == id)
-        stmt = self._apply_column_loading(stmt, only_columns=columns)
-
-        result = await self.session.execute(stmt)
-        return result.scalar_one_or_none()
-
-    # ========================================================================
-    # READ - Batch Loading (배치 처리)
-    # ========================================================================
-
-    async def get_in_batches(
-        self,
-        batch_size: int = 100,
-        relations: list[str] | None = None,
-        **filters: Any,
-    ):
-        """
-        대용량 데이터를 배치로 조회합니다 (Async Generator).
-
-        메모리 효율적인 대용량 처리를 위한 메서드입니다.
-
-        Args:
-            batch_size: 배치 크기
-            relations: 함께 로드할 관계 목록
-            **filters: 필터 조건
-
-        Yields:
-            배치 단위 모델 인스턴스 목록
-
-        Example:
-            async for batch in repo.get_in_batches(batch_size=100):
-                for user in batch:
-                    await process(user)
-        """
-        offset = 0
-
-        while True:
-            stmt = select(self.model).filter_by(**filters).offset(offset).limit(batch_size)
-            stmt = self._apply_eager_loading(stmt, relations)
-
-            result = await self.session.execute(stmt)
-            batch = result.scalars().unique().all()
-
-            if not batch:
-                break
-
-            yield batch
-            offset += batch_size
-
-    # ========================================================================
-    # READ - Join (명시적 조인)
-    # ========================================================================
-
-    async def get_with_join(
-        self,
-        join_model: type,
-        join_condition: Any,
-        relations: list[str] | None = None,
-        skip: int = 0,
-        limit: int = 100,
-        **filters: Any,
-    ) -> Sequence[ModelType]:
-        """
-        명시적 JOIN으로 조회합니다.
-
-        Args:
-            join_model: JOIN할 모델 클래스
-            join_condition: JOIN 조건
-            relations: contains_eager로 로드할 관계
-            skip: 건너뛸 레코드 수
-            limit: 최대 조회 수
-            **filters: 필터 조건
-
-        Returns:
-            JOIN 결과 모델 인스턴스 목록
-
-        Example:
-            users = await user_repo.get_with_join(
-                join_model=Post,
-                join_condition=User.id == Post.author_id,
-                relations=["posts"]
-            )
-        """
-        stmt = (
-            select(self.model)
-            .join(join_model, join_condition)
-            .filter_by(**filters)
-            .offset(skip)
-            .limit(limit)
-        )
-
-        # contains_eager: 이미 JOIN한 데이터를 관계에 매핑
-        if relations:
-            for relation in relations:
-                stmt = stmt.options(contains_eager(getattr(self.model, relation)))
-
-        result = await self.session.execute(stmt)
-        return result.scalars().unique().all()
-
-    # ========================================================================
-    # READ - Aggregation (집계)
-    # ========================================================================
-
-    async def count_with_relation(
-        self,
-        relation: str,
-        **filters: Any,
-    ) -> list[tuple[ModelType, int]]:
-        """
-        관계 데이터의 개수와 함께 조회합니다.
-
-        Args:
-            relation: 카운트할 관계 이름
-            **filters: 필터 조건
-
-        Returns:
-            (모델 인스턴스, 관계 개수) 튜플 목록
-
-        Example:
-            results = await user_repo.count_with_relation("posts")
-            for user, post_count in results:
-                print(f"{user.name}: {post_count} posts")
-        """
-        relation_attr = getattr(self.model, relation)
-        relation_model = relation_attr.property.mapper.class_
-
-        stmt = (
-            select(self.model, func.count(relation_model.id).label("count"))
-            .outerjoin(relation_attr)
-            .filter_by(**filters)
-            .group_by(self._pk)
-        )
-
-        result = await self.session.execute(stmt)
-        return [(row[0], row[1]) for row in result.all()]
+        return bool(result.scalar())
 
     # ========================================================================
     # UPDATE (수정)
@@ -793,79 +350,48 @@ class BaseRepository(CRUDBase[ModelType, PrimaryKeyType], Generic[ModelType, Pri
         Example:
             user = await repo.update("user-123", {"name": "New Name"})
         """
+        payload = dict(data)  # 호출자 dict 불변
+
+        # bulk DML 대신 **먼저 단일 엔티티를 조회**한다. 그래야 없는 행과 변경이
+        # 없는 행을 구분할 수 있고, ORM 이벤트와 onupdate 가 정상 경로로 돈다.
+        entity = await self._get(id)
+        if entity is None:
+            return None
+
+        # 빈 PATCH 는 오류가 아니다 — 존재만 확인하고 아무것도 바꾸지 않는다.
+        if not payload:
+            return entity
+
+        known = set(self.model.__mapper__.column_attrs.keys())
+        unknown = sorted(set(payload) - known)
+        if unknown:
+            raise ValidationException(
+                message="알 수 없는 필드는 수정할 수 없습니다.",
+                detail={"model": self.model.__name__, "unknown_fields": unknown},
+            )
+        if self.pk_attr in payload:
+            raise ValidationException(
+                message="기본키는 수정할 수 없습니다.",
+                detail={"model": self.model.__name__, "field": self.pk_attr},
+            )
+
         try:
-            stmt = update(self.model).where(self._pk == id).values(**data)
-            result = cast("CursorResult[Any]", await self.session.execute(stmt))
-            await self.session.flush()
-
-            if result.rowcount == 0:
-                return None
-
-            return await self.get_by_id(id)
+            for field, value in payload.items():
+                setattr(entity, field, value)
+            await self._flush()
+            return await self._refresh(entity)
         except IntegrityError as e:
-            logger.error(f"[UPDATE] 무결성 제약 조건 위반: {e}")
+            self._log_db_error("UPDATE", e)
             raise DuplicateException(
                 message="업데이트할 데이터가 기존 데이터와 충돌합니다.",
-                detail={"model": self.model.__name__, "id": id, "error": str(e.orig)},
+                detail={"model": self.model.__name__},
             ) from e
         except SQLAlchemyError as e:
-            logger.error(f"[UPDATE] 데이터베이스 오류: {e}")
+            self._log_db_error("UPDATE", e)
             raise DatabaseException(
                 message="데이터 업데이트 중 오류가 발생했습니다.",
-                detail={"model": self.model.__name__, "id": id, "error": str(e)},
+                detail={"model": self.model.__name__},
             ) from e
-
-    async def bulk_update(
-        self,
-        ids: list[PrimaryKeyType],
-        data: dict[str, Any],
-    ) -> int:
-        """
-        여러 레코드를 일괄 업데이트합니다.
-
-        Args:
-            ids: 업데이트할 레코드 ID 목록
-            data: 업데이트할 데이터 딕셔너리
-
-        Returns:
-            업데이트된 레코드 수
-
-        Example:
-            count = await repo.bulk_update(
-                ids=["id1", "id2", "id3"],
-                data={"is_active": False}
-            )
-        """
-        stmt = update(self.model).where(self._pk.in_(ids)).values(**data)
-        result = cast("CursorResult[Any]", await self.session.execute(stmt))
-        await self.session.flush()
-        return result.rowcount
-
-    async def update_by(
-        self,
-        data: dict[str, Any],
-        **filters: Any,
-    ) -> int:
-        """
-        필터 조건에 맞는 레코드를 업데이트합니다.
-
-        Args:
-            data: 업데이트할 데이터 딕셔너리
-            **filters: 필터 조건
-
-        Returns:
-            업데이트된 레코드 수
-
-        Example:
-            count = await repo.update_by(
-                data={"is_active": False},
-                role="guest"
-            )
-        """
-        stmt = update(self.model).filter_by(**filters).values(**data)
-        result = cast("CursorResult[Any]", await self.session.execute(stmt))
-        await self.session.flush()
-        return result.rowcount
 
     # ========================================================================
     # DELETE (삭제)
@@ -888,125 +414,27 @@ class BaseRepository(CRUDBase[ModelType, PrimaryKeyType], Generic[ModelType, Pri
             if await repo.delete("user-123"):
                 print("User deleted")
         """
+        # update 와 같은 이유로 bulk DML 을 쓰지 않는다 — 먼저 엔티티를 조회한다.
+        entity = await self._get(id)
+        if entity is None:
+            return False
+
         try:
-            stmt = delete(self.model).where(self._pk == id)
-            result = cast("CursorResult[Any]", await self.session.execute(stmt))
-            await self.session.flush()
-            return result.rowcount > 0
+            await self._delete(entity)
+            return True
         except IntegrityError as e:
-            logger.error(f"[DELETE] 무결성 제약 조건 위반 (참조 중인 데이터): {e}")
+            self._log_db_error("DELETE", e)
             raise DatabaseException(
                 message="다른 데이터에서 참조 중이어서 삭제할 수 없습니다.",
-                detail={"model": self.model.__name__, "id": id, "error": str(e.orig)},
+                detail={"model": self.model.__name__},
             ) from e
         except SQLAlchemyError as e:
-            logger.error(f"[DELETE] 데이터베이스 오류: {e}")
+            self._log_db_error("DELETE", e)
             raise DatabaseException(
                 message="데이터 삭제 중 오류가 발생했습니다.",
-                detail={"model": self.model.__name__, "id": id, "error": str(e)},
+                detail={"model": self.model.__name__},
             ) from e
-
-    async def bulk_delete(self, ids: list[PrimaryKeyType]) -> int:
-        """
-        여러 레코드를 일괄 삭제합니다.
-
-        Args:
-            ids: 삭제할 레코드 ID 목록
-
-        Returns:
-            삭제된 레코드 수
-
-        Example:
-            count = await repo.bulk_delete(["id1", "id2", "id3"])
-        """
-        stmt = delete(self.model).where(self._pk.in_(ids))
-        result = cast("CursorResult[Any]", await self.session.execute(stmt))
-        await self.session.flush()
-        return result.rowcount
-
-    async def delete_by(self, **filters: Any) -> int:
-        """
-        필터 조건에 맞는 레코드를 삭제합니다.
-
-        Args:
-            **filters: 필터 조건
-
-        Returns:
-            삭제된 레코드 수
-
-        Example:
-            count = await repo.delete_by(is_expired=True)
-        """
-        stmt = delete(self.model).filter_by(**filters)
-        result = cast("CursorResult[Any]", await self.session.execute(stmt))
-        await self.session.flush()
-        return result.rowcount
 
     # ========================================================================
     # UPSERT (생성 또는 수정)
     # ========================================================================
-
-    async def get_or_create(
-        self,
-        defaults: dict[str, Any] | None = None,
-        **filters: Any,
-    ) -> tuple[ModelType, bool]:
-        """
-        있으면 조회, 없으면 생성합니다.
-
-        Args:
-            defaults: 생성 시 추가할 기본값
-            **filters: 조회 조건 (및 생성 시 기본 데이터)
-
-        Returns:
-            (인스턴스, 생성여부) 튜플
-            - 생성여부: True면 새로 생성됨, False면 기존 데이터
-
-        Example:
-            user, created = await repo.get_or_create(
-                defaults={"role": "user"},
-                email="john@example.com"
-            )
-            if created:
-                print("New user created")
-        """
-        instance = await self.get_one(**filters)
-        if instance:
-            return instance, False
-
-        data = {**filters, **(defaults or {})}
-        instance = await self.create(data)
-        return instance, True
-
-    async def update_or_create(
-        self,
-        defaults: dict[str, Any] | None = None,
-        **filters: Any,
-    ) -> tuple[ModelType, bool]:
-        """
-        있으면 업데이트, 없으면 생성합니다 (Upsert).
-
-        Args:
-            defaults: 업데이트/생성할 데이터
-            **filters: 조회 조건
-
-        Returns:
-            (인스턴스, 생성여부) 튜플
-            - 생성여부: True면 새로 생성됨, False면 업데이트됨
-
-        Example:
-            user, created = await repo.update_or_create(
-                defaults={"last_login": datetime.now()},
-                email="john@example.com"
-            )
-        """
-        instance = await self.get_one(**filters)
-        if instance:
-            for key, value in (defaults or {}).items():
-                setattr(instance, key, value)
-            await self._update(instance)  # CRUDBase 메서드 활용
-            return instance, False
-
-        data = {**filters, **(defaults or {})}
-        instance = await self.create(data)
-        return instance, True
