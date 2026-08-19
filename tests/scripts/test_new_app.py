@@ -110,3 +110,33 @@ def test_generated_router_module_is_importable_python(root):
     base = root / "app" / "features" / "widget"
     for rel in ("api/routers/router.py", "dependencies/widget_dependencies.py", "admin.py"):
         py_compile.compile(str(base / rel), doraise=True)
+
+
+def test_scaffold_does_not_teach_deprecated_session_names(tmp_path):
+    """생성기 템플릿이 폐기된 Dependency 이름을 퍼뜨리지 않는다 (INV-10).
+
+    scripts/ 는 `test_session_dependency_names.py` 의 AST 스캔 범위(app/·tests/) 밖이라
+    여기서 따로 막는다 — 실제로 한 번 빠져나갔다.
+    """
+    scaffold("widget", tmp_path, with_admin=True)
+
+    deps = (tmp_path / "app/features/widget/dependencies/widget_dependencies.py").read_text(
+        encoding="utf-8"
+    )
+
+    for deprecated in ("get_session", "get_read_session", "get_write_session"):
+        assert deprecated not in deps, f"템플릿이 deprecated alias '{deprecated}' 를 가르칩니다."
+    assert "get_writer_db_session" in deps
+    assert "get_read_only_db_session" in deps
+
+
+def test_scaffold_does_not_teach_commit_in_dependency(tmp_path):
+    """`yield` 뒤 commit 은 응답 전송 후에 실행돼 커밋 실패가 201 로 둔갑한다 (ADR-004)."""
+    scaffold("widget", tmp_path, with_admin=True)
+
+    deps = (tmp_path / "app/features/widget/dependencies/widget_dependencies.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "yield service" not in deps, "템플릿이 yield dependency 패턴을 가르칩니다."
+    assert "Dependency 는 조립만 한다" in deps

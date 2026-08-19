@@ -99,3 +99,35 @@ def test_wiring_uses_the_discovered_list_only():
     app = FastAPI()
     assert reg.install_routers(app) == 0
     assert reg.install_admin(_StubAdmin()) == 0
+
+
+def test_import_models_registers_models_without_package_reexport(tmp_path, monkeypatch):
+    """`models/__init__.py` 재export 없이도 모델이 등록된다.
+
+    예전에는 등록이 각 앱 `models/__init__.py` 의 재export 한 줄에 걸려 있었다.
+    scaffold 로 만든 앱은 그 줄이 없어 테이블이 조용히 빠졌고, 증상은 한참 뒤에
+    "마이그레이션이 비어 있음" 으로만 나타났다.
+    """
+    import sys
+
+    from sqlalchemy.orm import DeclarativeBase
+
+    from app.core.registry import AppModule
+
+    monkeypatch.syspath_prepend(str(tmp_path))
+    package = tmp_path / "probe_feature"
+    (package / "models").mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    # 재export 를 **일부러 비워 둔다** — scaffold 가 만드는 상태와 같다.
+    (package / "models" / "__init__.py").write_text("", encoding="utf-8")
+    (package / "models" / "models.py").write_text("MARKER = 'registered'\n", encoding="utf-8")
+
+    try:
+        AppModule(name="probe_feature", package="probe_feature").import_models()
+        assert sys.modules["probe_feature.models.models"].MARKER == "registered"
+    finally:
+        for name in list(sys.modules):
+            if name == "probe_feature" or name.startswith("probe_feature."):
+                sys.modules.pop(name, None)
+
+    assert DeclarativeBase is not None  # import 사용 표시
