@@ -66,6 +66,26 @@ def test_placeholder_secret_is_rejected(monkeypatch, key):
         config_module.validate_deployment_safety()
 
 
+def test_identical_jwt_keys_are_rejected(monkeypatch):
+    """access 와 refresh 서명 키가 같으면 refresh 토큰이 access 로 통과할 수 있다."""
+    _install(
+        monkeypatch,
+        env="production",
+        secrets={"access": "same-signing-key", "refresh": "same-signing-key"},
+    )
+    with pytest.raises(RuntimeError, match="동일"):
+        config_module.validate_deployment_safety()
+
+
+def test_distinct_jwt_keys_pass(monkeypatch):
+    _install(
+        monkeypatch,
+        env="production",
+        secrets={"access": "key-a", "refresh": "key-b"},
+    )
+    config_module.validate_deployment_safety()
+
+
 def test_wildcard_cors_is_rejected(monkeypatch):
     _install(monkeypatch, env="production", origins=["*"])
     with pytest.raises(RuntimeError, match="CORS"):

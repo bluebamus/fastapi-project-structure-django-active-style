@@ -10,10 +10,11 @@ lifespan·Admin 활성화 분기).
 앱 규약과 한계는 ``app/core/registry.py`` 와 README 참고.
 """
 
+import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -22,7 +23,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.core.db.session import create_db_tables, dispose_engine, engine, get_read_only_db_session
+from app.core.db.session import create_db_tables, dispose_engine, engine, get_writer_db_session
 from app.core.exception import AppException, ErrorResponse, ValidationException
 from app.core.middlewares.background_tasks import access_log_tasks
 from app.core.middlewares.cors_middleware import CustomCORSMiddleware
@@ -186,23 +187,29 @@ def _register_exception_handlers(app: FastAPI) -> None:
         처리되지 않은 모든 예외를 캐치하여 500 에러 응답을 반환합니다.
         운영 환경에서는 상세 정보를 숨깁니다.
         """
+        # raw path 대신 route template 을 남긴다 — 경로에 박힌 식별자(사용자 id 등)가
+        # 로그로 새지 않고, 같은 엔드포인트의 오류가 하나로 묶여 집계된다.
+        route = request.scope.get("route")
+        path_template = getattr(route, "path", None) or request.url.path
+
         logger.exception(
             "[UnhandledException] %s",
             type(exc).__name__,
             extra={
-                "path": request.url.path,
+                "path": path_template,
                 "method": request.method,
                 "exception_type": type(exc).__name__,
             },
         )
-        # DEBUG 모드에서만 상세 정보 노출 (운영 환경에서는 민감 정보 유출 방지)
-        detail = str(exc) if app_settings.DEBUG else None
+        # 예외 본문은 응답에 싣지 않는다. DEBUG 에서만 노출하는 방식도 쓰지 않는다 —
+        # 개발 환경의 예외 메시지에도 DSN·쿼리·입력값이 그대로 실려 온다(C-5).
+        # 상세는 위 로그(스택 트레이스 포함)에서 본다.
         return JSONResponse(
             status_code=500,
             content=ErrorResponse(
                 error_code="INTERNAL_SERVER_ERROR",
                 message="내부 서버 오류가 발생했습니다.",
-                detail=detail,
+                detail=None,
             ).model_dump(mode="json"),
         )
 
@@ -214,16 +221,9 @@ class HealthResponse(BaseModel):
     version: str
 
 
-class ReadyResponse(BaseModel):
-    """readiness 응답 스키마.
-
-    `/health` 는 프로세스 생존만 답한다. 트래픽을 받아도 되는지는 의존 자원(DB)
-    상태에 달려 있어서 별도 엔드포인트로 나눈다 — 둘을 합치면 DB 가 죽어도
-    로드밸런서가 계속 트래픽을 보낸다.
-    """
-
-    status: str
-    database: str
+# readiness 는 별도 스키마를 두지 않고 HealthResponse 계약을 재사용한다.
+# 실패는 프로젝트 표준 오류 응답(ErrorResponse)으로 내려간다.
+_READY_DB_TIMEOUT_SECONDS = 2
 
 
 def _add_health_and_docs(app: FastAPI) -> None:
@@ -251,29 +251,38 @@ def _add_health_and_docs(app: FastAPI) -> None:
 
     @app.get(
         "/ready",
-        response_model=ReadyResponse,
+        response_model=HealthResponse,
         tags=["Health"],
         summary="readiness 점검",
         description="DB 등 의존 자원까지 확인해 트래픽 수용 가능 여부를 알립니다.",
-        operation_id="readinessCheck",
-        responses={503: {"description": "의존 자원이 준비되지 않음"}},
+        operation_id="getReadiness",
+        responses={503: {"model": ErrorResponse, "description": "의존 자원이 준비되지 않음"}},
     )
     async def readiness_check(
-        response: Response,
-        session: AsyncSession = Depends(get_read_only_db_session),
-    ) -> ReadyResponse:
-        """DB 왕복 1회로 준비 상태를 확인한다.
+        db_session: AsyncSession = Depends(get_writer_db_session),
+    ) -> HealthResponse | JSONResponse:
+        """writer 로 `SELECT 1` 왕복 1회를 돌려 준비 상태를 확인한다.
+
+        writer 를 쓰는 이유는 replica 가 살아 있어도 primary 가 죽으면 쓰기 트래픽을
+        받을 수 없기 때문이다. 응답 지연이 무한정 늘어지지 않도록 timeout 을 건다.
 
         실패해도 예외를 그대로 올리지 않고 503 으로 낮춘다. 오류 응답에는 예외
-        메시지·DSN·SQL 을 담지 않는다 (C-5) — 로그에도 예외 타입만 남긴다.
+        메시지·DSN·SQL 을 담지 않으며(C-5) 로그에도 예외 타입만 남긴다.
         """
         try:
-            await session.execute(text("SELECT 1"))
+            async with asyncio.timeout(_READY_DB_TIMEOUT_SECONDS):
+                await db_session.execute(text("SELECT 1"))
         except Exception as exc:
             logger.warning("[Readiness] DB 점검 실패: %s", type(exc).__name__)
-            response.status_code = 503
-            return ReadyResponse(status="not_ready", database="unavailable")
-        return ReadyResponse(status="ready", database="ok")
+            return JSONResponse(
+                status_code=503,
+                content=ErrorResponse(
+                    error_code="NOT_READY",
+                    message="의존 자원이 준비되지 않았습니다.",
+                    detail=None,
+                ).model_dump(mode="json"),
+            )
+        return HealthResponse(status="ready", version=app_settings.VERSION)
 
     # Scalar API 문서 (DEBUG 모드에서만 활성화)
     if app_settings.DEBUG:

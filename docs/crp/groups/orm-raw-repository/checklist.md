@@ -38,7 +38,23 @@
 - [x] 라우터 on/off parameterize 검증 52건 통과, 라우트 인벤토리 19/31 불변
 - [x] Phase 2 게이트 전량 그린: pytest 385 / ruff / format / mypy / bandit / alembic single head
 - [x] run-log Round 2 + residual-risk(R-001 정정, R-009 신규) 갱신
-- [ ] **STOP: Phase 3 착수 승인**
+- [x] **STOP: Phase 3 착수 승인** — 사용자 승인(권장안: Phase 1-R 선처리 후 Phase 3)
+
+## Round 3 — 2026-08-19 (Phase 1-R: Phase 1 잔여 상위 5건) — 완료
+- [x] (F-011) `TRUST_PROXY_HEADERS` 도입 — 전달 헤더 무조건 신뢰 제거 + `.env.example` 문서화
+- [x] (F-012) access/refresh JWT 서명 키 동일 사용 거부
+- [x] (F-013) `/ready` 사양 4건 정렬 (`getReadiness` / HealthResponse·ErrorResponse / writer SELECT 1 / 2초 timeout)
+- [x] (F-014) 전역 예외 핸들러 raw detail 제거 + route template 로깅 (fail-on-revert 확인)
+- [x] (F-015) `ADMIN=false` lazy import 회귀 테스트
+- [x] 게이트: pytest 401 / ruff / format / mypy / bandit / alembic single head, 인벤토리 19-31 불변
+- [x] 미이행 §8 항목 5건을 F-016~F-020 으로 ledger 등록(프로세스 밖에 두지 않음)
+
+## 이월 — Phase 1-R2 (인프라성, Phase 5 전후 권장)
+- [ ] (F-016) `app/core/resources.py` resource manager + background task 종료 계약
+- [ ] (F-017) bounded logging queue(QueueHandler/Listener), 파일 I/O 를 event loop 밖, bootstrap 1회
+- [ ] (F-018) SQL noise filter + `LOG_SQL_ECHO_ENABLED` opt-in(development/test 한정)
+- [ ] (F-019) Celery prefork `worker_process_init/shutdown`, 단일 worker startup DDL 제한
+- [ ] (F-020) `home/__init__.py` import-time sink 를 명시적 멱등 init hook 으로 이동
 
 ## 예정 — Phase 3 이후
 - [ ] Phase 3 (F-002) ORM mixin·PK generic, `_get()` str 변환 제거

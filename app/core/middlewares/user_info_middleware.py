@@ -82,16 +82,20 @@ class UserInfoMiddleware(BaseHTTPMiddleware):
         Returns:
             클라이언트 IP 주소
         """
-        # X-Forwarded-For 헤더 확인 (프록시/로드밸런서 환경)
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            # 첫 번째 IP가 실제 클라이언트 IP
-            return forwarded_for.split(",")[0].strip()
+        # 전달 헤더는 **신뢰 proxy 설정이 켜진 배포에서만** 채택한다.
+        # 이 헤더는 클라이언트가 임의로 보낼 수 있어서, 프록시 뒤가 아닌 환경에서
+        # 신뢰하면 접속 IP 자체가 위조 가능한 값이 된다.
+        if middleware_settings.TRUST_PROXY_HEADERS:
+            # X-Forwarded-For 헤더 확인 (프록시/로드밸런서 환경)
+            forwarded_for = request.headers.get("X-Forwarded-For")
+            if forwarded_for:
+                # 첫 번째 IP가 실제 클라이언트 IP
+                return forwarded_for.split(",")[0].strip()
 
-        # X-Real-IP 헤더 확인
-        real_ip = request.headers.get("X-Real-IP")
-        if real_ip:
-            return real_ip
+            # X-Real-IP 헤더 확인
+            real_ip = request.headers.get("X-Real-IP")
+            if real_ip:
+                return real_ip
 
         # 직접 연결된 클라이언트 IP
         if request.client:
