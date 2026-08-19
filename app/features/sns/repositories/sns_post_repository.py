@@ -7,7 +7,7 @@ from app.core.repositories.repository_base import BaseRepository
 from app.features.sns.models.models import SnsPost
 
 
-class SnsPostRepository(BaseRepository[SnsPost]):
+class SnsPostRepository(BaseRepository[SnsPost, str]):
     """피드 게시물 Repository."""
 
     model = SnsPost

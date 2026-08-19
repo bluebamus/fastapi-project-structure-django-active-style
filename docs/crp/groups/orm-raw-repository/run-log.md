@@ -114,6 +114,37 @@
   라우트 인벤토리 19 paths / 31 operations 불변
 - **수렴 판정:** `NOT CONVERGED` (Open Fix 9건: F-002·F-004·F-005·F-007 + 이월 F-016~F-020)
 
+### Round 4 — 2026-08-19 (base SHA: `f270945`) — Phase 3 ORM 모델/Base
+- **트리거:** 승인된 권장안의 두 번째 단계.
+- **검수 범위:** 공통 모델 계층(`models_base.py`, 5개 기능 모델)과 Repository PK 계약.
+- **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 ☑(Phase 3 한정) 4 □ 5 □
+- **처리한 Fix:** F-002 → Fixed.
+- **발견:** mixin 은 `models_base.py` 에 정의만 되어 있고 **어떤 모델도 쓰지 않았다**.
+  5개 모델이 동일한 `id`/`created_at`/`updated_at` 정의를 각자 복사해 두고 있었다 —
+  한쪽만 고치면 조용히 어긋나는 구조.
+- **변경 요약:**
+  - `UUIDPrimaryKeyMixin` / `CreatedAtMixin` / `UpdatedAtMixin` 으로 재구성, 기존
+    `UUIDMixin`·`TimestampMixin` 은 동일 객체 alias 로 유지
+  - 5개 모델을 mixin 조합으로 전환. `user_access_logs` 는 `UpdatedAtMixin` 을
+    상속하지 않아 없던 컬럼이 새로 생기지 않는다
+  - `CRUDBase[ModelType, PrimaryKeyType]`(PEP 696 기본값 `str`) + `pk_attr` + `_pk` 도입.
+    기존 선언 `BaseRepository[Model]` 도 그대로 유효하다
+  - `_get()` 의 `str(id)` 제거 — PK 를 선언된 타입 그대로 전달
+  - `BaseRepository` 의 `self.model.id` 10곳을 `self._pk` 로, `id: str` 시그니처를
+    `PrimaryKeyType` 으로 관통. 5개 기능 Repository 는 `[Model, str]` 로 명시
+- **schema diff 0 증명:** 리팩터링 **이전** 스키마 서명을 `baseline/schema.json` 골든으로
+  떠 두고 전환 후 대조(6건 통과). 여기에 더해 기존
+  `test_migration_chain.py::test_migrated_schema_matches_models` 도 통과한다.
+- **자체 결함 1건(같은 라운드에서 교정):** PK 테스트용 더미 모델을 공유 `Base` 에 붙여
+  `Base.metadata` 를 오염시켰고, 마이그레이션 대조 테스트가 즉시 깨졌다. 지침 §14 대로
+  별도 `DeclarativeBase` 로 분리했다. **기존 테스트가 제 실수를 잡은 사례.**
+- **mypy 가 잡은 것 2건:** `_pk` 의 Any 반환, `_get` 에 `str` 을 넘기던 `BaseRepository`
+  내부 호출. 후자는 시그니처가 아직 `id: str` 로 못박혀 있던 진짜 누락이었다.
+- **게이트 결과:** pytest **436 passed**(Phase 1-R 401 + 신규 35), skip/xfail/deselected 0 ·
+  ruff check/format · mypy 148 files · bandit 0 issues · alembic single head ·
+  라우트 인벤토리 19 paths / 31 operations 불변
+- **수렴 판정:** `NOT CONVERGED` (Open Fix 8건: F-004·F-005·F-007 + 이월 F-016~F-020)
+
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
@@ -121,3 +152,4 @@
 | 1 | 0 | 1 | 2 | 0 | 3 (전부 같은 라운드에 Fixed) | NOT CONVERGED (Open Fix 5 → Phase 2~9) |
 | 2 | 0 | 0 | 0 | 0 | 0 (F-003 해소) | NOT CONVERGED (Open Fix 4 → Phase 3·5·9) |
 | 3 | 0 | 1 | 6 | 3 | 10 (5 Fixed / 5 이월) | NOT CONVERGED (Open Fix 9) |
+| 4 | 0 | 0 | 0 | 0 | 0 (F-002 해소) | NOT CONVERGED (Open Fix 8) |

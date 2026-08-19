@@ -7,7 +7,7 @@ from app.core.repositories.repository_base import BaseRepository
 from app.features.user.models.models import User
 
 
-class UserRepository(BaseRepository[User]):
+class UserRepository(BaseRepository[User, str]):
     """사용자 Repository."""
 
     model = User

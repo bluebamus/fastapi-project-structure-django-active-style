@@ -56,8 +56,16 @@
 - [ ] (F-019) Celery prefork `worker_process_init/shutdown`, 단일 worker startup DDL 제한
 - [ ] (F-020) `home/__init__.py` import-time sink 를 명시적 멱등 init hook 으로 이동
 
-## 예정 — Phase 3 이후
-- [ ] Phase 3 (F-002) ORM mixin·PK generic, `_get()` str 변환 제거
+## Round 4 — 2026-08-19 (Phase 3: ORM 모델/Base) — 완료
+- [x] `UUIDPrimaryKeyMixin`/`CreatedAtMixin`/`UpdatedAtMixin` 구성 + 기존 이름 alias 유지
+- [x] 5개 모델을 mixin 조합으로 전환 (중복 컬럼 정의 제거)
+- [x] (F-002) `CRUDBase[ModelType, PrimaryKeyType]` + `pk_attr` + `_pk`, `_get()` str 변환 제거
+- [x] `BaseRepository` 의 `self.model.id` 10곳·`id: str` 시그니처를 PK 타입으로 관통
+- [x] **schema diff 0** — 사전 골든(`baseline/schema.json`) 대조 + 기존 마이그레이션 대조 테스트
+- [x] 게이트: pytest 436 / ruff / format / mypy / bandit / alembic single head
+- [ ] **STOP: Phase 4 착수 승인**
+
+## 예정 — Phase 4 이후
 - [ ] Phase 4 ORM Repository 최소 CRUD·입력 불변성·EXISTS·예외 변환
 - [ ] Phase 5 (F-007) `compose.test.yaml` + CI MySQL service, Alembic chain up/down/re-up smoke
 - [ ] Phase 6 Raw Base — one/all/scalar/rowcount·binding·query name·예외·read-only 계약

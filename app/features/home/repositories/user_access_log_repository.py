@@ -17,7 +17,7 @@ from app.utils.logs import get_logger
 logger = get_logger("user_access_log_repository")
 
 
-class UserAccessLogRepository(BaseRepository[UserAccessLog]):
+class UserAccessLogRepository(BaseRepository[UserAccessLog, str]):
     """
     UserAccessLog Repository
 
