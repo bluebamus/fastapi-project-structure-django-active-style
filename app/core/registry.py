@@ -171,8 +171,20 @@ class AppModule:
         return list(views)
 
     def import_models(self) -> None:
-        """`<package>.models` 를 import 하여 테이블을 `Base.metadata` 에 등록한다(있으면)."""
+        """모델 모듈을 import 하여 테이블을 `Base.metadata` 에 등록한다(있으면).
+
+        패키지(`<package>.models`)와 관례 모듈(`<package>.models.models`)을 **둘 다**
+        시도한다. 예전에는 패키지만 import 했는데, 그러면 등록이 각 앱
+        `models/__init__.py` 의 재export 한 줄에 걸린다 — 그 줄을 빼먹은 앱(특히
+        scaffold 로 만든 앱)은 테이블이 조용히 등록되지 않고, 증상은 한참 뒤에
+        "마이그레이션이 비어 있음" 이나 "테이블이 안 생김" 으로만 나타난다.
+        `models_registry.iter_model_modules()` 가 이미 관례 모듈 경로를 기준으로
+        목록을 만들고 있어, 둘을 맞춰 두면 runtime 과 Alembic 이 같은 집합을 본다.
+
+        이미 import 된 모듈은 `sys.modules` 에서 돌아오므로 두 번 시도해도 부작용은 없다.
+        """
         self._import_optional(f"{self.package}.models")
+        self._import_optional(f"{self.package}.models.models")
 
 
 class AppRegistry:

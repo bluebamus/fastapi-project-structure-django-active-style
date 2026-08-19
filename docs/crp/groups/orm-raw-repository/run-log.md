@@ -236,6 +236,38 @@
   라우트 인벤토리 19 paths / 31 operations 불변
 - **수렴 판정:** `NOT CONVERGED` (Open Fix 7건: F-004·F-005 + 이월 F-016~F-020)
 
+### Round 8 — 2026-08-19 (base SHA: `364ac4e`) — Phase 7 catalog (ORM 예제)
+- **트리거:** Phase 6 완료 후 사용자 승인.
+- **검수 범위:** 신규 기능 catalog 전 계층 + 자동배선 경계.
+- **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 ☑(Phase 7 한정) 4 □ 5 □
+- **의미:** Phase 3~6 에서 만든 Base 를 **신규 기능에 처음 적용**하는 자리였다. 그래서
+  CRUD 동작보다 "그 계약이 실전에서 그대로 서는가" 를 봤다.
+- **구현:** 모델(mixin 조합)·migration(`c3d5e7a91b02`)·Admin·Repository·Service·
+  Dependency·DTO·View·router. 라우트 5 operations / 2 paths, prefix `/v1/catalog`, tag `Catalog`,
+  operation ID 는 지침서 표와 1:1 일치. **`main.py` 무수정**으로 자동 발견·마운트됐다(C-1).
+  인벤토리 19 → **21 paths / 36 operations**.
+- **신규 finding 3건:**
+  - **F-026(HIGH)** — 생성기로 앱을 만든 직후 catalog 테이블이 metadata 에 **등록되지 않았다**.
+    원인은 `AppModule.import_models()` 가 패키지만 import 해서 등록이 각 앱
+    `models/__init__.py` 재export 한 줄에 걸려 있던 것. scaffold 로 만든 모든 앱이
+    같은 함정에 빠지는 구조였다. 관례 모듈도 함께 import 하도록 근본 지점을 고쳤다.
+  - **F-025(MED)** — 생성기 dependency 템플릿이 `yield` 뒤 commit 과 deprecated alias 를
+    가르치고 있었다. `scripts/` 가 Phase 2 AST 스캔 범위 밖이라 빠져나갔다.
+  - **F-027(LOW, Open)** — 지침서 §2.1 의 속성 명명(`db_session`)과 실제 코드(`session`)의
+    불일치. 전역 rename 이라 이 Phase 범위 밖으로 두고 기록했다.
+- **지침서와 의도적으로 다르게 간 것 1건:** 예시가 쓰는 `UUIDTimestampModel` 대신 Phase 3 에서
+  확정한 mixin 조합(`UUIDPrimaryKeyMixin`+`CreatedAtMixin`+`UpdatedAtMixin`)을 썼다.
+  저장소의 기존 5개 모델이 모두 그 형태이므로 일관성을 택했다.
+- **갱신한 골든 4종:** registry 앱 집합, route inventory, Admin 관리 모델 집합, 스키마 스냅샷.
+  이 넷이 함께 바뀐 것 자체가 자동배선이 실제로 동작했다는 증거다.
+- **쓰기 계약:** 응답 DTO 검증을 **commit 앞**에 두었다(지침서 §3.7). commit 뒤 검증은 만료된
+  속성 재조회로 lazy I/O 를 유발하고, 그 실패는 "이미 커밋됐는데 500" 이 된다. 기존 blog 는
+  commit 뒤 검증이라 이 부분은 catalog 가 지침서를 따랐다.
+- **게이트 결과:** 전체 suite **520 passed**(Phase 6 497 + 신규 23, skip·deselect 0) ·
+  ruff check/format · mypy 167 files · bandit 0 issues · `alembic heads` 단일(`c3d5e7a91b02`) ·
+  MySQL 통합에서 신규 revision 의 head → base → head 왕복과 모델 대조까지 통과
+- **수렴 판정:** `NOT CONVERGED` (Open Fix 8건: F-004·F-005·F-027 + 이월 F-016~F-020)
+
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
@@ -247,3 +279,4 @@
 | 5 | 0 | 1 | 2 | 1 | 4 (전부 같은 라운드에 Fixed) | NOT CONVERGED (Open Fix 7) |
 | 6 | 0 | 0 | 0 | 0 | 0 (F-007 해소) | NOT CONVERGED (Open Fix 7) |
 | 7 | 0 | 0 | 0 | 0 | 0 (신설 계층) | NOT CONVERGED (Open Fix 7) |
+| 8 | 0 | 1 | 1 | 1 | 3 (2 Fixed / 1 이월) | NOT CONVERGED (Open Fix 8) |

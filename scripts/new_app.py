@@ -51,21 +51,32 @@ _DEPS_TMPL = '''\
 {Class} 기능 의존성 (인터페이스 집합체).
 
 services 의 기능 클래스를 session 으로 생성·결합해 view 에 제공한다.
-yield 후 성공 시 커밋 — 트랜잭션 경계를 담당한다(UnitOfWork 대체).
+**Dependency 는 조립만 한다** — commit 하지 않고 Service 메서드를 미리 실행하지도
+않는다. 트랜잭션 경계는 쓰기 핸들러 본문이 `await service.commit()` 으로 닫는다.
+
+예전 템플릿은 `yield` 뒤에서 commit 했는데, FastAPI 상위 버전에서 yield dependency
+의 종료 코드가 **응답 전송 후에** 실행되도록 바뀌면서 커밋 실패가 201 로 둔갑했다.
+그래서 커밋을 핸들러 본문으로 옮겼다.
+
+조회는 read-only, 변경은 writer Dependency 를 쓴다. 쓰기용을 조회에 재사용하면
+조회마다 불필요한 COMMIT 왕복이 생기고 한 세션에 커밋 주체가 둘이 될 수 있다.
 
 예시:
-    from collections.abc import AsyncGenerator
     from fastapi import Depends
     from sqlalchemy.ext.asyncio import AsyncSession
-    from app.core.db.session import get_session
+
+    from app.core.db.session import get_read_only_db_session, get_writer_db_session
     from app.features.{name}.services.{name}_service import {Class}Service
 
     async def get_{name}_service(
-        session: AsyncSession = Depends(get_session),
-    ) -> AsyncGenerator[{Class}Service, None]:
-        service = {Class}Service(session)
-        yield service
-        await session.commit()
+        session: AsyncSession = Depends(get_writer_db_session),
+    ) -> {Class}Service:
+        return {Class}Service(session)
+
+    async def get_{name}_service_readonly(
+        session: AsyncSession = Depends(get_read_only_db_session),
+    ) -> {Class}Service:
+        return {Class}Service(session)
 """
 '''
 

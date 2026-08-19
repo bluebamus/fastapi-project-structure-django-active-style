@@ -61,6 +61,68 @@
       "unique": false
     }
   ],
+  "catalog_products": [
+    {
+      "has_default": true,
+      "has_onupdate": false,
+      "index": false,
+      "name": "created_at",
+      "nullable": false,
+      "primary_key": false,
+      "type": "DATETIME",
+      "unique": false
+    },
+    {
+      "has_default": true,
+      "has_onupdate": false,
+      "index": false,
+      "name": "id",
+      "nullable": false,
+      "primary_key": true,
+      "type": "VARCHAR(36)",
+      "unique": false
+    },
+    {
+      "has_default": true,
+      "has_onupdate": false,
+      "index": false,
+      "name": "is_active",
+      "nullable": false,
+      "primary_key": false,
+      "type": "BOOLEAN",
+      "unique": false
+    },
+    {
+      "has_default": false,
+      "has_onupdate": false,
+      "index": false,
+      "name": "name",
+      "nullable": false,
+      "primary_key": false,
+      "type": "VARCHAR(200)",
+      "unique": false
+    },
+    {
+      "has_default": false,
+      "has_onupdate": false,
+      "index": false,
+      "name": "price",
+      "nullable": false,
+      "primary_key": false,
+      "type": "NUMERIC(12, 2)",
+      "unique": false
+    },
+    {
+      "has_default": true,
+      "has_onupdate": true,
+      "index": false,
+      "name": "updated_at",
+      "nullable": false,
+      "primary_key": false,
+      "type": "DATETIME",
+      "unique": false
+    }
+  ],
   "replies": [
     {
       "has_default": false,

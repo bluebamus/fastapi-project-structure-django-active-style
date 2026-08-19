@@ -97,10 +97,23 @@
 - [x] SQLite 단위 27건 통과
 - [x] MySQL 통합 12건 통과 — rowcount 실측, expanding IN, 주입 무력화, read-only × Raw 차단
 - [x] 게이트: 전체 497 passed / -m mysql 17 / ruff / format / mypy 150 / bandit / alembic
-- [ ] **STOP: Phase 7 착수 승인**
+- [x] **STOP: Phase 7 착수 승인** — 사용자 승인 완료
 
-## 예정 — Phase 7 이후
-- [ ] Phase 7 catalog(ORM) 예제 자동배선
+## Round 8 — 2026-08-19 (Phase 7: catalog ORM 예제) — 완료
+- [x] 생성기(`scripts/new_app.py`)로 골격 생성 후 전 계층 구현
+- [x] 모델 — mixin 조합, migration `c3d5e7a91b02` (upgrade/downgrade 모두 구현)
+- [x] Admin — `ProductAdmin` create/edit/delete/details/export 허용
+- [x] Repository/Service/Dependency/DTO/View — 조회 read-only, 변경 writer, commit 은 View 가 1회
+- [x] 응답 DTO 검증을 commit **앞**에 배치(지침서 §3.7)
+- [x] 라우트 5 operations / 2 paths, operation ID 지침서 표와 1:1 일치
+- [x] **`main.py` 무수정 자동배선 확인** (C-1) — 인벤토리 19 → 21 paths / 36 operations
+- [x] (F-026) registry 가 관례 모델 모듈도 import 하도록 수정 — scaffold 앱 모델 미등록 함정 제거
+- [x] (F-025) 생성기 dependency 템플릿 교정 + 재발 방지 테스트
+- [x] 골든 4종 갱신 — registry 앱 집합 / route inventory / Admin 모델 집합 / 스키마 스냅샷
+- [x] 게이트: 전체 520 passed / ruff / format / mypy 167 / bandit / alembic single head / MySQL 체인
+- [ ] **STOP: Phase 8 착수 승인**
+
+## 예정 — Phase 8 이후
 - [ ] Phase 8 reports(Raw) 예제 자동배선
 - [ ] Phase 9 (F-004, F-005) OpenAPI/문서 정리 + `scripts/review_gate.py` + 최종 인벤토리 22/37
 

@@ -27,6 +27,9 @@ EXPECTED: dict[str, frozenset[str]] = {
     "/api/v1/sns/posts/{post_id}": frozenset({"GET", "PATCH", "DELETE"}),
     "/api/v1/user/users": frozenset({"GET", "POST"}),
     "/api/v1/user/users/{user_id}": frozenset({"GET", "PATCH", "DELETE"}),
+    # catalog 도메인 (Phase 7 — ORM 예제, main.py 무수정 자동배선)
+    "/api/v1/catalog/products": frozenset({"GET", "POST"}),
+    "/api/v1/catalog/products/{product_id}": frozenset({"GET", "PATCH", "DELETE"}),
     # auth 도메인 (Phase B)
     "/api/v1/auth/register": frozenset({"POST"}),
     "/api/v1/auth/login": frozenset({"POST"}),
