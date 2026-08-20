@@ -79,11 +79,17 @@
 - [x] `ruff check .` · `ruff format --check .` · `mypy .` · `bandit -ll -q -r app main.py config.py` 클린
 - [x] `alembic heads` single head — `d4e6f8b12c34`
 - [x] 라우트 인벤토리가 Phase 별 기대치와 정확히 일치 — 최종 **22 paths / 37 operations**
-- [ ] 불변식 구조 증거: INV-1~INV-9 각각에 AST 규칙 또는 실행 테스트 1개 이상 연결
+- [x] 불변식 구조 증거: **INV-1~INV-21** 각각에 AST 규칙 또는 실행 테스트 1개 이상 연결
+      (문구는 v0.1 당시 9개 기준이었고 이후 21개로 늘었다. §2-3 의 각 INV 가 괄호로
+      검사 수단을 지목하며, 지목된 파일이 전부 실재함을 2026-08-20 재검수에서 확인)
 - [x] MySQL marker 테스트가 **실제 실행** — 28 passed, skip 0
 - [x] 문서의 경로·심볼·환경변수 기계 검사 통과 — `review_gate --group docs`
 - [x] **Open Fix 0** — 이월 F-016~F-020 도 runtime-lifecycle 그룹 Round 1 에서 Closed · residual-risk R-001~R-014 기록 완료
-- [ ] 질의 수준(design-baseline §0 = 보통)에 맞춘 P/D 질문 깊이 준수
+- [x] 질의 수준(design-baseline §0 = 보통)에 맞춘 P/D 질문 깊이 준수
+      (핵심 갈림길만 질의 — Celery 실행 모델은 사용자 결정을 받아 REQ-009 로 확정,
+      나머지는 기본값 + 고지로 처리. run-log 각 라운드에 기록)
 
 ## 4. 변경 이력
 - v0.1 (2026-08-18): 최초 작성. Phase 0 기준선 측정값 반영.
+- v0.2 (2026-08-20): 재검수. 미체크로 남아 있던 인수 기준 2건을 근거와 함께 닫고,
+  불변식 범위 문구를 실제 집합(INV-1~21)에 맞췄다. 인수 기준 자체는 바꾸지 않았다.
