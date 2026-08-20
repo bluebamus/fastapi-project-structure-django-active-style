@@ -77,7 +77,9 @@ sequenceDiagram
     end
 ```
 
-`BaseService`는 session을 보유하고 `commit()`·`rollback()` 헬퍼를 제공한다. 현재 저장소는 `BaseRepository` 계열이다. Raw SQL과 ORM 구현을 선택하는 포트·어댑터 구조는 별도 계획이며 아직 런타임 선택 기능이 아니다.
+`BaseService`는 session을 보유하고 `commit()`·`rollback()` 헬퍼를 제공한다.
+
+> **갱신(2026-08-20).** 이 문단은 작성 시점(2026-08-18) 기준이었다. 이후 ORM 과 독립된 Raw 계층이 추가되어 현재는 **두 계열이 모두 존재**한다 — ORM 은 `BaseRepository`, Raw 는 `RawRepositoryBase` 이며 상속 관계가 없다. 다만 이는 *런타임에 구현을 바꿔 끼우는* 포트·어댑터가 아니라, 기능이 작성 시점에 둘 중 하나를 고르는 구조다. 선택 기준과 각 워크플로는 [`../../guides/orm-raw-workflow.md`](../../guides/orm-raw-workflow.md) 를 본다. 예제는 `app/features/catalog/`(ORM)와 `app/features/reports/`(Raw)다.
 
 ## 모델 등록과 마이그레이션
 

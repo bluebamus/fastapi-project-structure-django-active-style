@@ -1,7 +1,7 @@
 [project]
-name = "fastapi-default-project-structure"
+name = "fastapi-project-structure-django-active-style"
 version = "0.1.0"
-description = "FastAPI Default Project Structure with Repository Pattern"
+description = "Django-style app auto-discovery FastAPI structure with ORM/Raw repositories"
 authors = [
     {name = "Your Name", email = "you@example.com"}
 ]
