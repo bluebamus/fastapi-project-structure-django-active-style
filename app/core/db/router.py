@@ -229,8 +229,26 @@ def _text_is_readable(sql: str) -> bool:
     """Raw SQL 문자열이 **확실히** 읽기인지 판별한다(default-deny).
 
     parser 없이 SQL 을 완전히 분류할 수는 없다. 그래서 SELECT 로 시작하고 잠금을
-    획득하지 않는 단일 문장만 통과시키고 나머지는 전부 거부한다. `WITH` 는 안에
-    DML 을 감출 수 있어(``WITH x AS (DELETE ... RETURNING ...)``) 읽기로 보지 않는다.
+    획득하지 않는 단일 문장만 통과시키고 나머지는 전부 거부한다.
+
+    `WITH` 를 거부하는 이유는 **CTE 정의 뒤에 오는 최상위 키워드가 쓰기일 수 있기
+    때문**이다. MySQL 8.4 에서 실측한 결과는 이렇다.
+
+    - ``WITH c AS (...) SELECT ...`` — 읽기
+    - ``WITH c AS (...) UPDATE ...`` — **쓰기** (유효한 문법이다)
+    - ``WITH c AS (...) DELETE ...`` — **쓰기** (유효한 문법이다)
+    - ``WITH c AS (...) INSERT ...`` — 문법 오류. INSERT 는 `WITH` 로 시작할 수 없다
+      (``INSERT INTO t WITH c AS (...) SELECT ...`` 형태만 유효하고, 이건 첫 토큰이
+      `insert` 라 아래 검사가 이미 잡는다). `REPLACE` 도 같다.
+
+    즉 위험 표면은 **UPDATE 와 DELETE 둘**이다. CTE 안에 DML 을 넣는
+    ``WITH x AS (DELETE ... RETURNING ...)`` 은 PostgreSQL 문법이고 MySQL 에서는
+    문법 오류라 이 저장소의 위협이 아니다 — 근거를 그쪽에 두면 DB 를 바꿀 때
+    판단이 함께 틀어진다.
+
+    `WITH` 를 정확히 통과시키려면 괄호 균형을 맞춰 CTE 정의를 건너뛴 뒤 그 다음
+    최상위 키워드를 봐야 한다. 지금은 그 요구가 없어 통째로 거부한다 — 부작용은
+    읽기 전용 CTE 조회도 함께 막히는 것이고, 그 거래를 의도적으로 택했다(R-001).
     """
     stripped = _SQL_COMMENT.sub(" ", sql).strip()
     head, separator, tail = stripped.partition(";")
@@ -274,5 +292,6 @@ def _block_read_only_execute(orm_execute_state: ORMExecuteState) -> None:
         raise ReadOnlyRoutingError(
             "읽기 전용 세션에서 읽기로 판별되지 않는 구문을 실행하려 했습니다. "
             "SELECT 만 허용되며 WITH·잠금 획득·multi-statement·판별 불가 문장은 "
-            "기본 거부됩니다. 쓰기에는 get_writer_db_session() 을 사용하세요."
+            "기본 거부됩니다(WITH 는 뒤에 UPDATE·DELETE 가 올 수 있어 읽기로 보지 않습니다). "
+            "쓰기에는 get_writer_db_session() 을 사용하세요."
         )

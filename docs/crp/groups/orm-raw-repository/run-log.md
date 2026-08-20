@@ -415,6 +415,45 @@
   cache`). 캐시는 속도용이고 판정에 영향이 없어 결함으로 올리지 않는다.
 - **수렴 판정:** `CONVERGED` 유지 (Open Fix 0).
 
+### Round 14 — 2026-08-20 (base SHA: `35ee32a`) — 근거의 정확성(F-036)
+
+- **트리거:** 사용자 질의 — "read 는 WITH 가 필요 없고, create·delete 도 필요 없고
+  오직 update 관련해서만 필요한 것 아닌가."
+- **검증 방법:** 기억이 아니라 **MySQL 8.4.11 컨테이너에 직접 실행**했다. SQL 방언 주장은
+  기억으로 답하면 틀린다 — 이 라운드가 고친 결함이 정확히 그렇게 생겼다.
+- **실측 결과:**
+
+  | 문장 | MySQL 8.4 | 성격 |
+  |---|---|---|
+  | `WITH c AS (...) SELECT ...` | 유효 | 읽기 |
+  | `WITH c AS (...) UPDATE ...` | 유효 | **쓰기** |
+  | `WITH c AS (...) DELETE ...` | 유효 | **쓰기** |
+  | `WITH c AS (...) INSERT ...` | 문법 오류 | — |
+  | `WITH c AS (...) REPLACE ...` | 문법 오류 | — |
+  | `WITH x AS (DELETE ... RETURNING ...)` | 문법 오류(PostgreSQL 전용) | — |
+
+- **판정:** 사용자 지적은 **INSERT 에 대해 옳고 DELETE 에 대해 틀렸다.** INSERT 는 `WITH`
+  로 시작할 수 없어(`INSERT INTO t WITH c AS (...) SELECT ...` 형태만 유효하고 그건 첫 토큰이
+  `insert` 라 기존 검사가 잡는다) 표면이 아니다. 그러나 `WITH ... DELETE` 는 유효한 MySQL 이다.
+  **위험 표면은 UPDATE 와 DELETE 둘이다.**
+- **F-036(LOW):** 그 과정에서 docstring 이 default-deny 의 근거로 **PostgreSQL 문법**
+  (`WITH x AS (DELETE ... RETURNING ...)`)을 들고 있다는 것이 드러났다. 이 저장소의 DB 에서는
+  문법 오류라, **존재하지 않는 위협을 근거로 삼고 있었다.**
+- **왜 결론은 그대로인가:** default-deny 는 원래 옳았다. 틀린 것은 근거뿐이다. 다만 틀린 근거를
+  두면 나중에 이 결정을 재검토할 때 판단이 오염된다 — "PostgreSQL 을 쓰면 위험하다" 로 읽혀
+  MySQL 에서의 진짜 표면(UPDATE·DELETE)을 놓친다.
+- **변경:** docstring 과 `ReadOnlyRoutingError` 메시지 문구만. **판정 로직 diff 0** (AST 대조로
+  확인 — 바뀐 것은 docstring 과 메시지 문자열뿐).
+- **회귀:** 문법 사실 자체를 `-m mysql` 통합 테스트로 고정했다. 주석은 썩지만 실행되는 테스트는
+  썩지 않는다. `WITH ... UPDATE`/`DELETE` 가 실제로 실행됨을 단언하고, `WITH ... INSERT` 가
+  `ProgrammingError` 임을 단언하고, 가드가 셋 다(읽기 CTE 포함) 막는지를 단언한다.
+- **fail-on-revert:** 가드를 `("select", "with")` 로 느슨하게 하자 3건 실패 → 복원 후 통과.
+- **부수 정정:** R-012 의 "테스트 4개 파일" 은 실측 3개였다. 4번째였던 `test_rate_limit.py` 는
+  slowapi 제거(`76aed3c`)로 사라졌고 `.pyc` 만 남아 있었다. 레지스트리를 정정했다.
+- **게이트 결과:** review_gate 6그룹 · 전체 **705 passed**(702 + 3, skip 0) ·
+  라우트 22/37 불변 · alembic `d4e6f8b12c34` 불변
+- **수렴 판정:** `CONVERGED` 유지 (Open Fix 0).
+
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
@@ -432,3 +471,4 @@
 | 11 | 0 | 0 | 0 | 0 | 0 (이월 5건 Closed) | **CONVERGED** (Open Fix 0 — 이월분 포함) |
 | 12 | 0 | 0 | 0 | 0 | 0 (문서 정합성 정정 1) | **CONVERGED** (Open Fix 0) |
 | 13 | 0 | 0 | 0 | 1 | 1 (같은 라운드에 Fixed) | **CONVERGED** (Open Fix 0) |
+| 14 | 0 | 0 | 0 | 1 | 1 (같은 라운드에 Fixed) | **CONVERGED** (Open Fix 0) |
