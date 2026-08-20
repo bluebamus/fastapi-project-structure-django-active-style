@@ -89,8 +89,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     resources.register("background-tasks", access_log_tasks.drain, budget=5.0)
 
     try:
-        # DEBUG 모드일 때만 테이블 자동 생성
-        # 운영 환경에서는 Alembic 마이그레이션 사용 권장
+        # 스키마를 만드는 경로는 둘이고, 어느 쪽을 쓸지는 **시점**이 정한다.
+        # 개발 초기에는 이 자동 생성을 쓴다 — 모델을 하루에 몇 번씩 갈아엎는
+        # 단계에서 매번 revision 을 만드는 것은 비용만 크고, 아직 잃으면 안 되는
+        # 데이터가 없어 되돌릴 이력도 필요 없다.
+        #
+        # **잃으면 안 되는 데이터가 처음 들어온 시점**부터는 Alembic 이 유일한
+        # 경로다. 팀원이 합류했거나 스테이징에 배포했다면 이미 그 시점이다.
+        #
+        # 처음부터 Alembic 을 쓰고 싶다면 그렇게 해도 된다 — 여기를 끌 필요가 없다.
+        # `create_all` 은 checkfirst 라 이미 있는 테이블을 건너뛰므로,
+        # `alembic upgrade head` 를 먼저 적용해 두면 이 호출은 no-op 이 된다.
+        #
+        # 위험한 것은 전환한 뒤다. 이 경로는 **이미 있는 테이블을 고치지 않지만**
+        # 새 모델을 추가하면 마이그레이션 없이 테이블을 만들어 버린다. 그러면
+        # Alembic 이력과 실제 DB 가 갈라지고, 그 어긋남은 배포 뒤에 "운영에만
+        # 테이블이 없다" 로 드러난다. Alembic 으로 넘어갔다면 DEBUG=false 가
+        # 가장 확실하다 — 그때는 이 분기 자체가 실행되지 않는다.
+        #
+        # 다중 worker(`--workers N`·gunicorn)로 띄우면 N 개 프로세스가 각각 이
+        # 경로를 돌아 동시 DDL 이 된다. 지원 기동 방식은 단일 프로세스이며,
+        # 다중 worker 는 DEBUG=false + Alembic 이 유일한 안전한 조합이다.
+        #
+        # 전환 절차와 명령은 README 의 "스키마 관리 — 자동 생성에서 Alembic 으로".
         if app_settings.DEBUG:
             try:
                 await create_db_tables()
