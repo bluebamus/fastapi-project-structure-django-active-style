@@ -47,6 +47,7 @@ startup 이 중간에 실패하거나, cleanup 하나가 예외를 내거나, �
 | REQ-007 | 2026-08-19 | (도출) 계획서 §8 + C-9 | `home/__init__.py` 의 import-time `register_sink()` 를 제거하거나 명시적 멱등 init hook 으로 옮긴다. `discover()` 만 실행했을 때 장기 자원 수가 변하지 않아야 한다. | Active | ADR-006 / INV-6 |
 | REQ-008 | 2026-08-19 | (도출) 계획서 §8 마지막 문단 | 이 작업은 ORM/Raw Base 및 예제 기능 변경과 **섞지 않는다**. 기존 621 tests 를 유지한 채 독립 커밋한다. | Active | charter §2 비목표 |
 | REQ-009 | 2026-08-19 | "A. prefork만 지원, 구조 예시 수준으로 문서화해줘" | Celery 지원 pool 을 **prefork 하나로 확정**한다. 다만 이 저장소의 Celery 는 태스크 1개짜리 **구조 예시**이므로, 문서는 "운영 검증을 마쳤다" 가 아니라 "예제 수준에서 prefork 만 검증했다" 로 쓴다. Windows 로컬은 `--pool=solo` 를 안내한다. | Active | ADR-005 / R-101 |
+| REQ-010 | 2026-08-20 | "처음 개발 단계에서는 create_db_tables 를 사용하고 차후 alembic 을 쓰는 걸 강제하고 싶다. 하지만 처음부터 alembic 을 쓰고자 하는 사람이 있을 수 있기에 문서에 이에 대한 설명을 리드미에 추가하고 main 의 app() 코드의 라인에 주석으로도 추가해줘" | startup DDL 을 **유지**하고 전환 정책을 문서로 세운다. R-105 의 해법이던 "startup DDL 제거" 를 기각하는 결정이다. 전환 시점은 잃으면 안 되는 데이터가 처음 들어온 시점. 처음부터 Alembic 을 쓰는 경로는 코드 변경 없이 열려 있어야 한다(`create_all` checkfirst → no-op). 안내는 README 와 호출 지점 주석 **양쪽**에 둔다. | Active | R-105(Accept) / Round 2 |
 
 ## 3. 설계 결정 기록 (ADR)
 

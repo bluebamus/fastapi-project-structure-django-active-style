@@ -120,6 +120,33 @@ def test_guide_internal_links_resolve():
     assert not missing, f"가이드의 끊긴 링크: {missing}"
 
 
+def test_schema_management_policy_is_documented_in_both_places():
+    """스키마 전환 정책은 README 와 호출 지점 **양쪽**에 있어야 한다.
+
+    이 정책은 코드가 강제하지 않는다 — `DEBUG=true` 면 자동 생성은 그냥 돈다.
+    지키게 만드는 것이 문서뿐이라, 문서가 사라지면 정책도 사라진다. 한쪽만
+    검사하면 나머지 한쪽이 조용히 없어진다: README 만 있으면 코드를 읽는 사람이
+    못 보고, 주석만 있으면 시작하는 사람이 못 본다.
+    """
+    readme = _read(REPO_ROOT / "README.md")
+    main_py = _read(REPO_ROOT / "main.py")
+
+    assert (
+        "스키마 관리 — 자동 생성에서 Alembic 으로" in readme
+    ), "README 의 스키마 전환 절이 사라졌습니다."
+    for keyword in ("alembic upgrade head", "checkfirst", "DEBUG=false"):
+        assert keyword in readme, f"README 의 전환 안내에 `{keyword}` 가 없습니다."
+
+    ddl_call = main_py.index("await create_db_tables()")
+    block = main_py[max(0, ddl_call - 2000) : ddl_call]
+    assert (
+        "스키마 관리 — 자동 생성에서 Alembic 으로" in block
+    ), "main.py 의 자동 생성 호출 지점이 더 이상 README 절을 가리키지 않습니다."
+    assert (
+        "checkfirst" in block
+    ), "처음부터 Alembic 을 쓰는 경로(no-op 이 되는 이유)가 주석에서 사라졌습니다."
+
+
 def test_project_guide_update_notes_link_to_live_docs():
     """버전이 박힌 가이드의 `갱신` 블록이 가리키는 문서가 실재하는지 확인한다.
 

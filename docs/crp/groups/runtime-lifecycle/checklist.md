@@ -30,4 +30,15 @@
 - [x] run-log 심각도 추세 갱신 + 수렴 판정 `CONVERGED`
 - [x] residual-risk 갱신 (R-101~R-104)
 
+## Round 2 — 2026-08-20 (R-105 결정 반영) — 완료
+- [x] 사용자 결정 기록 — startup DDL 유지, 초기 개발 자동 생성 → 이후 Alembic 강제
+- [x] README `### 4-1. 스키마 관리 — 자동 생성에서 Alembic 으로` 추가 (전환 시점·절차·함정)
+- [x] "처음부터 Alembic" 경로 확인 및 명시 — `create_all` checkfirst 라 선적용 시 no-op
+- [x] `main.py` 자동 생성 호출 지점에 정책 주석 (전환 후 새 모델 함정 · 다중 worker)
+- [x] DEBUG 동작표에서 스키마 절로 링크
+- [x] 회귀 테스트 1건 — README·주석 **양쪽**의 존재를 고정
+- [x] fail-on-revert 검증 (한쪽을 지우면 1건 실패)
+- [x] 게이트: 702 passed / review_gate 6그룹 / 라우트·alembic 불변
+- [x] residual-risk R-105 를 Accept(사용자 결정)로 전환
+
 > 미닫힘(`[ ]`) 항목이 1개라도 있으면 그 라운드는 GATE 5 Done 이 아니다.

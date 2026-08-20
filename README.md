@@ -594,6 +594,74 @@ mysql -u root -p
 CREATE DATABASE fastapi_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
+### 4-1. 스키마 관리 — 자동 생성에서 Alembic 으로
+
+이 저장소는 스키마를 만드는 경로가 **둘** 이고, 어느 쪽을 쓸지는 시점에 따라 다르다.
+
+| 경로 | 언제 | 동작 |
+|---|---|---|
+| `create_db_tables()` | 개발 초기 | `DEBUG=true` 일 때 기동마다 실행. `Base.metadata` 에 등록된 테이블 중 **없는 것만** 만든다 |
+| Alembic | 그 이후 전부 | `alembic upgrade head`. 변경 이력이 파일로 남고 되돌릴 수 있다 |
+
+#### 개발 초기에는 자동 생성을 쓴다
+
+모델을 하루에 몇 번씩 갈아엎는 단계에서 매번 revision 을 만드는 것은 비용만 크다.
+아직 지켜야 할 데이터가 없으므로 되돌릴 이력도 필요 없다. 이 단계에서는 DB 를 지우고
+다시 띄우는 것이 가장 빠른 마이그레이션이다.
+
+```bash
+# DEBUG=true 인 상태로 그냥 띄우면 된다
+uv run uvicorn main:app --reload
+```
+
+#### 데이터가 생기는 순간 Alembic 으로 넘어간다
+
+전환 시점은 취향이 아니라 **잃으면 안 되는 데이터가 처음 들어온 시점**이다. 팀원이
+합류했거나, 스테이징에 배포했거나, 지우면 곤란한 시드가 쌓였다면 이미 그 시점이다.
+
+```bash
+# 1. 지금 스키마를 첫 revision 으로 못박는다
+uv run alembic revision --autogenerate -m "baseline"
+uv run alembic upgrade head
+
+# 2. 이후 모델을 바꿀 때마다
+uv run alembic revision --autogenerate -m "무엇을 바꿨는지"
+uv run alembic upgrade head
+```
+
+> **전환 후에는 `DEBUG=false` 로 두거나, 최소한 자동 생성이 무엇을 할 수 있는지 알고 있어야 한다.**
+> `create_db_tables()` 는 **이미 있는 테이블을 건드리지 않는다** — 컬럼이 바뀌어도 모른 척한다.
+> 위험한 것은 그 다음이다. 새 모델을 추가하면 자동 생성이 **마이그레이션 없이 테이블을 만들어
+> 버리고**, 그러면 Alembic 이력과 실제 DB 가 갈라진다. 그 어긋남은 배포 뒤에 "운영에만 테이블이
+> 없다" 로 드러난다.
+
+#### 처음부터 Alembic 을 쓰고 싶다면
+
+**그렇게 해도 된다. 코드를 고칠 필요도, 설정을 끌 필요도 없다.**
+
+`create_db_tables()` 는 SQLAlchemy 의 `create_all` 이고, 이 함수는 `checkfirst=True` 로
+동작한다 — 이미 존재하는 테이블은 건너뛴다. 그래서 **Alembic 을 먼저 적용해 두면 기동 시
+자동 생성은 할 일이 없어 아무것도 하지 않는다.**
+
+```bash
+# 처음부터 이 순서로 가면 된다
+uv run alembic revision --autogenerate -m "initial"
+uv run alembic upgrade head
+uv run uvicorn main:app --reload   # DEBUG=true 여도 자동 생성은 no-op
+```
+
+다만 이 경우에도 위의 경고는 그대로다. **모델을 새로 추가한 뒤 revision 을 만들지 않고 서버를
+띄우면** 자동 생성이 그 테이블을 먼저 만들어 버린다. Alembic 을 쓰기로 했다면 `DEBUG=false`
+로 두는 것이 가장 확실하다 — 그때는 자동 생성 경로 자체가 실행되지 않는다.
+
+#### 다중 worker 로 띄운다면
+
+`uvicorn --workers N` 이나 gunicorn 을 쓰면 N 개 프로세스가 각각 이 경로를 돌아 **동시 DDL** 이
+된다. 이 저장소가 지원한다고 선언한 기동 방식은 `python main.py` / `uvicorn main:app` 단일
+프로세스다. 다중 worker 로 띄울 거라면 `DEBUG=false` + Alembic 이 유일한 안전한 조합이다.
+
+---
+
 ### 5. 서버 실행
 
 ```bash
@@ -630,10 +698,12 @@ uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 | 기능 | DEBUG=true | DEBUG=false |
 |------|------------|-------------|
 | 로그 레벨 | DEBUG | INFO |
-| 테이블 자동 생성 | 활성화 | 비활성화 (Alembic 사용) |
+| 테이블 자동 생성 | 활성화 (없는 테이블만) | 비활성화 (Alembic 사용) |
 | API 문서 (/docs) | 활성화 | 비활성화 |
 | OpenAPI 스키마 | 활성화 | 비활성화 |
 | Uvicorn reload | 활성화 | 비활성화 |
+
+> 자동 생성과 Alembic 중 **언제 무엇을 쓰는지**는 [스키마 관리 — 자동 생성에서 Alembic 으로](#4-1-스키마-관리--자동-생성에서-alembic-으로) 를 본다.
 
 ---
 
