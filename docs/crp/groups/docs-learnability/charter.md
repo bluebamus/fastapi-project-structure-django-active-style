@@ -52,9 +52,10 @@
 
 ## 3. 인수 기준 (GATE 3)
 
-- [x] `pytest` 전량 통과 **698 passed**(677 → +21), skip/xfail/deselected 0
+- [x] `pytest` 전량 통과 **701 passed**(677 → +21 Round 1 → +3 Round 2), skip/xfail/deselected 0
 - [x] `scripts/review_gate.py` 6그룹 전부 통과
 - [x] INV-1~INV-9 각각에 실행 테스트 연결
+- [x] (Round 2) 버전 가이드의 갱신 블록 링크가 실재 — 정정이 사라지는 경로를 막는다
 - [x] 라우트 22 paths / 37 operations · alembic `d4e6f8b12c34` 불변
 - [x] 애플리케이션 동작 코드 **diff 0**(C-1 기계 검증) — 변경은 문서·테스트·생성기 출력·메타만
 - [x] fail-on-revert 확인 — 제목·링크를 되돌리면 2건 실패
@@ -62,3 +63,5 @@
 
 ## 4. 변경 이력
 - v0.1 (2026-08-20): 최초 작성 및 Round 1 완료 반영.
+- v0.2 (2026-08-20): Round 2(F-206·F-207) 반영 — 인수 기준의 테스트 수를 701 로 갱신하고
+  갱신 블록 링크 검사를 항목으로 추가했다.

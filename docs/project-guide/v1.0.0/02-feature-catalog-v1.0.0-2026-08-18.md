@@ -104,6 +104,8 @@ flowchart TD
 - `/health`는 liveness 성격이며 DB, Redis, replica 상태를 검증하는 readiness가 아니다.
 - ORM/Raw 저장소 선택 기능은 계획 단계이며 현재 기능 목록에 포함하지 않는다.
 
+> **갱신(2026-08-20).** ORM/Raw 선택은 계획 단계가 아니다. 예제 기능 `catalog`(ORM)와 `reports`(Raw)가 실동작하며 라우트 인벤토리에 포함돼 있다. 선택 기준은 [`../../guides/orm-raw-workflow.md`](../../guides/orm-raw-workflow.md) 를 본다.
+
 ## 변경 영향 가이드
 
 | 변경 | 함께 확인할 위치 |

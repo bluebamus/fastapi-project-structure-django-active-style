@@ -120,6 +120,31 @@ def test_guide_internal_links_resolve():
     assert not missing, f"가이드의 끊긴 링크: {missing}"
 
 
+def test_project_guide_update_notes_link_to_live_docs():
+    """버전이 박힌 가이드의 `갱신` 블록이 가리키는 문서가 실재하는지 확인한다.
+
+    v1.0.0 문서는 시대를 기록한 것이라 원문을 남기고 갱신 블록을 덧붙인다. 그
+    블록만이 학습자를 현행 자료로 보내므로, 여기 링크가 끊기면 정정 자체가
+    사라진 것과 같다 — 그런데 원문은 그대로 남아 계속 틀린 것을 가르친다.
+    """
+    guides = sorted((REPO_ROOT / "docs/project-guide").rglob("*.md"))
+    assert guides, "project-guide 문서가 없습니다 — 검사가 무의미해집니다."
+
+    checked = 0
+    missing = []
+    for doc in guides:
+        for line in _read(doc).splitlines():
+            if "갱신(" not in line:
+                continue
+            for target in re.findall(r"\]\((\.\.?/[^)#]+)\)", line):
+                checked += 1
+                if not (doc.parent / target).resolve().exists():
+                    missing.append(f"{doc.name}: {target}")
+
+    assert checked, "갱신 블록에 상대 링크가 없습니다 — 검사가 무의미해집니다."
+    assert not missing, f"갱신 블록의 끊긴 링크: {missing}"
+
+
 def test_docs_index_links_resolve():
     text = _read(DOCS_INDEX)
     targets = re.findall(r"\]\((\.\.?/[^)#]+|[A-Za-z][^)#:]*\.md|[a-z-]+/)\)", text)

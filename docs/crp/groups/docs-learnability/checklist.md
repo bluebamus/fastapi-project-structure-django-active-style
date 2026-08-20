@@ -21,4 +21,14 @@
 - [x] residual-risk 기록 (R-201~R-203)
 - [x] run-log 수렴 판정 `CONVERGED`
 
+## Round 2 — 2026-08-20 (잔여 리스크 차단) — 완료
+- [x] (F-206) 가이드 §6 에 지침서·코드 표기 차이 안내 — 지침서 원본은 무수정(ADR-001·C-3)
+- [x] (F-207) project-guide 8종 스캔 → "계획 단계" 단언 3건에 갱신 블록(00·01·02)
+- [x] 갱신 블록 링크 회귀 테스트 1건 — 정정이 사라지는 경로를 막는다
+- [x] fail-on-revert 검증 (갱신 링크를 끊으면 1건 실패)
+- [x] C-1 기계 검증 — 애플리케이션 동작 코드 diff 0
+- [x] 게이트: 701 passed / review_gate 6그룹 / 라우트·alembic 불변
+- [x] residual-risk 갱신 (R-011·R-202 범위 축소)
+- [x] run-log 수렴 판정 `CONVERGED`
+
 > 미닫힘(`[ ]`) 항목이 1개라도 있으면 그 라운드는 GATE 5 Done 이 아니다.

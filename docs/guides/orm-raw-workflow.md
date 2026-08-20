@@ -219,5 +219,15 @@ read-only 세션에서 Raw DML 을 시도하면 `ReadOnlyRoutingError` 로 거�
 "왜 이렇게 정했는가" 가 궁금할 때 보세요. 일상적인 개발에는 이 문서와 두 예제 코드로
 충분합니다.
 
+### 지침서와 코드가 달라 보이는 지점 하나
+
+원본 지침서 §2.1 은 Dependency 인자와 Service/Repository 속성을 `db_session` /
+`self.db_session` 으로 씁니다. **저장소 코드는 `session` / `self.session` 을 씁니다.**
+지침서는 당시의 설계 기록이라 고치지 않습니다(그래야 "왜 이렇게 정했는가" 가 남습니다).
+
+동작을 결정하는 것은 **Dependency 함수 이름** — 어떤 세션을 받는가 — 이고, 그건
+지침서와 코드가 같습니다(`get_read_only_db_session` / `get_writer_db_session`).
+달라 보이는 것은 받아 둔 변수의 이름뿐입니다. **코드를 따르세요.**
+
 > 규칙이 실제로 지켜지는지는 테스트가 강제합니다. 위반하면 `pytest` 가 막습니다 —
 > 문서를 안 읽어도 틀린 코드는 통과하지 못하게 되어 있습니다.
