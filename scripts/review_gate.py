@@ -131,7 +131,9 @@ def scan_secrets(text: str) -> list[str]:
 # 경로만 검사한다. 슬래시 없는 맨 파일명은 위치가 아니라 **명명 규칙**을 가리키는
 # 경우가 많고(README 의 "쓰지 말 것" 반례 표), 그걸 존재 검사에 넣으면 규칙이
 # 문서를 거짓으로 고발한다.
-_DOC_PATH = re.compile(r"`([A-Za-z0-9_./-]+/[A-Za-z0-9_.-]+\.(?:py|ya?ml|toml|json|ini|cfg|txt))`")
+_DOC_PATH = re.compile(
+    r"`([A-Za-z0-9_./-]+/[A-Za-z0-9_.-]+\.(?:py|ya?ml|toml|json|ini|cfg|txt|md))`"
+)
 
 # 환경변수는 **대입 형태**로만 인식한다. 백틱 안의 대문자 토큰을 전부 환경변수로
 # 보면 `WITH`(SQL), `POST`(HTTP), `HS256`(알고리즘)까지 잡혀 규칙이 무의미해진다.
@@ -320,6 +322,10 @@ def check_docs() -> list[str]:
     readme = REPO_ROOT / "README.md"
     if readme.exists():
         targets.append(readme)
+    # 워크플로 주석도 계약 문서를 가리킨다. 검사 밖에 두면 그 참조만 조용히
+    # 썩는다 — 실제로 ci.yml 첫 줄이 존재하지 않는 charter 를 1개월간 가리켰다
+    # (F-035). 여기서도 규칙은 같다: 백틱으로 감싼 경로만 본다.
+    targets += sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml"))
 
     problems: list[str] = []
     for doc in targets:
