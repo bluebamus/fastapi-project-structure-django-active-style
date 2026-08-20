@@ -178,3 +178,76 @@ async def test_read_only_session_allows_raw_select_on_mysql(raw_session_factory)
         rows = await RawCRUDBase(session).fetch_all(text("SELECT id FROM raw_widgets ORDER BY id"))
 
     assert [row["id"] for row in rows] == [1, 2, 3]
+
+
+# ------------------------------------------------------------------ CTE 위험 표면
+
+
+async def test_cte_can_lead_update_and_delete_on_mysql(raw_session_factory):
+    """`WITH` 뒤에 UPDATE·DELETE 가 올 수 있다는 **문법 사실**을 못박는다.
+
+    read-only 가드가 `WITH` 를 통째로 거부하는 근거가 이것이다. 근거를 주석에만
+    두면 썩는다 — 실제로 한 번 썩었다. 이전 주석은 근거로 PostgreSQL 문법
+    (``WITH x AS (DELETE ... RETURNING ...)``)을 들고 있었고 그건 MySQL 에서
+    문법 오류라, 이 저장소에 존재하지 않는 위협을 근거로 삼고 있었다(F-036).
+
+    여기서 실패한다면 방언이 바뀐 것이고, 그때는 가드의 판정 범위를 다시 정해야
+    한다 — 주석을 고치는 것이 아니라.
+    """
+    async with raw_session_factory() as session:
+        await session.execute(
+            text(
+                "WITH c AS (SELECT id FROM raw_widgets WHERE id = 1) "
+                "UPDATE raw_widgets JOIN c ON raw_widgets.id = c.id SET score = 99"
+            )
+        )
+        await session.execute(
+            text(
+                "WITH c AS (SELECT id FROM raw_widgets WHERE id = 3) "
+                "DELETE raw_widgets FROM raw_widgets JOIN c ON raw_widgets.id = c.id"
+            )
+        )
+        await session.commit()
+
+        updated = (
+            await session.execute(text("SELECT score FROM raw_widgets WHERE id = 1"))
+        ).scalar_one()
+        remaining = (
+            await session.execute(text("SELECT COUNT(*) FROM raw_widgets WHERE id = 3"))
+        ).scalar_one()
+
+    assert updated == 99, "WITH 로 시작하는 UPDATE 가 실행되지 않았습니다."
+    assert remaining == 0, "WITH 로 시작하는 DELETE 가 실행되지 않았습니다."
+
+
+async def test_cte_cannot_lead_insert_on_mysql(raw_session_factory):
+    """INSERT 는 `WITH` 로 시작할 수 없다 — 그래서 위험 표면이 아니다.
+
+    `INSERT INTO t WITH c AS (...) SELECT ...` 형태만 유효하고, 그건 첫 토큰이
+    `insert` 라 `_text_is_readable` 이 이미 잡는다.
+    """
+    from sqlalchemy.exc import ProgrammingError
+
+    async with raw_session_factory() as session:
+        with pytest.raises(ProgrammingError):
+            await session.execute(
+                text(
+                    "WITH c AS (SELECT 99 AS id) "
+                    "INSERT INTO raw_widgets (id, name) SELECT id, 'x' FROM c"
+                )
+            )
+
+
+async def test_read_only_rejects_cte_led_writes(raw_session_factory):
+    """가드가 그 표면을 실제로 막는지 본다 — 문법 사실과 차단은 별개의 단언이다."""
+    async with raw_session_factory() as session:
+        mark_read_only(session)
+        for sql in (
+            "WITH c AS (SELECT id FROM raw_widgets) "
+            "UPDATE raw_widgets JOIN c ON raw_widgets.id = c.id SET score = 1",
+            "WITH c AS (SELECT id FROM raw_widgets) "
+            "DELETE raw_widgets FROM raw_widgets JOIN c ON raw_widgets.id = c.id",
+            "WITH c AS (SELECT 1 AS x) SELECT * FROM c",  # 읽기 CTE 도 함께 막힌다 (R-001)
+        ):
+            with pytest.raises(ReadOnlyRoutingError):
+                await session.execute(text(sql))
