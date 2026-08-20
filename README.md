@@ -1,4 +1,4 @@
-# FastAPI Default Project Structure
+# FastAPI Project Structure — Django Active Style
 
 Repository 패턴과 계층 분리 아키텍처를 적용한 FastAPI 프로젝트 템플릿입니다.
 
@@ -13,6 +13,7 @@ Repository 패턴과 계층 분리 아키텍처를 적용한 FastAPI 프로젝�
 - [앱 자동 등록 규약](#앱-자동-등록-규약)
 - [데이터 흐름](#데이터-흐름)
 - [핵심 패턴](#핵심-패턴)
+- [ORM / Raw 데이터 접근](#orm--raw-데이터-접근)
 - [시작하기](#시작하기)
 - [환경 설정](#환경-설정)
 - [로깅 시스템](#로깅-시스템)
@@ -516,6 +517,45 @@ users = await repo.get_all_with(
 # - joined: LEFT OUTER JOIN - 1:1 관계에 적합
 # - subquery: 서브쿼리 사용 - 복잡한 관계에 적합
 ```
+
+---
+
+## ORM / Raw 데이터 접근
+
+이 저장소는 두 가지 데이터 접근 방식을 지원하고, **각각 완결된 예제 기능**을 담고 있습니다.
+새 기능을 만들기 전에 어느 쪽인지 먼저 정하세요.
+
+| | ORM | Raw SQL |
+|---|---|---|
+| **언제** | 일반 CRUD, 엔티티 단위 조작 | 복잡한 집계·윈도 함수·CTE, 성능 민감 조회, 저장 프로시저 |
+| **돌려주는 것** | 엔티티(식별자·수명주기 있음) | 계산 결과(행) |
+| **Base** | `BaseRepository[Model, PK타입]` | `RawRepositoryBase` |
+| **예제 기능** | `app/features/catalog/` (상품 CRUD) | `app/features/reports/` (일별 매출) |
+| **공개 API** | `/api/v1/catalog/products` | `GET /api/v1/reports/sales/daily` |
+
+**기본값은 ORM 입니다.** Raw 는 ORM 을 우회하는 일반 수단이 아니라 위 상황에서 *선택하는*
+도구입니다. 일반 단일 테이블 CRUD 는 예외 없이 ORM 을 씁니다.
+
+판단이 애매하면 **돌려주는 것이 엔티티인가 계산 결과인가**를 보세요. `Product` 한 건은
+엔티티라 ORM, `GROUP BY` 로 나온 일자별 합계는 식별자도 수명주기도 없는 계산 결과라
+Raw 입니다. reports 예제가 집계 전용 ORM 모델을 만들지 **않은** 이유가 이것입니다.
+
+### 두 방식의 공통 규칙
+
+접근 방법만 다르고 계층 규칙은 같습니다.
+
+- **commit 은 쓰기 View 가 응답 직전에 한 번만** — Repository 도 Dependency 도 하지 않습니다
+- **조회는 `get_read_only_db_session`, 변경은 `get_writer_db_session`** — Raw 라는 이유로
+  쓰기 세션을 쓰지 않습니다(Raw 는 접근 방식이지 권한이 아닙니다)
+- **SQL 은 상수, 값은 named bind** — 요청 값으로 SQL 을 조립하면 정적 검사가 막습니다
+- **Raw 결과(`RowMapping`)는 Service 에서 DTO 로** — View 가 직접 돌려주지 않습니다
+
+### 자세히
+
+**→ [docs/guides/orm-raw-workflow.md](docs/guides/orm-raw-workflow.md)**
+
+파일 생성 순서, 자주 틀리는 지점, Raw 결과 API 의 정확한 의미(0행 vs NULL), MySQL 방언
+검증 절차까지 예제 코드와 함께 정리돼 있습니다.
 
 ---
 

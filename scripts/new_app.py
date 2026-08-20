@@ -278,6 +278,13 @@ def main() -> None:
     if args.with_admin:
         print(f"  - admin: admin.py 의 admin_views 에 {class_name}Admin 을 추가하면 자동 노출")
     print("  - 서버 재시작 시 라우터가 마운트됩니다")
+    print()
+    # 뼈대만 만들고 끝내면 다음에 무엇을 할지 모른다. 이 구조에서 가장 먼저
+    # 정해야 하는 것은 "ORM 인가 Raw 인가" 이므로 그 판단 문서를 가리킨다.
+    print("다음: 데이터 접근 방식을 먼저 정하세요 (기본값은 ORM).")
+    print("  - 가이드: docs/guides/orm-raw-workflow.md")
+    print("  - ORM 예제: app/features/catalog/   (일반 CRUD)")
+    print("  - Raw 예제: app/features/reports/   (집계·리포트)")
 
 
 if __name__ == "__main__":
