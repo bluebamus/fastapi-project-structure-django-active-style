@@ -380,6 +380,34 @@
 - **변경:** `charter.md` 만 수정(v0.2). 코드·테스트·설정 diff 0.
 - **수렴 판정:** `CONVERGED` 유지 (Open Fix 0). 이번 라운드는 신규 결함 0, 문서 정합성 정정 1.
 
+### Round 13 — 2026-08-20 (base SHA: `8e9eaf9`) — R-014 해소(공급망 갱신)
+
+- **트리거:** 잔여 리스크 R-014 의 승계 조건 도달. GitHub 이 Node 20 대상 Action 을
+  강제 실행으로 처리 중이라, 방치하면 우리가 아니라 **외부 시계**가 CI 를 끊는다.
+- **교체:** `actions/checkout` v4(`11d5960a`) → **v7.0.1**(`3d3c42e5`),
+  `astral-sh/setup-uv` v5(`d4b2f3b6`) → **v10.0.1**(`20cfd1bf`). 둘 다 `using: node24`.
+  SHA 고정 원칙(F-033)은 유지 — 태그로 되돌리면 `supply` 그룹이 잡는다.
+- **파괴적 변경 대조:** checkout 은 major 릴리스에 breaking 항목이 없다. setup-uv 는
+  major 5개를 건너뛰므로 v6~v10 의 breaking 섹션을 전부 읽고 우리 사용 형태와 대조했다 —
+  캐시 기본값 변경(v6)은 `cache-dependency-glob` 을 명시해서, `server-url` 제거(v7)는
+  쓰지 않아서, `prune-cache` 기본값(v9)은 캐시 크기만 바꿔서, 민감 이벤트 캐시 비활성(v10)은
+  트리거가 push·pull_request·workflow_dispatch 뿐이라 해당 없음.
+- **신규 결함 F-035(LOW):** 교체하며 읽은 `ci.yml` **첫 줄**이 존재하지 않는 charter
+  docs/crp/groups/fastapi-standard-restructure/charter.md — 삭제된 그룹 — 를 가리키고 있었다.
+- **근본 원인:** 문자열만 고치면 같은 종류가 계속 썩는다. 검사 쪽을 보니 두 구멍이었다 —
+  `check_doc_paths` 의 확장자 목록에 **`.md` 가 없었고**(문서가 문서를 가리키는 참조는
+  아예 검사 대상이 아니었다), `check_docs` 의 대상에 **워크플로 파일이 없었다**.
+  둘 다 넓혔고, 기존 문서에서 새로 걸리는 항목은 **0건**이었다 — 공짜로 넓힌 셈이다.
+- **fail-on-revert:** 참조를 되돌리자 `tests/scripts/test_review_gate.py` 2건 실패 +
+  게이트 `docs` 그룹 실패. 복원 후 전부 통과.
+- **게이트 결과:** review_gate 6그룹 통과 · 전체 **701 passed**(698 + 3, skip·xfail·deselect 0) ·
+  라우트 22 paths / 37 operations 불변 · alembic `d4e6f8b12c34` 불변 ·
+  애플리케이션 동작 코드(`app/`, `main.py`, `config.py`, `migrations/`) **diff 0**
+- **관측:** 게이트 통과 직후 로컬 MySQL 컨테이너가 내려가 재측정에서 28건이 skip 됐다.
+  R-010 이 기록한 함정이 실제로 재현된 것이다. 컨테이너를 되살려 재측정했고, skip 은
+  조용히 통과하지 않고 사유와 함께 드러났다 — 그 설계가 의도대로 작동했다.
+- **수렴 판정:** `CONVERGED` 유지 (Open Fix 0).
+
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
@@ -396,3 +424,4 @@
 | 10 | 0 | 1 | 3 | 0 | 4 (전부 같은 라운드에 Fixed) | CONVERGED (delivery 범위 Open Fix 0 / 이월 5는 Phase 1-R2 트랙) |
 | 11 | 0 | 0 | 0 | 0 | 0 (이월 5건 Closed) | **CONVERGED** (Open Fix 0 — 이월분 포함) |
 | 12 | 0 | 0 | 0 | 0 | 0 (문서 정합성 정정 1) | **CONVERGED** (Open Fix 0) |
+| 13 | 0 | 0 | 0 | 1 | 1 (같은 라운드에 Fixed) | **CONVERGED** (Open Fix 0) |

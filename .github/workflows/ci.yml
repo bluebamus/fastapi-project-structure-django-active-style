@@ -1,4 +1,4 @@
-# 품질 게이트 — docs/crp/groups/fastapi-standard-restructure/charter.md §3 (GATE 3) 자동화.
+# 품질 게이트 — `docs/crp/groups/orm-raw-repository/charter.md` §3 (GATE 3) 자동화.
 #
 # 여기 있는 검사는 전부 charter 의 인수 기준을 1:1로 옮긴 것이다. 새 검사를 넣기 전에
 # charter §3 을 먼저 고친다 — CI 가 계약보다 앞서 나가면 "왜 막혔는지" 근거가 사라진다.
@@ -29,10 +29,10 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: uv 설치
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           # 패키지 다운로드 캐시. mypy/pytest 결과에는 영향이 없다(아래 주석 참조).
           enable-cache: true
@@ -100,10 +100,10 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: uv 설치
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock

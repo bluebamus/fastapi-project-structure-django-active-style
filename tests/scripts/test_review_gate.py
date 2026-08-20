@@ -19,6 +19,8 @@ from pathlib import Path
 import pytest
 
 from scripts.review_gate import (
+    DOC_ALLOWED_MISSING_PATHS,
+    _repo_files,
     check_action_pins,
     check_doc_deprecated_names,
     check_doc_env_vars,
@@ -145,6 +147,26 @@ def test_relative_doc_path_resolves_by_suffix():
 def test_bare_filename_is_treated_as_naming_convention():
     """README 의 '쓰지 말 것' 반례(`dependency.py`)를 존재 검사로 고발하지 않는다."""
     assert check_doc_paths("쓰지 말 것: `dependency.py`", ["app/x/dependencies.py"], set()) == []
+
+
+def test_missing_markdown_doc_path_is_detected():
+    """문서가 문서를 가리키는 참조도 썩는다 — `.md` 를 검사 밖에 두면 조용히 썩는다."""
+    assert check_doc_paths("계약: `docs/crp/groups/nope/charter.md`", [], set())
+
+
+def test_repository_workflow_doc_references_exist():
+    """워크플로 주석이 가리키는 계약 문서가 실재하는지 본다.
+
+    ci.yml 첫 줄이 존재하지 않는 charter 를 가리키고 있었다(F-035). 워크플로가
+    문서 검사 대상 밖이라 게이트는 초록이었다. 되돌리면 이 테스트가 잡는다.
+    """
+    known = _repo_files()
+    problems = []
+    for workflow in sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml")):
+        text = workflow.read_text(encoding="utf-8")
+        problems += check_doc_paths(text, known, DOC_ALLOWED_MISSING_PATHS)
+
+    assert problems == []
 
 
 def test_forward_reference_can_be_declared():
