@@ -111,3 +111,5 @@ sequenceDiagram
 ## 설계상 구분
 
 현재 기능 저장소는 `BaseRepository` 기반이다. ORM/Raw 이중 저장소와 포트·어댑터 전환은 [별도 고도화 계획](../../orm-raw-repository/2026-08-13/requirements.md)이며 기준 커밋의 완료 기능으로 간주하지 않는다.
+
+> **갱신(2026-08-20).** ORM/Raw **이중 저장소는 구현됐다** — `BaseRepository`(ORM)와 `RawRepositoryBase`(Raw)는 상속 관계 없이 공존한다. 다만 *런타임에 구현을 바꿔 끼우는* 포트·어댑터는 아니고, 기능이 작성 시점에 둘 중 하나를 고르는 구조다. 선택 기준은 [`../../guides/orm-raw-workflow.md`](../../guides/orm-raw-workflow.md) 를 본다.
