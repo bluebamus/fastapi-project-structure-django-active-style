@@ -359,6 +359,27 @@
   즉 이 그룹의 산출물은 그대로다.
 - **수렴 판정:** `CONVERGED` — delivery 범위뿐 아니라 **이월분까지 포함해** Open Fix 0.
 
+### Round 12 — 2026-08-20 (base SHA: `092b394`) — 재검수(문서 정합성만)
+
+- **트리거:** 사용자 재검토 요청. 전체 게이트·수치 재측정.
+- **재측정:** review_gate 6그룹 통과 · **698 passed**(skip/xfail/deselected 0) ·
+  22 paths / 37 operations · alembic head `d4e6f8b12c34` · 작업 트리 clean ·
+  `main` == `origin/main` == `092b394`. 전부 기록과 일치.
+- **발견:** charter §3 인수 기준 2건이 **미체크로 남아 있었다** — Round 11 의 `CONVERGED`
+  선언과 표면상 모순. 내용을 대조하니 둘 다 *실질은 충족*이었고 체크만 누락된 것이었다.
+  - "불변식 구조 증거" 항목은 v0.1 당시 **INV-1~9** 기준 문구였는데 이후 불변식이 21개로
+    늘었다. §2-3 의 각 INV 가 지목한 검사 파일 12종이 전부 실재함을 확인했다
+    (INV-1 → `tests/test_router_registration.py`, INV-3 → `tests/test_read_path_no_commit.py`
+    포함). 범위 문구를 INV-1~21 로 맞추고 닫았다.
+  - "질의 수준 준수" 항목은 절차 자기평가다. Celery 실행 모델을 사용자 결정(REQ-009)으로
+    올린 것 외에는 기본값+고지로 처리했고 각 라운드 로그에 남아 있어 닫았다.
+- **왜 놓쳤나:** Round 11 직후의 잔재 정리(`0704961`)가 `checklist.md` 만 대상으로 했고
+  `charter.md` §3 은 보지 않았다. 같은 그룹 안에 체크박스가 있는 파일이 둘인데 한쪽만
+  닫은 것이다. 남은 두 파일 형식(`design-baseline.md` §0)의 미체크는 **질의 수준 선택지의
+  비선택 항목**이라 정상이다.
+- **변경:** `charter.md` 만 수정(v0.2). 코드·테스트·설정 diff 0.
+- **수렴 판정:** `CONVERGED` 유지 (Open Fix 0). 이번 라운드는 신규 결함 0, 문서 정합성 정정 1.
+
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
@@ -374,3 +395,4 @@
 | 9 | 0 | 0 | 2 | 1 | 3 (전부 같은 라운드에 Fixed) | NOT CONVERGED (Open Fix 8) |
 | 10 | 0 | 1 | 3 | 0 | 4 (전부 같은 라운드에 Fixed) | CONVERGED (delivery 범위 Open Fix 0 / 이월 5는 Phase 1-R2 트랙) |
 | 11 | 0 | 0 | 0 | 0 | 0 (이월 5건 Closed) | **CONVERGED** (Open Fix 0 — 이월분 포함) |
+| 12 | 0 | 0 | 0 | 0 | 0 (문서 정합성 정정 1) | **CONVERGED** (Open Fix 0) |
