@@ -406,6 +406,13 @@
 - **관측:** 게이트 통과 직후 로컬 MySQL 컨테이너가 내려가 재측정에서 28건이 skip 됐다.
   R-010 이 기록한 함정이 실제로 재현된 것이다. 컨테이너를 되살려 재측정했고, skip 은
   조용히 통과하지 않고 사유와 함께 드러났다 — 그 설계가 의도대로 작동했다.
+- **CI 실전 검증(2026-08-20, run `32332206088`):** 브랜치를 push 해 실제 실행했다.
+  gate job·mysql job 둘 다 **success**. `pytest -m mysql` skip 금지 단계와
+  `review_gate --group tests`(전체 suite, skip·deselect 0) 모두 통과.
+  **Node 20 폐기 경고는 사라졌다** — R-014 가 겨냥한 지점이 실제로 닫혔다는 증거다.
+  남은 경고는 starlette/httpx 하나뿐이고 그건 R-012 로 이미 추적 중이다.
+  부수 관측: setup-uv 캐시 저장이 두 job 경합으로 한 번 실패했다(`Unable to reserve
+  cache`). 캐시는 속도용이고 판정에 영향이 없어 결함으로 올리지 않는다.
 - **수렴 판정:** `CONVERGED` 유지 (Open Fix 0).
 
 ## 심각도 추세 (수렴이 보이게)
