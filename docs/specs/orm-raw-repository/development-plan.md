@@ -41,7 +41,7 @@ init hook 멱등성, 중앙 파일 무변경, 라우터 마운트, metadata, Adm
 `ADMIN=false` 지연 import, route inventory를 그대로 유지하고 catalog/reports 기대값만
 확장한다.
 
-### 2.1 `fastapi-default-project-structure` 실증 검수 반영
+### 2.1 참조 구현 실증 검수 반영
 
 2026-08-18 기준 고도화 구현(commit `db49e9c8d7106b026e2797f7356a0e1d1189056f`)과
 결함 원장·373개 테스트를 코드부터 다시 대조했다. 첫 환경에서는 367 passed/6 MySQL skipped였고,
@@ -49,11 +49,11 @@ MySQL 8.4가 실제 준비된 재검수 환경에서는 전체 373 passed 및 `p
 재현했다. 그러므로 “373 collected”와 “MySQL까지 검증 완료”를 같은 의미로 사용하지 않고
 환경·selected·executed·skipped를 함께 기록한다.
 
-참조 저장소의 `.github/workflows/ci.yml`에는 MySQL service/Compose 기동이 없다. 깨끗한 runner에서는
+참조 구현의 `.github/workflows/ci.yml`에는 MySQL service/Compose 기동이 없다. 깨끗한 runner에서는
 통합 6건이 skip된 뒤 skip 0 검사에서 CI가 실패하므로, 결함 원장의 “CI는 항상 MySQL을 기동한다”는
 서술은 현재 구현과 불일치한다. 또한 `pytest -m mysql`은 비-MySQL 367건을 정상적으로 deselect하므로
 selector 실행의 deselected 수 자체를 0으로 강제하면 안 된다. 현재 lock 환경의
-`ruff format --check`도 migration 3개를 재포맷 대상으로 판정했으므로 참조 저장소의 과거
+`ruff format --check`도 migration 3개를 재포맷 대상으로 판정했으므로 참조 구현의 과거
 “전 게이트 통과” 기록을 그대로 승계하지 않고 각 명령의 fresh artifact를 남긴다.
 
 설계에 승격할 교훈:
