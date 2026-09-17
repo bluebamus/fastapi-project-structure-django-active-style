@@ -13,7 +13,7 @@
 - [ ] **간략(Lean)**
 
 선택: **보통** · 선택일: 2026-08-18 · 변경 이력:
-- 2026-08-18: 최초 선택 = 보통. 사유 — `docs/orm-raw-repository/2026-08-13/` 의 요구명세·개발계획·
+- 2026-08-18: 최초 선택 = 보통. 사유 — `docs/specs/orm-raw-repository/` 의 요구명세·개발계획·
   워크플로 지침 3종이 이미 확정 설계 문서로 존재하여 기획(P)·설계(D) 대부분이 선행 확정됨.
   남은 질문은 Phase 경계·비가역 작업(커밋/푸시) 승인에 한정한다.
 
@@ -24,13 +24,13 @@
 FastAPI 워크플로우와 Django 스타일 `AppRegistry` 자동 발견·결선을 유지한 채, SQLAlchemy ORM 기반
 데이터 접근과 `text()` 기반 Raw SQL 데이터 접근을 **Repository 구현만 다른 두 계층**으로 고도화한다.
 DI·Service·세션 선택·트랜잭션 경계·검증·라우터 구성·문서·예외·테스트 기준은 두 방식이 동일해야 한다.
-근거 문서는 `docs/orm-raw-repository/2026-08-13/` 의 requirements / development-plan / workflow-guide 3종이다.
+근거 문서는 `docs/specs/orm-raw-repository/` 의 requirements / development-plan / workflow-guide 3종이다.
 
 ## 2. 요구사항 레지스터 (요청 히스토리 — append-only)
 
 | Req-ID | 날짜 | 요청(원문 요약) | 도출된 요구사항 | 상태 | 연결 |
 |---|---|---|---|---|---|
-| REQ-001 | 2026-08-13 | default-structure 저장소의 `docs/orm-raw-repository/2026-08-13/` 문서를 이 프로젝트 docs 에 같은 경로로 복사 | 설계·계획 문서 3종을 이 저장소 기준선으로 반입 | Active | 문서 3종(untracked) |
+| REQ-001 | 2026-08-13 | default-structure 저장소의 `docs/specs/orm-raw-repository/` 문서를 이 프로젝트 docs 에 같은 경로로 복사 | 설계·계획 문서 3종을 이 저장소 기준선으로 반입 | Active | 문서 3종(untracked) |
 | REQ-002 | 2026-08-18 | "docs/orm-raw-repository/ 문서는 설계 및 개발계획서다. 이를 참고로 작업을 진행해줘" | 계획서 Phase 0~9 를 **독립 게이트·독립 커밋**으로 순차 실행. 이번 라운드는 Phase 0(기준선 확정, 코드 무변경)까지. | Active | ADR-001 · run-log Round 0 · ledger F-001~F-007 |
 
 ## 3. 설계 결정 기록 (ADR — 확정 후 불변)

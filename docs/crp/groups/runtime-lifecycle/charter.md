@@ -19,7 +19,7 @@
 | 발견 부작용 | `app/features/home/__init__.py`, `app/core/registry.py` | 소스 | ADR-006 — init hook |
 | 기존 테스트 | `tests/**`, `app/features/*/tests/**` | 테스트 | 기준선 **621** (감소 감시선) |
 | 검증 게이트 | `scripts/review_gate.py` | 소스 | 그대로 재사용 — 이 그룹도 같은 게이트로 판정 |
-| 설계·계획 | `docs/orm-raw-repository/2026-08-13/development-plan.md` §8 | 문서 | 이 그룹의 사양 원본 |
+| 설계·계획 | `docs/specs/orm-raw-repository/development-plan.md` §8 | 문서 | 이 그룹의 사양 원본 |
 
 - 기준선 수집 테스트 수: **621** (`pytest --collect-only -q`, 2026-08-19)
 - 기준선 commit: `50cf194` · 라우트 인벤토리 **22 paths / 37 operations**(불변)
