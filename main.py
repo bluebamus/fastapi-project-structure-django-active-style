@@ -56,7 +56,7 @@ logger.info("앱 자동 발견: %s", [m.name for m in registry.enabled_apps])
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """
     애플리케이션 수명 주기 관리
 

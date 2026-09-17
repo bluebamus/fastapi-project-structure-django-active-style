@@ -18,7 +18,7 @@ fastapi-project-structure-django-active-style/
 ├── main.py                 # 조립: AppRegistry 발견·결선 + 미들웨어·예외·문서·lifespan·Admin
 ├── config.py               # Pydantic Settings 12종 + validate_deployment_safety()
 ├── pyproject.toml          # 의존성·도구 설정 ([tool.uv] package = false, pytest env 주입)
-├── .python-version         # 3.14 (requires-python 은 >=3.12)
+├── .python-version         # 3.14 (requires-python 은 >=3.13 — TypeVar default 사용)
 ├── .env.example            # 설정 전체 목록 (config.py 와 양방향 일치를 테스트가 강제)
 ├── alembic.ini             # script_location = migrations
 ├── compose.test.yaml       # MySQL 8.4 통합 테스트 전용 컨테이너 (호스트 포트 3310)

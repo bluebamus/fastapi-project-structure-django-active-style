@@ -184,7 +184,7 @@ BackgroundSessionLocal = async_sessionmaker(
 
 
 @asynccontextmanager
-async def background_db_session() -> AsyncGenerator[AsyncSession, None]:
+async def background_db_session() -> AsyncGenerator[AsyncSession]:
     """요청 밖(백그라운드 태스크·Celery)에서 사용하는 세션 컨텍스트.
 
     요청 스코프 Depends(get_*_db_session)를 쓸 수 없는 곳에서 트랜잭션 경계를 제공한다.
@@ -238,7 +238,7 @@ async def create_db_tables() -> None:
             await connection.run_sync(Base.metadata.create_all)
 
 
-async def get_routed_db_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_routed_db_session() -> AsyncGenerator[AsyncSession]:
     """
     FastAPI 의존성 주입용 세션 제너레이터
 
@@ -278,7 +278,7 @@ async def get_routed_db_session() -> AsyncGenerator[AsyncSession, None]:
             raise e
 
 
-async def get_read_only_db_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_read_only_db_session() -> AsyncGenerator[AsyncSession]:
     """
     읽기 전용 세션 제너레이터 (FastAPI DI)
 
@@ -310,7 +310,7 @@ async def get_read_only_db_session() -> AsyncGenerator[AsyncSession, None]:
             raise
 
 
-async def get_writer_db_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_writer_db_session() -> AsyncGenerator[AsyncSession]:
     """
     쓰기 세션 제너레이터 (FastAPI DI)
 
@@ -334,7 +334,7 @@ async def get_writer_db_session() -> AsyncGenerator[AsyncSession, None]:
             raise
 
 
-async def get_background_db_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_background_db_session() -> AsyncGenerator[AsyncSession]:
     """
     백그라운드 태스크용 세션 제너레이터
 
