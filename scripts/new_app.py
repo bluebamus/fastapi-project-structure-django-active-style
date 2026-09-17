@@ -163,7 +163,7 @@ def scaffold(
 
     Note:
         생성된 앱은 디렉터리 컨벤션만으로 AppRegistry 에 자동 발견된다.
-        중앙 등록 목록(자매 저장소 passive 의 config.INSTALLED_APPS 같은) 수정이 필요 없다.
+        중앙 등록 목록(Django 의 INSTALLED_APPS 같은) 수정이 필요 없다.
     """
     _validate_name(name)
 
@@ -284,7 +284,7 @@ def main() -> None:
     # 뼈대만 만들고 끝내면 다음에 무엇을 할지 모른다. 이 구조에서 가장 먼저
     # 정해야 하는 것은 "ORM 인가 Raw 인가" 이므로 그 판단 문서를 가리킨다.
     print("다음: 데이터 접근 방식을 먼저 정하세요 (기본값은 ORM).")
-    print("  - 가이드: docs/guides/orm-raw-workflow.md")
+    print("  - 가이드: docs/guides/DEVELOPMENT.md")
     print("  - ORM 예제: app/features/catalog/   (일반 CRUD)")
     print("  - Raw 예제: app/features/reports/   (집계·리포트)")
 

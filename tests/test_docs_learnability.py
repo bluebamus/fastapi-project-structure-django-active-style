@@ -14,13 +14,18 @@ README·QUICKSTART·ARCHITECTURE 어디에서도 언급하지 않아 **도달할
 
 import re
 from pathlib import Path
+from urllib.parse import unquote
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 README = REPO_ROOT / "README.md"
-GUIDE = REPO_ROOT / "docs" / "guides" / "orm-raw-workflow.md"
+GUIDE = REPO_ROOT / "docs" / "guides" / "DEVELOPMENT.md"
 ARCHITECTURE = REPO_ROOT / "docs" / "guides" / "ARCHITECTURE.md"
+HTML_GUIDES = (
+    REPO_ROOT / "docs" / "guides" / "server-lifecycle-guide.html",
+    REPO_ROOT / "docs" / "guides" / "feature-development-guide.html",
+)
 # 문서 목록은 README 의 이 절 한 곳에만 둔다(별도 docs/README.md 없음).
 DOCS_INDEX_HEADING = "## 문서 안내"
 
@@ -58,32 +63,57 @@ def _broken_relative_links(doc: Path, text: str) -> tuple[int, list[str]]:
 
 
 def test_learner_entry_points_exist():
-    for path in (README, GUIDE, ARCHITECTURE):
+    for path in (README, GUIDE, ARCHITECTURE, *HTML_GUIDES):
         assert path.exists(), f"학습 진입점이 없습니다: {path.relative_to(REPO_ROOT)}"
     assert DOCS_INDEX_HEADING in _read(README), "README 에 문서 안내 절이 없습니다."
 
 
 def test_readme_identifies_this_repository():
-    """제목이 다른 저장소 이름이면 처음 보는 한 줄부터 틀린 것이다."""
+    """제목이 이 저장소를 식별하지 못하면 처음 보는 한 줄부터 틀린 것이다."""
     title = _read(README).splitlines()[0]
 
     assert "Django" in title and "Active" in title, f"저장소를 식별하지 못하는 제목: {title}"
-    assert "Default" not in title, "이전 기준선 저장소의 이름이 남아 있습니다."
+    assert "Default" not in title, "제목에 이 저장소가 아닌 이름(Default)이 남아 있습니다."
 
 
 def test_readme_reaches_the_orm_raw_guide():
     """README 에서 가이드까지 도달 경로가 있어야 한다 — 이게 끊겨 있었다."""
     text = _read(README)
 
-    assert (
-        "docs/guides/orm-raw-workflow.md" in text
-    ), "README 가 워크플로 가이드를 가리키지 않습니다."
+    assert "docs/guides/DEVELOPMENT.md" in text, "README 가 워크플로 가이드를 가리키지 않습니다."
 
 
 def test_docs_index_reaches_the_guide():
     index = _docs_index()
-    assert "docs/guides/orm-raw-workflow.md" in index
+    assert "docs/guides/DEVELOPMENT.md" in index
     assert "docs/guides/ARCHITECTURE.md" in index
+    for page in HTML_GUIDES:
+        assert f"docs/guides/{page.name}" in index, f"문서 안내에 {page.name} 이 없습니다."
+
+
+def test_html_guides_links_resolve():
+    """HTML 안내서의 상대 href(파일·같은 문서 앵커)가 실재하는지 확인한다.
+
+    HTML 은 마크다운 링크 검사에 걸리지 않고, 게이트도 `<code>` 경로만 본다. 안내서가
+    옮겨진 문서(QUICKSTART 등)를 가리킨 채 남으면 아무도 모르므로 여기서 본다.
+    """
+    checked = 0
+    missing: list[str] = []
+    for page in HTML_GUIDES:
+        text = _read(page)
+        ids = set(re.findall(r'\bid="([^"]+)"', text))
+        for raw in re.findall(r'<a [^>]*href="([^"]+)"', text):
+            if "://" in raw:
+                continue
+            target, _, anchor = raw.partition("#")
+            checked += 1
+            if target and not (page.parent / unquote(target)).resolve().exists():
+                missing.append(f"{page.name}: {raw}")
+            elif not target and anchor not in ids:
+                missing.append(f"{page.name}: {raw}")
+
+    assert checked, "HTML 안내서에 상대 링크가 없습니다."
+    assert not missing, f"HTML 안내서의 끊긴 링크: {missing}"
 
 
 # ------------------------------------------------------------------ 선택 기준
@@ -214,12 +244,12 @@ def test_generator_points_to_the_guide():
     """뼈대만 만들고 끝내면 다음에 무엇을 할지 알 수 없다."""
     source = _read(REPO_ROOT / "scripts/new_app.py")
 
-    assert "docs/guides/orm-raw-workflow.md" in source
+    assert "docs/guides/DEVELOPMENT.md" in source
     assert "app/features/catalog/" in source and "app/features/reports/" in source
 
 
 def test_project_metadata_matches_the_repository():
-    """패키지 이름이 다른 저장소면 읽는 사람이 어디에 있는지 헷갈린다."""
+    """패키지 이름이 저장소 이름과 다르면 읽는 사람이 어디에 있는지 헷갈린다."""
     text = _read(REPO_ROOT / "pyproject.toml")
 
     assert 'name = "fastapi-project-structure-django-active-style"' in text

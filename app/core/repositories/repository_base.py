@@ -1,21 +1,22 @@
 """
 기본 Repository 클래스
 
-모든 Repository의 기반이 되는 Generic 클래스입니다.
-CRUD 작업과 N+1 문제 해결을 위한 Eager Loading 메서드를 제공합니다.
+모든 ORM Repository 의 기반이 되는 Generic 클래스입니다. 공개 메서드는
+create · get_by_id · get_by_id_or_raise · get_all · count · exists · update · delete
+이고, 모두 flush 까지만 하며 commit 하지 않습니다.
 
 사용법:
-    class UserRepository(BaseRepository[User]):
+    class UserRepository(BaseRepository[User, str]):
         model = User
 
-    # 기본 CRUD
-    user = await repo.create({"name": "John"})
+    user = await repo.create({"username": "hong"})
     user = await repo.get_by_id("id")
-    users = await repo.get_all()
+    users = await repo.get_all(skip=0, limit=100)   # 정렬 없음
 
-    # N+1 해결 - Eager Loading
-    user = await repo.get_by_id_with("id", relations=["posts", "profile"])
-    users = await repo.get_all_with(relations=["posts"])
+공개 eager-loading 메서드는 없습니다. 관계를 응답에 쓰려면 기능 Repository 쿼리에
+selectinload/joinedload 를 명시합니다. 아래 ``_apply_eager_loading()`` ·
+``_apply_column_loading()`` 은 그런 쿼리를 짤 때 쓸 수 있는 내부 헬퍼이며, 현재
+호출하는 곳은 없습니다.
 """
 
 from collections.abc import Sequence
@@ -50,8 +51,7 @@ class BaseRepository(CRUDBase[ModelType, PrimaryKeyType], Generic[ModelType, Pri
     """
     기본 Repository 클래스
 
-    SQLAlchemy 모델에 대한 CRUD 작업과 N+1 문제 해결을 위한
-    Eager Loading 메서드를 제공합니다.
+    SQLAlchemy 모델에 대한 CRUD 작업을 제공합니다(commit 없음).
 
     Attributes:
         model: SQLAlchemy 모델 클래스 (하위 클래스에서 정의)
@@ -61,7 +61,7 @@ class BaseRepository(CRUDBase[ModelType, PrimaryKeyType], Generic[ModelType, Pri
         ModelType: Base를 상속한 SQLAlchemy 모델 타입
 
     Example:
-        class UserRepository(BaseRepository[User]):
+        class UserRepository(BaseRepository[User, str]):
             model = User
 
         repo = UserRepository(session)

@@ -4,7 +4,9 @@
 앱 자동 등록, 설정·로깅, 기동과 종료, 요청 처리, DB 세션, 보안 경계를 다룹니다.
 
 - 설치·실행·API 목록은 [README](../../README.md), 새 기능을 만드는 절차는
-  [기능 개발 가이드](./orm-raw-workflow.md)를 봅니다.
+  [기능 개발 가이드](./DEVELOPMENT.md)를 봅니다.
+- §3~§9 의 흐름을 도식으로 따라가려면 [서버 수명주기 안내서](./server-lifecycle-guide.html)를 엽니다.
+  표·목록의 원문은 이 문서입니다.
 - 코드와 이 문서가 다르면 **코드가 정답**입니다. 차이를 발견하면 이 문서를 고칩니다.
 
 ---
@@ -16,7 +18,7 @@ fastapi-project-structure-django-active-style/
 ├── main.py                 # 조립: AppRegistry 발견·결선 + 미들웨어·예외·문서·lifespan·Admin
 ├── config.py               # Pydantic Settings 12종 + validate_deployment_safety()
 ├── pyproject.toml          # 의존성·도구 설정 ([tool.uv] package = false, pytest env 주입)
-├── .python-version         # 3.14 (requires-python 은 >=3.12)
+├── .python-version         # 3.14 (requires-python 은 >=3.13 — TypeVar default 사용)
 ├── .env.example            # 설정 전체 목록 (config.py 와 양방향 일치를 테스트가 강제)
 ├── alembic.ini             # script_location = migrations
 ├── compose.test.yaml       # MySQL 8.4 통합 테스트 전용 컨테이너 (호스트 포트 3310)
@@ -381,7 +383,7 @@ queue)으로 정리합니다.
 
 미들웨어는 CORS → UserInfo 순서로 등록되며, Starlette 는 나중에 등록한 것을 바깥에 둡니다.
 계층별 책임과 트랜잭션 경계(커밋은 쓰기 핸들러 본문이 응답 전에 한 번)는
-[기능 개발 가이드 §2·§8](./orm-raw-workflow.md)이 소유합니다.
+[기능 개발 가이드 §2·§8](./DEVELOPMENT.md)이 소유합니다.
 
 ### 7.1 접속 로그
 
@@ -597,7 +599,7 @@ config.set_main_option("sqlalchemy.url", db_settings.ALEMBIC_URL)
 - 회귀 가드: `tests/core/test_migration_chain.py`(빈 DB `upgrade head` 결과 = ORM metadata),
   `tests/core/test_alembic_metadata.py`, 게이트 `structure` 그룹(`alembic heads` 단일 head).
 
-작성 절차는 [기능 개발 가이드 §10](./orm-raw-workflow.md), 자동 생성과의 전환은 README 를 봅니다.
+작성 절차는 [기능 개발 가이드 §10](./DEVELOPMENT.md), 자동 생성과의 전환은 README 를 봅니다.
 
 ---
 
@@ -633,6 +635,7 @@ CI(`.github/workflows/ci.yml`)는 두 job 입니다: gate job 이 `static struct
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-09-17 | **문서 일관성 정리**: 개발 가이드를 `DEVELOPMENT.md` 로 이름을 바꾸고, 재구성 때 지웠던 HTML 안내서 2종(`server-lifecycle-guide.html`·`feature-development-guide.html`)을 현행 코드·이 문서와 맞춰 복원했다(표·목록 원문은 Markdown 이 소유). 코드 변경: blog·reply·sns·user 쓰기 핸들러를 "DTO 검증 → commit" 순서로 맞췄다. |
 | 2026-09-17 | **문서 재구성**: README 의 로깅·접속 로그·요청 처리·앱 규약 상세, `server-lifecycle-guide.html` 의 설정·lifespan·종료 추적, 버전 가이드(`docs/project-guide/v1.0.0/`)의 현행 사실을 이 문서로 모았다. 코드와 대조해 로그 포맷·파일 핸들러 조건·미사용 설정, 프록시 헤더 신뢰 설정, 배포 게이트, 라우트 수를 바로잡았다. 코드 변경 없음. |
 | 2026-09-17 | lifespan 이 `manage_application_resources()`(Redis PING 필수·DEBUG DDL·역순 정리)로 옮겨진 것을 반영하고, `env.py` 예시를 실제 코드로 정정했다. |
 | 2026-08-25 | 초기화 훅을 `__init__.py` import 부수효과에서 `apps.py` 의 `ready()` + `install_hooks()` 로 바꾼 것을 반영했다(runtime-lifecycle ADR-006). 세션 예시를 정식 이름으로 바꿨다. |

@@ -2,7 +2,8 @@
 Home v1 API 엔드포인트 — 접속 로그 조회/통계.
 
 view 는 HTTP 역할만 한다: 파라미터 수신 → 의존성으로 주입된 Service 호출 → 응답 변환.
-비즈니스 로직과 트랜잭션 경계는 services / dependencies 가 담당한다(UnitOfWork 제거).
+모든 엔드포인트가 조회 전용이라 read-only 세션을 쓰고 commit 하지 않는다. 접속 로그 저장은
+미들웨어 → HomeAccessLogSink 가 별도 background 세션으로 한다.
 """
 
 from typing import Any

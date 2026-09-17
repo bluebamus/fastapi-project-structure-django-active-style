@@ -309,6 +309,9 @@ DOC_ALLOWED_MISSING_PATHS = {
     # 2026-09-17 문서 재구성(docs-learnability ADR-006) — 내용은 README·ARCHITECTURE 로 합쳤다.
     "docs/README.md",  # F-203 이 만든 문서 안내 → README 「문서 안내」 절
     "docs/guides/QUICKSTART.md",  # → README 「빠른 시작」
+    # 2026-09-17 문서 일관성 정리(docs-learnability ADR-007) — 이름만 바뀌었고, 검수 이력은
+    # 당시 경로를 그대로 인용한다.
+    "docs/guides/orm-raw-workflow.md",  # → docs/guides/DEVELOPMENT.md
     # 개발 안내서가 "새 기능을 만든다면" 의 가상 예시로 쓰는 경로다.
     "dependencies/inventory_dependencies.py",
 }
@@ -328,7 +331,7 @@ EXTERNAL_ENV = {
     "GITHUB_TOKEN",
     "MYSQL_TEST_PORT",
     "ALEMBIC_DATABASE_URL",
-    "MYSQL_ALLOW_EMPTY_PASSWORD",  # mysql 컨테이너 이미지의 변수(QUICKSTART docker 예시)
+    "MYSQL_ALLOW_EMPTY_PASSWORD",  # mysql 컨테이너 이미지의 변수(README 빠른 시작 docker 예시)
 }
 
 
