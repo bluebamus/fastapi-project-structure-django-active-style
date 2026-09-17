@@ -1,551 +1,82 @@
 # FastAPI Project Structure — Django Active Style
 
-Repository 패턴과 계층 분리 아키텍처를 적용한 FastAPI 프로젝트 템플릿입니다.
+Repository 패턴과 계층 분리를 적용한 FastAPI 프로젝트 골격입니다.
 
-**Django 스타일 앱 자동 등록**을 씁니다: `app/features/<name>/` 디렉터리를 만드는 것만으로 그 앱의 라우터·모델·관리 화면이 자동으로 결선됩니다. `main.py` · `migrations/env.py` · 중앙 Admin 목록을 손댈 일이 없습니다. 규약과 한계는 [앱 자동 등록 규약](#앱-자동-등록-규약)을 참고하세요.
+**Django 스타일 앱 자동 등록**을 씁니다. `app/features/<name>/` 디렉터리를 만드는 것만으로 그 앱의
+라우터·모델·관리 화면이 결선되고, `main.py`·`migrations/env.py`·중앙 Admin 목록은 손대지 않습니다.
+데이터 접근은 ORM 과 Raw SQL 두 방식을 각각 완결된 예제 기능으로 보여 줍니다.
 
 ## 목차
 
-- [개요](#개요)
-- [기술 스택](#기술-스택)
-- [아키텍처](#아키텍처)
-- [프로젝트 구조](#프로젝트-구조)
-- [앱 자동 등록 규약](#앱-자동-등록-규약)
-- [데이터 흐름](#데이터-흐름)
-- [핵심 패턴](#핵심-패턴)
+- [특징](#특징) · [기술 스택](#기술-스택) · [구조 한눈에](#구조-한눈에)
 - [ORM / Raw 데이터 접근](#orm--raw-데이터-접근)
-- [시작하기](#시작하기)
-- [환경 설정](#환경-설정)
-- [로깅 시스템](#로깅-시스템)
-- [접속 로그 미들웨어](#접속-로그-미들웨어)
-- [인증 (JWT)](#인증-jwt)
-- [신규 기능 개발 가이드](#신규-기능-개발-가이드)
-- [API 문서](#api-문서)
+- [빠른 시작](#빠른-시작) · [스키마 관리](#스키마-관리--자동-생성에서-alembic-으로) · [테스트](#테스트)
+- [환경 설정](#환경-설정) · [운영 배포](#운영-배포)
+- [API](#api) · [새 기능 추가](#새-기능-추가) · [자주 막히는 지점](#자주-막히는-지점)
+- [문서 안내](#문서-안내)
 
 ---
 
-## HTML 단계별 가이드
+## 특징
 
-- [서버 수명주기 안내서](./docs/guides/server-lifecycle-guide.html): `.env` 설정 → 자동 발견·hook·모델 → lifespan → Redis·DB → 요청 → 종료를 클래스·함수 중심으로 추적합니다.
-- [신규 뷰·테이블 개발 안내서](./docs/guides/feature-development-guide.html): MVC 대응, DI, ORM/Raw, 트랜잭션, 비동기, migration, 테스트와 현재 구현의 제한을 설명합니다.
-
-## 개요
-
-이 프로젝트는 FastAPI 기반의 확장 가능한 백엔드 애플리케이션 템플릿입니다.
-
-### 주요 특징
-
-- **계층 분리 아키텍처**: Router → Service → Repository → Database
-- **명시적 트랜잭션 경계**: 기능 의존성(`get_<name>_service`)은 Service 구성만 담당하고, 커밋은 **쓰기 핸들러 본문**이 `await service.commit()` 로 수행(UnitOfWork 미사용)
-- **읽기/쓰기 세션 분리**: 조회 전용 의존성(`get_<name>_service_readonly`)은 `get_read_only_db_session` 을 받아 커밋하지 않음 — 예외 시 세션 teardown이 롤백
-- **인증(JWT)**: OAuth2 Password 플로우 + JWT access/refresh 토큰, bcrypt 비밀번호 해시 (`auth` 기능, `app/utils/authenticator/`)
-- **N+1 문제 해결**: Eager Loading 전략 내장 (selectin, joined, subquery)
-- **유연한 설정**: Pydantic Settings 기반 환경 변수 관리
-- **구조화된 로깅**: 콘솔/파일 로그 분리, 자동 로그 로테이션
-- **API 문서**: Scalar UI 기반 인터랙티브 문서
-- **관리자 페이지**: SQLAdmin 통합
-
----
+- **앱 자동 등록** — `AppRegistry` 가 `app/features/*` 를 발견해 `<name>_router` 를 `/api` 에 마운트하고,
+  모델을 `Base.metadata` 에, `admin_views` 를 SQLAdmin 에 등록합니다. 잘못된 계약은 조용히 넘기지 않고
+  기동을 멈춥니다.
+- **계층 분리** — View(Router) → Dependency → Service → Repository → DB.
+- **명시적 트랜잭션 경계** — Dependency 는 Service 를 조립만 하고, 커밋은 **쓰기 핸들러 본문**이
+  응답 전에 `await service.commit()` 으로 한 번 합니다(UnitOfWork 없음).
+- **읽기/쓰기 세션 분리** — 조회는 `get_read_only_db_session`(쓰기 시도 시 예외), 변경은
+  `get_writer_db_session`. 선택적으로 replica 라우팅.
+- **ORM 과 Raw SQL** — `BaseRepository`(catalog 예제)와 `RawRepositoryBase`(reports 예제).
+- **JWT 인증** — OAuth2 password flow, access/refresh 토큰, bcrypt.
+- **운영 안전장치** — staging/production 에서 위험한 설정이면 기동 거부, 오류 응답에 내부 정보 비노출,
+  접속 로그 비동기 수집, 로그 비밀값 마스킹.
+- **검증 게이트** — 로컬과 CI 가 같은 `scripts/review_gate.py` 로 정적 검사·테스트·공급망·문서를 판정.
 
 ## 기술 스택
 
 | 구분 | 기술 |
-|------|------|
-| Framework | FastAPI 0.141+ |
-| ORM | SQLAlchemy 2.0 (async) |
-| Database | MySQL (aiomysql) |
-| Validation | Pydantic v2 |
+|---|---|
+| Framework | FastAPI 0.141 (Python 3.14, 최소 3.12) |
+| ORM / DB | SQLAlchemy 2.0 async · MySQL(aiomysql) |
+| Validation / Settings | Pydantic v2 · pydantic-settings |
 | Migration | Alembic |
-| Redis | startup 연결 검증 + Celery 브로커·결과 백엔드 |
-| Admin | SQLAdmin |
-| API Docs | Scalar |
-| Task Queue | Celery + Redis |
-| Auth | OAuth2 Password + JWT(PyJWT) + bcrypt |
+| Redis | startup 연결 검증(필수) · Celery broker/backend |
+| Task Queue | Celery |
+| Admin / API Docs | SQLAdmin · Scalar |
+| Auth | OAuth2 Password + PyJWT + bcrypt |
+| Tooling | uv · ruff · mypy · bandit · pytest · pip-audit |
 
----
+## 구조 한눈에
 
-## 아키텍처
-
-### 3계층 아키텍처
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        HTTP Request                          │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────┐
-│                    Router (API Layer)                        │
-│  - 요청/응답 처리                                              │
-│  - 입력 유효성 검사 (Pydantic)                                  │
-│  - 의존성 주입 (Depends)                                       │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────┐
-│                 Service (Business Logic)                     │
-│  - 비즈니스 로직 처리                                          │
-│  - 데이터 변환 및 검증                                         │
-│  - 트랜잭션 조율                                               │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────┐
-│                Repository (Data Access)                      │
-│  - 데이터베이스 CRUD                                          │
-│  - 쿼리 캡슐화                                                │
-│  - N+1 문제 해결                                              │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────┐
-│                    Database (MySQL)                          │
-└─────────────────────────────────────────────────────────────┘
+```text
+main.py            조립: 앱 자동 발견·결선 + 미들웨어·예외·문서·lifespan·Admin
+config.py          설정 단일 출처 (Pydantic Settings) + 배포 안전 게이트
+app/features/      기능 앱 — 디렉터리 존재 = 등록 선언
+  auth · blog · catalog(ORM 예제) · home(접속 로그) · reply · reports(Raw 예제) · sns · user
+app/core/          registry · db(세션·라우팅) · Base 모델/Repository/Service · 미들웨어 · 자원 관리
+app/celery/        중앙 Celery 앱과 태스크
+app/utils/         로깅 · JWT/bcrypt · 페이지네이션 · 검증
+migrations/        Alembic (런타임과 같은 registry 로 모델 수집)
+scripts/           new_app.py(앱 생성기) · review_gate.py(검증 게이트)
+tests/             횡단 테스트 (기능 테스트는 app/features/<name>/tests/)
+docs/              guides(현행) · specs(고정 기준선) · crp(검수 이력)
 ```
 
-### 요청 처리 & 트랜잭션 경계 (UnitOfWork 미사용)
-
-```
-Router(view) → Depends(get_<name>_service) → Service(session) → Repository → DB
-```
-
-트랜잭션 경계는 **쓰기 핸들러 본문**이 담당합니다. `get_<name>_service` 가 세션으로 Service를
-구성해 뷰에 주입하면, 핸들러가 작업을 마친 뒤 응답을 만들기 전에 `await service.commit()` 을
-호출합니다(예외 시 `get_writer_db_session` teardown 이 롤백). 조회 엔드포인트는
-`get_<name>_service_readonly` 를 써서 `get_read_only_db_session` 을 받고 커밋하지 않습니다.
-요청 밖(백그라운드/Celery)에서는 `background_db_session()` 컨텍스트(별도 풀)를 사용해
-메인 API 풀 고갈을 방지합니다.
-
----
-
-## 프로젝트 구조
-
-> 상세한 아키텍처 설명은 **[docs/guides/ARCHITECTURE.md](docs/guides/ARCHITECTURE.md)** 를 참고하세요.
-
-```
-fastapi-default-project-structure/
-├── main.py                      # 진입점: AppRegistry 로 앱 자동 발견·결선 + 앱 설정
-├── config.py                    # 환경 설정 (Pydantic Settings) — 설정 단일 출처
-├── pyproject.toml               # 의존성 및 도구 설정 ([tool.uv] package = false)
-├── alembic.ini                  # Alembic 설정
-├── .env.example                 # 설정 예시 (config.py 와 양방향 일치를 테스트가 강제)
-├── .pre-commit-config.yaml      # ruff + 기본 위생 훅
-│
-├── app/
-│   ├── features/                # 기능 단위 vertical slice — AppRegistry 가 자동 발견
-│   │   ├── admin.py             # SQLAdmin 인터페이스 생성 (뷰 등록은 registry 가 수행)
-│   │   └── <name>/              # 각 기능 디렉토리 = 앱 등록 선언 그 자체
-│   │       ├── __init__.py      # 앱 패키지 + 초기화 훅 (admin 은 재노출하지 않음)
-│   │       ├── admin.py         # 이 기능 모델의 ModelView + admin_views (선택)
-│   │       ├── api/routers/     # router.py + v1/ 엔드포인트
-│   │       ├── models/          # SQLAlchemy ORM 모델
-│   │       ├── schemas/         # Pydantic 스키마
-│   │       ├── services/        # 비즈니스 로직
-│   │       ├── repositories/    # 데이터 접근 계층
-│   │       ├── dependencies/    # 기능 의존성 (Service 구성 — 커밋은 핸들러)
-│   │       ├── exceptions.py    # 기능 예외 (선택)
-│   │       └── tests/           # 이 기능의 테스트
-│   ├── core/                    # 프레임워크 인프라 (features 가 의존)
-│   │   ├── registry.py          # 앱 자동 발견 레지스트리 (AppModule / AppRegistry)
-│   │   ├── exception.py         # 공통 예외 계층
-│   │   ├── tags_metadata.py     # OpenAPI 태그 설명
-│   │   ├── db/                  # 세션·라우팅·모델 등록
-│   │   │   ├── session.py       # 엔진, get_writer_db_session / get_read_only_db_session, background_db_session
-│   │   │   ├── router.py        # 읽기/쓰기 라우팅 (RoutingSession)
-│   │   │   └── models_registry.py  # 모델 import — AppRegistry 위임 facade
-│   │   ├── models/models_base.py   # SQLAlchemy Base + TimestampMixin·UUIDMixin
-│   │   ├── repositories/        # BaseRepository (제네릭 CRUD)
-│   │   ├── services/            # BaseService
-│   │   └── middlewares/         # CORS, UserInfo, AccessLogSink, background_tasks
-│   │
-│   ├── celery/                  # 중앙 Celery 앱 + tasks.py + run_async 브릿지
-│   └── utils/                   # logs(구조화 로깅) · authenticator(JWT·bcrypt) ·
-│                                #   pagination · validators
-│
-├── tests/                       # 횡단 테스트 — core 계약·배선·교차 기능
-│   ├── core/                    # 설정 계약, admin 뷰 정책, 마이그레이션 체인 등
-│   ├── utils/                   # 로깅·인증·페이지네이션 유틸
-│   └── test_*.py                # 라우터/admin 배선, 응답 직렬화 등
-│
-├── scripts/new_app.py           # Django startapp 대응 — 앱 scaffold 생성기
-├── migrations/                  # Alembic (env.py 가 런타임과 같은 AppRegistry 로 메타데이터 수집)
-├── .github/workflows/ci.yml     # CI 게이트 (ruff · format · mypy 콜드캐시 · pytest · bandit · alembic)
-├── docs/
-│   ├── README.md                # 문서 안내
-│   ├── specs/orm-raw-repository/ # ORM/Raw 요구명세·개발계획·지침 원본 (착수 기준선)
-│   └── guides/                  # 현행 사용자·개발자 가이드
-│       ├── ARCHITECTURE.md      # 아키텍처 공식 문서 (SSOT)
-│       ├── QUICKSTART.md        # 최소 실행 경로
-│       └── orm-raw-workflow.md  # ORM/Raw 개발 지침
-└── logs/ media/ static/ poc/    # 런타임·예약 디렉터리 (.gitkeep 만 추적)
+```text
+요청 → 미들웨어(접속 로그·CORS) → Router → Depends(get_<name>_service) → Service(session) → Repository → DB
+                                     └ 쓰기 핸들러가 응답 전에 await service.commit()
 ```
 
-> 기능 테스트는 `app/features/<name>/tests/` 에, 여러 기능에 걸치거나 `core` 계약을 보는 테스트는
-> 최상위 `tests/` 에 둡니다. `pytest` 는 양쪽을 모두 수집합니다.
-
-### 핵심 파일 설명
-
-| 파일 | 설명 |
-|------|------|
-| `main.py` | FastAPI 조립 — `AppRegistry` 로 앱을 발견해 라우터·모델·Admin 을 결선 + 미들웨어/예외/문서/lifespan 설정. **기능 추가 시 수정하지 않음** |
-| `app/core/registry.py` | 앱 자동 발견 레지스트리. `discover()` 가 앱 목록을 만들고 `install_routers()` / `import_models()` / `install_admin()` 이 그 목록 하나를 재사용 |
-| `app/features/<name>/__init__.py` | 앱 패키지. import-time 초기화 훅(선택) — 빠르고 멱등적이어야 하며 I/O 금지 |
-| `app/features/<name>/api/routers/router.py` | `<name>_router: APIRouter` — registry 가 `/api` 에 자동 마운트 |
-| `app/features/<name>/admin.py` | 기능이 소유한 SQLAdmin ModelView + `admin_views` (선택) |
-| `app/features/admin.py` | SQLAdmin 인터페이스 생성(`create_admin_interface`)과 `/admin` 마운트만 담당. 뷰 취합은 `registry.install_admin()` 이 수행 — **중앙 뷰 목록 없음** |
-| `scripts/new_app.py` | Django `startapp` 대응 생성기. 이름 검증·경로 이탈·덮어쓰기 방지 포함 |
-| `app/core/db/session.py` | SQLAlchemy 엔진, 세션 팩토리, 커넥션 풀, `background_db_session` |
-| `app/features/<name>/dependencies/` | 기능 의존성 — Service 구성(쓰기용 `get_writer_db_session` / 조회용 `get_read_only_db_session`). 커밋은 핸들러가 수행 |
-| `app/core/exception.py` | 커스텀 예외 계층 (4xx, 5xx, 비즈니스 예외) |
-| `migrations/env.py` | 런타임과 **같은** `AppRegistry` 로 전 기능 모델을 수집 → Alembic autogenerate. 목록이 갈리면 "운영에 테이블이 없다" 가 배포 뒤에 드러난다 |
-
-### `app/` 구현 규칙 (Conventions)
-
-`app/` 아래는 **3개 영역**으로 나뉘며, 의존은 한 방향으로만 흐릅니다.
-
-```
-features → core → utils
-```
-
-| 영역 | 역할 | 규칙 |
-|------|------|------|
-| `app/features/<name>/` | 기능 단위 vertical slice | 비즈니스 코드는 전부 여기. `core`를 사용하고 다른 기능은 import하지 않음(예외: `auth` 는 횡단 관심사로 `user` 의 식별 모델·리포지토리에 의존 — `auth_service` 에 명시) |
-| `app/core/` | 프레임워크 인프라 (Base*, db, 미들웨어) | 원칙적으로 기능 구현을 직접 알지 않는다. 유일한 예외는 `db/session.py` 의 `create_db_tables()`가 메타데이터 등록을 위해 `import_all_models()`를 함수 내부에서 호출하는 것 |
-| `app/utils/` | 순수 유틸리티 (로깅, 인증, 페이지네이션) | 외부·상위 계층 의존 없음. 누구나 import 가능 |
-
-> 핵심 규칙: **`core`는 기능 구현을 직접 결합하지 않는다.** 기능이 `core`의 미들웨어 등에 자신을 연결해야 할 때는 직접 import가 아니라 등록 훅(예: `access_log_sink.register_sink()`)을 통한다.
-
-#### 기능 표준 레이아웃
-
-새 앱은 아래 구조와 **파일 네이밍 표준**을 따릅니다. (기준 구현체: `app/features/home/`)
-
-```
-app/features/<name>/
-├── api/
-│   └── routers/
-│       ├── router.py          # 앱 루트 라우터 (v1/ 등을 묶음) — 필수
-│       └── v1/<name>.py       # 버전별 엔드포인트 — 필수
-├── models/models.py           # SQLAlchemy ORM 모델 — 필수
-├── schemas/                   # Pydantic 요청/응답 스키마 — 필수
-├── repositories/              # BaseRepository 확장 (데이터 접근) — 필수
-├── services/                  # BaseService 확장 (비즈니스 로직) — 필수
-├── dependencies/              # 기능 의존성 (Service 구성 — 커밋은 핸들러) — 필수
-│   └── <name>_dependencies.py
-├── tests/                     # pytest — 필수
-├── exceptions.py              # 기능 예외 — 선택
-└── admin.py                   # SQLAdmin ModelView — 선택
-
-# Celery 태스크는 기능별 worker/가 아니라 중앙 app/celery/tasks.py 에 정의한다.
-```
-
-**파일 네이밍 표준 (반드시 준수):**
-
-| 용도 | 올바른 이름 | 쓰지 말 것 |
-|------|------------|-----------|
-| 기능 예외 | `exceptions.py` | `<name>_exception.py` |
-| FastAPI 의존성 | `dependencies.py` | `dependency.py` |
-| SQLAdmin 뷰 | `admin.py` | `api/<name>_admin.py` |
-| Celery 태스크 | 중앙 `app/celery/tasks.py` | 기능별 `worker/` |
-| 기능 의존성 | `dependencies/` 패키지 | 단일 `dependencies.py`도 허용 |
-
-#### 계층별 책임과 호출 규칙
-
-```
-Router  →  Depends(get_<name>_service)  →  Service(session)  →  Repository  →  DB
- (API·                (Service 구성)          (비즈니스 로직)     (데이터 접근)
- 트랜잭션 경계)
-```
-
-| 계층 | 하는 일 | 하지 말 것 |
-|------|---------|-----------|
-| **Router** | 입력 검증(Pydantic), `Depends(get_<name>_service)`로 Service 주입, Service 호출 → **쓰기면 `await service.commit()`** → 응답 변환 | 직접 ORM 쿼리 |
-| **Dependency** | 세션 주입(쓰기 `get_writer_db_session` / 조회 `get_read_only_db_session`) → `Service(session)` 구성 후 **반환**(`yield` 아님) | 비즈니스 로직·커밋 |
-| **Service** | `BaseService` 상속, `self.session`/Repository로 데이터 접근·비즈니스 로직 | 커밋 시점 결정(핸들러가 담당) |
-| **Repository** | `BaseRepository` 상속, 쿼리 캡슐화, N+1 회피(`get_all_with`) | 비즈니스 로직·커밋 |
-
-> **주의:** `Service`는 세션을 주입받아 구성됩니다(`Service(session)`). 트랜잭션 커밋은 Service 도 의존성도 아닌 **쓰기 핸들러 본문**이 응답 반환 직전에 수행합니다.
->
-> 의존성이 `yield` 후에 커밋하던 이전 방식은 FastAPI 상위 버전에서 yield dependency 의 종료 코드가 **응답 전송 후에** 실행되도록 바뀌면서, 커밋이 실패해도 클라이언트가 `201` 을 받는 문제가 있었습니다. 커밋을 핸들러 안으로 옮겨 응답 생성 전에 끝나도록 보장합니다.
-
----
-
-## 앱 자동 등록 규약
-
-`app/features/<name>/` 디렉터리를 만드는 것이 곧 **앱 등록 선언**입니다. 중앙 목록도, 앱별 설정 파일도 없습니다. 부팅할 때 `AppRegistry` 가 그 아래를 훑어 앱 목록을 만들고, 같은 목록으로 라우터·모델·관리 화면을 결선합니다.
-
-### 규약 — registry 가 찾는 다섯 가지
-
-| 경로 | 계약 | 없으면 |
-|------|------|--------|
-| `<name>/__init__.py` | 앱 패키지 선언. **여기에 부수효과를 두지 않습니다** | 패키지가 아니므로 **발견되지 않음** |
-| `<name>/apps.py` | `ready()` — 부팅 시 한 번 실행되는 초기화 훅 | 초기화 훅 없는 앱으로 정상 처리 |
-| `<name>/api/routers/router.py` | `<name>_router: APIRouter` | 라우터 없는 앱으로 정상 처리 |
-| `<name>/models/` | import 시 ORM 모델이 `Base.metadata` 에 등록 | 모델 없는 앱으로 정상 처리 (실제 `auth` 가 그렇습니다) |
-| `<name>/admin.py` | `admin_views: list[type]` (SQLAdmin `ModelView`) | 관리 화면 없는 앱으로 정상 처리 |
-
-- 앱 이름은 **파이썬 식별자**여야 하고 예약어면 안 됩니다. `order-items` 같은 이름은 import 자체가 불가능해 조용히 누락됩니다.
-- 발견 순서는 **앱 이름 알파벳순**으로 고정입니다. 파일시스템 순서에 의존하지 않으므로 OS 가 달라도 라우트 등록 순서가 같습니다.
-- `_scratch` 처럼 **언더스코어로 시작하는 디렉터리는 제외**됩니다. 작업 중인 코드를 부팅 경로에서 빼 두는 방법입니다.
-
-### 파일 부재는 선택, 잘못된 계약은 오류
-
-자동 등록은 편리한 대신 실패를 조용하게 만듭니다 — 라우터가 안 붙어도 서버는 에러 없이 뜨고 그 기능만 사라집니다. 그래서 registry 는 **없는 것과 틀린 것을 구분**합니다.
-
-| 상황 | 동작 |
-|------|------|
-| `admin.py` 가 없다 | 건너뜁니다 (선택 구성요소) |
-| `admin.py` 안의 `import` 가 틀렸다 | 원래 `ModuleNotFoundError` 를 그대로 올려 **기동 실패** |
-| `admin.py` 는 있는데 `admin_views` 가 없다 / list 가 아니다 / `ModelView` 가 아니다 | `AppContractError` 로 **기동 실패** |
-| `router.py` 는 있는데 `<name>_router` 가 없다 / `APIRouter` 가 아니다 | `AppContractError` 로 **기동 실패** |
-| 두 앱이 같은 라우터 객체나 같은 `ModelView` 를 내보낸다 | `AppContractError` 로 **기동 실패** |
-
-### 초기화 훅 — `apps.py` 의 `ready()`
-
-부팅 시 한 번 해야 하는 결선은 앱의 `apps.py` 에 `ready()` 로 둡니다. `AppRegistry.install_hooks()` 가 발견 순서대로 호출합니다.
-
-```python
-# app/features/home/apps.py — Django 의 AppConfig.ready() 자리
-from app.features.home.access_log_sink import register_sink
-
-
-def ready() -> None:
-    register_sink()   # core 미들웨어에 자신을 등록한다
-```
-
-**`__init__.py` 의 import-time 부수효과는 쓰지 않습니다.** import 부작용은 "이 모듈을 import 하면 무슨 일이 일어나는가" 를 코드에서 읽을 수 없게 만들고, 테스트가 모듈을 건드리는 것만으로 상태가 바뀌어 결과가 실행 순서에 좌우됩니다. 그래서 `discover()` 는 **부작용이 0** 이고(앱이 무엇인지 알아내기만 합니다), 초기화는 부르는 쪽이 `install_hooks()` 로 명시적으로 요청합니다.
-
-- `ready()` 는 **멱등**이어야 합니다 — 재기동·재진입에서 다시 불릴 수 있습니다.
-- **DB·네트워크 I/O 를 하지 마세요.** 부팅이 외부 상태에 묶이고 실패 원인이 발견 단계로 숨습니다.
-- 무거운 계산도 피하세요. 모든 앱의 `ready()` 가 부팅 시간에 직접 더해집니다.
-- Django 의 `AppConfig.ready()` 와 **역할은 같지만 생명주기 보장은 다릅니다** — 프레임워크가 보장하는 준비 단계가 아니라 `main.py` 가 부르는 함수입니다.
-
-### Django 와의 대응 범위
-
-FastAPI 와 Django 는 생명주기와 URL 조립 방식이 다르므로 내부 동작까지 같게 만들 수는 없습니다. 여기서 "같다" 는 **개발자가 앱을 추가했을 때의 결과**가 같다는 뜻입니다.
-
-| Django | 이 프로젝트 | 판정 |
-|--------|------------|------|
-| 앱 registry | `AppRegistry` 가 목록을 한 번 만들어 공통 결선에 제공 | 대응 |
-| `AppConfig.ready()` | 앱 `apps.py` 의 `ready()` — `install_hooks()` 가 호출 | **역할만** 대응 (생명주기 보장은 다름) |
-| 모델 발견 | 앱 `models` import 로 `Base.metadata` 구성 | 대응 |
-| Admin 등록 | 앱 `admin.py` 의 `admin_views` 자동 수집 | 대응 |
-| `startapp` | `python -m scripts.new_app <name>` | 대응 |
-| URLconf | `<name>_router` 를 `/api` 에 **자동 마운트** | Django 에는 없는 확장 |
-| `INSTALLED_APPS` | 디렉터리 존재 자체가 등록 선언 | **의도적인 차이** |
-
-> 이 구현은 Django 호환 계층이 아니고 Django 기반도 아닙니다. Django 의 앱 단위 응집도와 registry 개념을 FastAPI 조립 과정에 맞게 옮긴 것입니다.
-
----
-
-## 데이터 흐름
-
-### 요청 처리 흐름
-
-```
-1. HTTP 요청 수신
-       ↓
-2. 미들웨어 처리 (CORS 검증 · User-Agent 파싱 · 접속 로그 수집)
-       ↓
-3. Router 진입 (파라미터 파싱 · Pydantic 검증 · Depends(get_<name>_service)로 Service 주입)
-       ↓
-4. Service 실행 (비즈니스 로직 · Repository 호출 · ORM 객체 반환)
-       ↓
-5. 쓰기 핸들러면 await service.commit() — 여기서 트랜잭션이 닫힌다
-       ↓
-6. 응답 반환 (Pydantic 직렬화)
-       ↓
-7. 의존성 teardown — 예외로 빠져나갔다면 get_writer_db_session 이 rollback()
-```
-
-### 코드 예시
-
-```python
-# dependencies — Service 구성만 담당(커밋하지 않는다)
-async def get_blog_service(
-    session: AsyncSession = Depends(get_writer_db_session),          # 쓰기용
-) -> BlogService:
-    return BlogService(session)
-
-
-async def get_blog_service_readonly(
-    session: AsyncSession = Depends(get_read_only_db_session),     # 조회용 — 커밋 없음
-) -> BlogService:
-    return BlogService(session)
-
-
-# Router(view) — 쓰기: 파라미터 → Service 호출 → commit → 응답 변환
-@router.post("/posts", response_model=PostResponse, status_code=201)
-async def create_post(
-    payload: PostCreate,
-    service: BlogService = Depends(get_blog_service),
-) -> PostResponse:
-    post = await service.create_post(payload)
-    await service.commit()          # 응답 생성 전에 커밋을 끝낸다
-    return PostResponse.model_validate(post)
-
-
-# Router(view) — 조회: 읽기 전용 의존성을 쓰고 커밋하지 않는다
-@router.get("/access-logs")
-async def get_access_logs(
-    skip: int = 0,
-    limit: int = 50,
-    service: UserAccessLogService = Depends(get_access_log_service),
-):
-    logs, total = await service.get_access_logs(skip, limit)
-    return UserAccessLogListResponse(
-        items=[UserAccessLogResponse.model_validate(log) for log in logs],
-        total=total, skip=skip, limit=limit,
-    )
-```
-
-### 트랜잭션 & 롤백
-
-- **성공**: 쓰기 핸들러가 응답 생성 전에 `await service.commit()` 을 호출한다.
-- **예외**: 뷰/Service 에서 예외 발생 → 커밋이 실행되지 않고 `get_writer_db_session` teardown 이 `session.rollback()`.
-- **요청 밖(Celery/백그라운드)**: `async with background_db_session() as session:` 컨텍스트로 커밋/롤백을 직접 관리(별도 풀).
-
----
-
-## 핵심 패턴
-
-### 1. Repository 패턴
-
-데이터 접근 로직을 캡슐화하여 비즈니스 로직과 분리합니다.
-
-```python
-# app/core/repositories/repository_base.py (+ crud_base.py)
-class BaseRepository(Generic[ModelType]):
-    """제네릭 기본 Repository"""
-
-    def __init__(self, session: AsyncSession):
-        self.session = session
-
-    # CRUD 기본 메서드
-    async def create(self, data: dict) -> ModelType: ...
-    async def get_by_id(self, id: str) -> ModelType | None: ...
-    async def get_all(self, skip: int, limit: int) -> Sequence[ModelType]: ...
-    async def update(self, id: str, data: dict) -> ModelType | None: ...
-    async def delete(self, id: str) -> bool: ...
-
-    # N+1 문제 해결 메서드
-    async def get_by_id_with(self, id: str, relations: list[str]) -> ModelType | None: ...
-    async def get_all_with(self, relations: list[str], strategy: str) -> Sequence[ModelType]: ...
-
-    # 고급 쿼리
-    async def get_or_create(self, filters: dict, defaults: dict) -> tuple[ModelType, bool]: ...
-    async def update_or_create(self, filters: dict, data: dict) -> tuple[ModelType, bool]: ...
-    async def bulk_create(self, items: list[dict]) -> list[ModelType]: ...
-```
-
-```python
-# 기능별 Repository 확장
-class UserAccessLogRepository(BaseRepository[UserAccessLog]):
-    """접속 로그 Repository"""
-
-    model = UserAccessLog
-
-    async def get_by_ip(self, ip_address: str) -> Sequence[UserAccessLog]:
-        """IP 주소로 조회"""
-        stmt = select(UserAccessLog).where(
-            UserAccessLog.ip_address == ip_address
-        )
-        result = await self.session.execute(stmt)
-        return result.scalars().all()
-
-    async def count_by_device_type(self) -> dict[str, int]:
-        """장치 유형별 통계"""
-        stmt = select(
-            UserAccessLog.device_type,
-            func.count().label("count")
-        ).group_by(UserAccessLog.device_type)
-        result = await self.session.execute(stmt)
-        return {row[0]: row[1] for row in result.all()}
-```
-
-### 2. 트랜잭션 경계 — 쓰기 핸들러 (UnitOfWork 대체)
-
-UnitOfWork 대신 **쓰기 핸들러**가 커밋 시점을 쥡니다. 기능 의존성은 세션으로 Service를
-구성해 넘겨주기만 하고, 커밋은 하지 않습니다. 커밋이 응답 생성보다 먼저 끝나므로
-커밋 실패가 성공 응답으로 둔갑하지 않습니다.
-
-```python
-# app/features/blog/dependencies/blog_dependencies.py — 구성만 한다
-async def get_blog_service(
-    session: AsyncSession = Depends(get_writer_db_session),          # 쓰기용
-) -> BlogService:
-    return BlogService(session)
-
-
-async def get_blog_service_readonly(
-    session: AsyncSession = Depends(get_read_only_db_session),     # 조회용
-) -> BlogService:
-    return BlogService(session)
-
-
-# app/features/blog/api/routers/v1/blog.py — 커밋은 여기서
-async def create_post(
-    payload: PostCreate,
-    service: BlogService = Depends(get_blog_service),
-) -> PostResponse:
-    post = await service.create_post(payload)
-    await service.commit()          # 예외 시 get_writer_db_session teardown 이 롤백
-    return PostResponse.model_validate(post)
-```
-
-- 조회 엔드포인트는 `_readonly` 의존성을 써서 `get_read_only_db_session` 을 받습니다. 불필요한
-  COMMIT 왕복이 사라지고, `DB_ROUTER_ENABLED` 가 켜지면 replica 로 라우팅됩니다.
-  읽기 핸들러가 몰래 쓰기를 시도하면 `ReadOnlyRoutingError` 로 즉시 실패합니다.
-- 요청 밖(Celery/백그라운드)에서는 `async with background_db_session() as session:` 컨텍스트로
-  커밋/롤백을 직접 관리합니다(별도 풀 → 메인 API 풀 고갈 방지).
-
-### 3. Service 패턴
-
-세션을 주입받아 Repository를 구성하고 비즈니스 로직을 캡슐화합니다(커밋 시점은 핸들러가 결정).
-
-```python
-# app/core/services/services_base.py - 공통 기반 클래스
-class BaseService(LoggerMixin):
-    """세션 주입 기반 Service. 커밋/롤백 경계는 핸들러/컨텍스트가 책임진다."""
-
-    def __init__(self, session: AsyncSession) -> None:
-        self.session = session
-
-
-# app/features/home/services/user_access_log_service.py - 기능 Service
-class UserAccessLogService(BaseService):
-    def __init__(self, session: AsyncSession) -> None:
-        super().__init__(session)
-        self.repository = UserAccessLogRepository(session)
-
-    async def get_access_logs(
-        self, skip: int = 0, limit: int = 50
-    ) -> tuple[Sequence[UserAccessLog], int]:
-        logs = await self.repository.get_all(skip=skip, limit=limit)
-        total = await self.repository.count()
-        return logs, total
-```
-
-### 4. N+1 문제 해결
-
-```python
-# 문제: N+1 쿼리 발생
-for user in users:
-    print(user.posts)  # 각 사용자마다 추가 쿼리 발생
-
-# 해결: Eager Loading
-users = await repo.get_all_with(
-    relations=["posts", "profile"],
-    strategy="selectin"  # SELECT IN 전략
-)
-
-# Eager Loading 전략
-# - selectin: SELECT ... WHERE id IN (...) - 대부분의 경우 권장
-# - joined: LEFT OUTER JOIN - 1:1 관계에 적합
-# - subquery: 서브쿼리 사용 - 복잡한 관계에 적합
-```
+앱 등록 규약(찾는 파일 다섯 가지, 오류 정책, `apps.py` 의 `ready()` 훅, Django 대응 범위), 기동·종료
+순서, 세션·라우팅은 [ARCHITECTURE](docs/guides/ARCHITECTURE.md)에 있습니다.
 
 ---
 
 ## ORM / Raw 데이터 접근
 
-이 저장소는 두 가지 데이터 접근 방식을 지원하고, **각각 완결된 예제 기능**을 담고 있습니다.
-새 기능을 만들기 전에 어느 쪽인지 먼저 정하세요.
+두 방식을 모두 지원하고, 각각 완결된 예제 기능이 있습니다. 새 기능을 만들기 전에 어느 쪽인지 먼저
+정합니다.
 
 | | ORM | Raw SQL |
 |---|---|---|
@@ -555,750 +86,338 @@ users = await repo.get_all_with(
 | **예제 기능** | `app/features/catalog/` (상품 CRUD) | `app/features/reports/` (일별 매출) |
 | **공개 API** | `/api/v1/catalog/products` | `GET /api/v1/reports/sales/daily` |
 
-**기본값은 ORM 입니다.** Raw 는 ORM 을 우회하는 일반 수단이 아니라 위 상황에서 *선택하는*
-도구입니다. 일반 단일 테이블 CRUD 는 예외 없이 ORM 을 씁니다.
+**기본값은 ORM 입니다.** Raw 는 위 상황에서 고르는 도구이고, 판단이 애매하면 돌려주는 것이 엔티티인가
+계산 결과인가를 봅니다. 두 방식의 공통 규칙:
 
-판단이 애매하면 **돌려주는 것이 엔티티인가 계산 결과인가**를 보세요. `Product` 한 건은
-엔티티라 ORM, `GROUP BY` 로 나온 일자별 합계는 식별자도 수명주기도 없는 계산 결과라
-Raw 입니다. reports 예제가 집계 전용 ORM 모델을 만들지 **않은** 이유가 이것입니다.
+- commit 은 쓰기 View 가 응답 직전에 한 번만 — Repository 도 Dependency 도 하지 않습니다
+- 조회는 `get_read_only_db_session`, 변경은 `get_writer_db_session` — Raw 라고 쓰기 세션을 쓰지 않습니다
+- SQL 은 상수, 값은 named bind — 요청 값으로 SQL 을 조립하면 정적 검사가 막습니다
+- Raw 결과(`RowMapping`)는 Service 에서 DTO 로 바꿉니다
 
-### 두 방식의 공통 규칙
-
-접근 방법만 다르고 계층 규칙은 같습니다.
-
-- **commit 은 쓰기 View 가 응답 직전에 한 번만** — Repository 도 Dependency 도 하지 않습니다
-- **조회는 `get_read_only_db_session`, 변경은 `get_writer_db_session`** — Raw 라는 이유로
-  쓰기 세션을 쓰지 않습니다(Raw 는 접근 방식이지 권한이 아닙니다)
-- **SQL 은 상수, 값은 named bind** — 요청 값으로 SQL 을 조립하면 정적 검사가 막습니다
-- **Raw 결과(`RowMapping`)는 Service 에서 DTO 로** — View 가 직접 돌려주지 않습니다
-
-### 자세히
-
-**→ [docs/guides/orm-raw-workflow.md](docs/guides/orm-raw-workflow.md)**
-
-파일 생성 순서, 자주 틀리는 지점, Raw 결과 API 의 정확한 의미(0행 vs NULL), MySQL 방언
-검증 절차까지 예제 코드와 함께 정리돼 있습니다.
+**→ 파일 순서·결과 API 의미·MySQL 검증까지: [docs/guides/orm-raw-workflow.md](docs/guides/orm-raw-workflow.md)**
 
 ---
 
-## 시작하기
+## 빠른 시작
 
-> **처음이라면 [docs/guides/QUICKSTART.md](docs/guides/QUICKSTART.md) 부터.** Redis만 준비해 30초 만에
-> 기동을 확인하는 최소 경로와, 첫 실행에서 가장 자주 막히는 지점(`DEBUG=true` 기본값이
-> MySQL을 요구한다)을 다룬다. 아래는 전체 설치 절차다.
+저장소 루트에서 실행합니다. 셸 예시는 Bash 기준이고, PowerShell 은 따로 적었습니다.
 
-### 1. 저장소 클론
+### 1. 설치
 
 ```bash
-git clone https://github.com/your-repo/fastapi-default-project-structure.git
-cd fastapi-default-project-structure
-```
-
-### 2. 가상환경 설정
-
-```bash
-# uv 사용 (권장)
 uv sync
+cp .env.example .env        # PowerShell: Copy-Item -LiteralPath .env.example -Destination .env
 ```
 
-### 3. 환경 변수 설정
+`.env` 가 없어도 기본값으로 뜨지만 Redis·MySQL 주소가 기본값(localhost)이어야 합니다. 프로세스
+환경변수가 `.env` 보다 우선하고, `.env.example` 은 자동으로 읽히지 않습니다. 이미 `.env` 가 있다면
+덮어쓰지 말고 필요한 항목만 확인합니다.
+
+### 2. Redis 만으로 HTTP 배선 확인
+
+**Redis 는 항상 필요합니다.** 앱은 startup 에서 `REDIS_HOST`/`REDIS_PORT` 로 `ping()` 하고, 실패하면
+시작하지 않습니다(`DEBUG=false` 로도 우회되지 않습니다).
 
 ```bash
-cp .env.example .env
-# .env 파일 수정
+docker run --rm -d --name fastapi-redis -p 6379:6379 redis:7-alpine
+DEBUG=false uv run uvicorn main:app --port 8000
+curl http://127.0.0.1:8000/health      # {"status":"healthy","version":"0.1.0"}
 ```
 
-### 4. 데이터베이스 설정
+```powershell
+$env:DEBUG = "false"
+uv run uvicorn main:app --port 8000
+Remove-Item Env:DEBUG      # 끝나면 개발 기본값으로 복원
+```
+
+| 이 상태에서 | 결과 | 이유 |
+|---|---|---|
+| `GET /health` | 200 | DB 를 건드리지 않는다 |
+| `GET /ready` | 503 | writer DB 의 `SELECT 1` 이 실패한다 (Redis 는 보지 않는다) |
+| 기능 API (`/api/v1/...`) | 500 | MySQL 이 필요하다 |
+| `/docs`, `/openapi.json` | 404 | `DEBUG=false` 가 문서를 끈다 |
+
+`DEBUG=true`(기본값)면 기동 때 테이블 자동 생성을 시도하므로 MySQL 이 없으면 startup 이 실패합니다.
+**API 문서를 켜는 스위치와 MySQL 을 요구하는 스위치가 같다**는 점이 첫 실행에서 가장 헷갈립니다.
+DB 없이 구조만 볼 때는 `ADMIN=false`, `ACCESS_LOG_ENABLED=false` 도 함께 고려합니다.
+
+### 3. MySQL 을 더해 기능 API·문서까지
 
 ```bash
-# MySQL 데이터베이스 생성
-mysql -u root -p
-CREATE DATABASE fastapi_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+docker run -d --name fastapi-mysql -p 3306:3306 \
+  -e MYSQL_ALLOW_EMPTY_PASSWORD=yes \
+  -e MYSQL_DATABASE=fastapi_db \
+  mysql:8
+uv run uvicorn main:app --reload --port 8000
 ```
 
-### 4-1. 스키마 관리 — 자동 생성에서 Alembic 으로
+기본 설정(`MYSQL_HOST=localhost`, 사용자 `root`, 빈 비밀번호, `fastapi_db`)에 맞춘 **로컬 전용**
+예시입니다. 직접 만든 MySQL 이라면 `CREATE DATABASE fastapi_db CHARACTER SET utf8mb4 COLLATE
+utf8mb4_unicode_ci;` 로 데이터베이스를 먼저 만듭니다(자동 생성은 테이블만 만듭니다).
+`python main.py` 로 실행하면 `SERVER_HOST`·`SERVER_PORT`(기본 `0.0.0.0:8000`)와 `DEBUG` 에 따른 reload 를
+씁니다.
 
-이 저장소는 스키마를 만드는 경로가 **둘** 이고, 어느 쪽을 쓸지는 시점에 따라 다르다.
+| 주소 | 조건 |
+|---|---|
+| http://localhost:8000/docs (Scalar) · `/openapi.json` | `DEBUG=true` |
+| http://localhost:8000/admin | `ADMIN=true` (**인증 없음**) |
+| http://localhost:8000/health · `/ready` | 항상 |
+
+### 스키마 관리 — 자동 생성에서 Alembic 으로
+
+스키마를 만드는 경로는 **둘** 이고, 어느 쪽을 쓸지는 시점이 정합니다.
 
 | 경로 | 언제 | 동작 |
 |---|---|---|
-| `create_db_tables()` | 개발 초기 | `DEBUG=true` 일 때 기동마다 실행. `Base.metadata` 에 등록된 테이블 중 **없는 것만** 만든다 |
+| `create_db_tables()` | 개발 초기 | `DEBUG=true` 일 때 기동마다 실행. `Base.metadata` 의 테이블 중 **없는 것만** 만든다 |
 | Alembic | 그 이후 전부 | `alembic upgrade head`. 변경 이력이 파일로 남고 되돌릴 수 있다 |
 
-#### 개발 초기에는 자동 생성을 쓴다
+**개발 초기에는 자동 생성을 씁니다.** 모델을 하루에도 몇 번씩 바꾸는 단계에서는 DB 를 지우고 다시
+띄우는 것이 가장 빠른 마이그레이션입니다. `DEBUG=true` 로 그냥 띄우면 됩니다.
 
-모델을 하루에 몇 번씩 갈아엎는 단계에서 매번 revision 을 만드는 것은 비용만 크다.
-아직 지켜야 할 데이터가 없으므로 되돌릴 이력도 필요 없다. 이 단계에서는 DB 를 지우고
-다시 띄우는 것이 가장 빠른 마이그레이션이다.
-
-```bash
-# DEBUG=true 인 상태로 그냥 띄우면 된다
-uv run uvicorn main:app --reload
-```
-
-#### 데이터가 생기는 순간 Alembic 으로 넘어간다
-
-전환 시점은 취향이 아니라 **잃으면 안 되는 데이터가 처음 들어온 시점**이다. 팀원이
-합류했거나, 스테이징에 배포했거나, 지우면 곤란한 시드가 쌓였다면 이미 그 시점이다.
+**잃으면 안 되는 데이터가 처음 들어오는 순간 Alembic 으로 넘어갑니다.** 팀원이 합류했거나, 스테이징에
+배포했거나, 지우면 곤란한 시드가 쌓였다면 이미 그 시점입니다.
 
 ```bash
 # 1. 지금 스키마를 첫 revision 으로 못박는다
 uv run alembic revision --autogenerate -m "baseline"
 uv run alembic upgrade head
 
-# 2. 이후 모델을 바꿀 때마다
+# 2. 이후 모델을 바꿀 때마다 (생성된 파일은 사람이 검토한다)
 uv run alembic revision --autogenerate -m "무엇을 바꿨는지"
 uv run alembic upgrade head
 ```
 
-> **전환 후에는 `DEBUG=false` 로 두거나, 최소한 자동 생성이 무엇을 할 수 있는지 알고 있어야 한다.**
-> `create_db_tables()` 는 **이미 있는 테이블을 건드리지 않는다** — 컬럼이 바뀌어도 모른 척한다.
-> 위험한 것은 그 다음이다. 새 모델을 추가하면 자동 생성이 **마이그레이션 없이 테이블을 만들어
-> 버리고**, 그러면 Alembic 이력과 실제 DB 가 갈라진다. 그 어긋남은 배포 뒤에 "운영에만 테이블이
-> 없다" 로 드러난다.
+> **전환 후에는 `DEBUG=false` 로 둡니다.** `create_db_tables()` 는 이미 있는 테이블을 건드리지 않아
+> 컬럼 변경은 모른 척합니다. 위험한 것은 새 모델입니다 — 자동 생성이 **마이그레이션 없이 테이블을
+> 만들어 버리고**, Alembic 이력과 실제 DB 가 갈라져 배포 뒤 "운영에만 테이블이 없다" 로 드러납니다.
 
-#### 처음부터 Alembic 을 쓰고 싶다면
-
-**그렇게 해도 된다. 코드를 고칠 필요도, 설정을 끌 필요도 없다.**
-
-`create_db_tables()` 는 SQLAlchemy 의 `create_all` 이고, 이 함수는 `checkfirst=True` 로
-동작한다 — 이미 존재하는 테이블은 건너뛴다. 그래서 **Alembic 을 먼저 적용해 두면 기동 시
-자동 생성은 할 일이 없어 아무것도 하지 않는다.**
+**처음부터 Alembic 을 써도 됩니다.** 코드나 설정을 바꿀 필요가 없습니다. `create_db_tables()` 는
+SQLAlchemy `create_all` 이고 `checkfirst=True` 로 이미 있는 테이블을 건너뛰므로, Alembic 을 먼저
+적용하면 기동 시 자동 생성은 no-op 입니다.
 
 ```bash
-# 처음부터 이 순서로 가면 된다
 uv run alembic revision --autogenerate -m "initial"
 uv run alembic upgrade head
-uv run uvicorn main:app --reload   # DEBUG=true 여도 자동 생성은 no-op
+uv run uvicorn main:app --reload     # DEBUG=true 여도 자동 생성은 할 일이 없다
 ```
 
-다만 이 경우에도 위의 경고는 그대로다. **모델을 새로 추가한 뒤 revision 을 만들지 않고 서버를
-띄우면** 자동 생성이 그 테이블을 먼저 만들어 버린다. Alembic 을 쓰기로 했다면 `DEBUG=false`
-로 두는 것이 가장 확실하다 — 그때는 자동 생성 경로 자체가 실행되지 않는다.
+다만 모델을 추가하고 revision 없이 서버를 띄우면 자동 생성이 그 테이블을 먼저 만듭니다. Alembic 을
+쓰기로 했다면 `DEBUG=false` 가 가장 확실합니다 — 자동 생성 경로 자체가 실행되지 않습니다.
 
-#### 다중 worker 로 띄운다면
+**여러 worker 로 띄운다면** (`uvicorn --workers N`, gunicorn) 각 프로세스가 이 경로를 돌아 동시 DDL 이
+됩니다. 지원하는 기동 방식은 `python main.py` / `uvicorn main:app` 단일 프로세스이고, 다중 worker 는
+`DEBUG=false` + Alembic 이 유일한 안전한 조합입니다. 현재 revision 체인과 `env.py` 동작은
+[ARCHITECTURE §12](docs/guides/ARCHITECTURE.md), 작성 절차는
+[개발 가이드 §10](docs/guides/orm-raw-workflow.md)에 있습니다.
 
-`uvicorn --workers N` 이나 gunicorn 을 쓰면 N 개 프로세스가 각각 이 경로를 돌아 **동시 DDL** 이
-된다. 이 저장소가 지원한다고 선언한 기동 방식은 `python main.py` / `uvicorn main:app` 단일
-프로세스다. 다중 worker 로 띄울 거라면 `DEBUG=false` + Alembic 이 유일한 안전한 조합이다.
+### 테스트
 
----
-
-### 5. 서버 실행
+단위 테스트는 SQLite 와 가짜 Redis 를 쓰므로 외부 인프라 없이 돕니다. pytest 설정이 `DEBUG=true`·
+`ENV=test` 를 주입하고 `tests/` 와 `app/features/*/tests/` 를 함께 수집합니다.
 
 ```bash
-# 개발 서버
-uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uv run python -m pytest                       # 전체 (mysql 마커는 MySQL 이 없으면 skip)
+uv run ruff check . && uv run mypy .
+uv run python -m scripts.review_gate --list   # 게이트 그룹: static tests structure supply docs deps
+uv run python -m scripts.review_gate --group static structure docs
 ```
 
-### 6. 접속
+`mysql` 마커 테스트(`tests/integration/`)는 MySQL 8.4 가 `127.0.0.1:3310` 에 있어야 돕니다
+(`MYSQL_TEST_PORT` 로 변경).
 
-- API 서버: http://localhost:8000
-- API 문서: http://localhost:8000/docs
-- 관리자 페이지: http://localhost:8000/admin
-- 헬스체크: http://localhost:8000/health
+```bash
+docker compose -f compose.test.yaml up -d --wait
+uv run python -m pytest -m mysql
+docker compose -f compose.test.yaml down -v
+```
+
+`uv run pytest` 대신 `python -m pytest` 를 씁니다(콘솔 스크립트가 다른 인터프리터를 집은 전례).
+`tests` 게이트는 skip 0 을 요구하므로 MySQL 이 필요하고, `deps` 게이트는 네트워크가 필요합니다. CI 는
+gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전체 suite)으로 나뉩니다.
 
 ---
 
 ## 환경 설정
 
-### 주요 설정 항목
+전체 목록과 설명은 [`.env.example`](.env.example) 에 있습니다(`config.py` 와의 일치를 테스트가
+강제합니다). 처음에 의미 있는 것은 이 정도입니다.
 
-| 설정 | 기본값 | 설명 |
-|------|--------|------|
-| `DEBUG` | `true` | 디버그 모드 (로그 레벨, 테이블 자동 생성, API 문서) |
-| `ADMIN` | `true` | 관리자 페이지 활성화 (DEBUG와 독립적). **인증 없음** — 운영은 `false` 명시 |
-| `ENV` | `development` | 환경 (development, staging, production) |
-| `MYSQL_HOST` | `localhost` | MySQL 호스트 |
-| `MYSQL_PORT` | `3306` | MySQL 포트 |
-| `MYSQL_DATABASE` | `fastapi_db` | 데이터베이스 이름 |
-| `REDIS_HOST` | `localhost` | Redis 호스트 |
-| `LOG_FILE_ENABLED` | `true` | 파일 로그 활성화 |
+| 변수 | 기본값 | 의미 |
+|---|---|---|
+| `DEBUG` | `true` | 개발 모드 — 아래 표 |
+| `ENV` | `development` | `development`/`test`/`staging`/`production`. 로그 구성과 배포 게이트가 따른다 |
+| `ADMIN` | `true` | `/admin` 마운트. **인증 없음** (DEBUG 와 독립) |
+| `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_PASSWORD` | `localhost` / `6379` / `0` / 없음 | startup `ping()` 대상, Celery broker |
+| `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | `localhost` / `3306` / `root` / `""` / `fastapi_db` | primary(writer) DB |
+| `DB_ROUTER_ENABLED` / `DB_REPLICATION_ENABLED` / `MYSQL_REPLICA_HOSTS` | `false` / `false` / `[]` | 읽기/쓰기 분리 (선택) |
+| `ACCESS_TOKEN_SECRET_KEY` / `REFRESH_TOKEN_SECRET_KEY` | `change-this-...` | JWT 서명 키. 배포 전 서로 다른 값으로 교체 |
+| `CORS_ALLOW_ORIGINS` | `["*"]` | JSON 배열로 지정 |
+| `TRUST_PROXY_HEADERS` | `false` | 리버스 프록시 뒤에서만 `true` — 접속 로그 IP 에 X-Forwarded-For 사용 |
+| `ACCESS_LOG_ENABLED` | `true` | 접속 로그 수집 |
+| `LOG_LEVEL` / `LOG_CONSOLE_LEVEL` | 미설정 | 미설정이면 DEBUG 에 따라 DEBUG/INFO |
+| `SERVER_HOST` / `SERVER_PORT` | `0.0.0.0` / `8000` | `python main.py` 직접 실행 시 바인딩 |
 
-### DEBUG 모드에 따른 동작
+| 동작 | `DEBUG=true` | `DEBUG=false` |
+|---|---|---|
+| 기본 로그 레벨 | DEBUG | INFO |
+| 테이블 자동 생성 | 실행 (없는 테이블만) | 안 함 (Alembic) |
+| `/docs`, `/openapi.json` | 켜짐 | 404 |
+| `python main.py` reload | 켜짐 | 꺼짐 |
+| 500 응답 상세 | 숨김 | 숨김 |
 
-| 기능 | DEBUG=true | DEBUG=false |
-|------|------------|-------------|
-| 로그 레벨 | DEBUG | INFO |
-| 테이블 자동 생성 | 활성화 (없는 테이블만) | 비활성화 (Alembic 사용) |
-| API 문서 (/docs) | 활성화 | 비활성화 |
-| OpenAPI 스키마 | 활성화 | 비활성화 |
-| Uvicorn reload | 활성화 | 비활성화 |
-
-> 자동 생성과 Alembic 중 **언제 무엇을 쓰는지**는 [스키마 관리 — 자동 생성에서 Alembic 으로](#4-1-스키마-관리--자동-생성에서-alembic-으로) 를 본다.
-
----
-
-## 로깅 시스템
-
-이 프로젝트는 구조화된 로깅 시스템을 제공합니다.
-
-### 아키텍처
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Application Code                        │
-│                   logger.info("message")                     │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────┐
-│                        get_logger()                          │
-│          app/utils/logs/ (캐싱된 로거 반환)                   │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-              ┌───────────────┴───────────────┐
-              ↓                               ↓
-┌─────────────────────────┐     ┌─────────────────────────┐
-│    Console Handler       │     │     File Handlers        │
-│  (stdout, 색상 지원)      │     │  (Rotating, 자동 분리)    │
-└─────────────────────────┘     └─────────────────────────┘
-              ↓                               ↓
-         터미널 출력               ┌──────────┴──────────┐
-                                  ↓                     ↓
-                         logs/{date}_app.log    logs/{date}_error.log
-                            (INFO+)                (ERROR+)
-```
-
-### 환경 변수 설정
-
-| 환경변수 | 기본값 | 설명 |
-|---------|--------|------|
-| `LOG_CONSOLE_ENABLED` | `true` | 콘솔(터미널) 로그 출력 활성화 |
-| `LOG_FILE_ENABLED` | `true` | 파일 로그 출력 활성화 |
-| `LOG_LEVEL` | - | 전역 로그 레벨 (미설정 시 DEBUG 모드에 따라 자동 결정) |
-| `LOG_CONSOLE_LEVEL` | - | 콘솔 로그 레벨 (미설정 시 자동 결정) |
-| `LOG_FILE_LEVEL` | `INFO` | 파일 로그 레벨 |
-| `LOG_DIR` | `logs` | 로그 파일 저장 디렉토리 |
-| `LOG_APP_FILENAME` | `{date}_app.log` | 일반 로그 파일명 패턴 |
-| `LOG_ERROR_FILENAME` | `{date}_error.log` | 에러 로그 파일명 패턴 |
-| `LOG_MAX_SIZE_MB` | `10` | 단일 로그 파일 최대 크기 (MB) |
-| `LOG_BACKUP_COUNT` | `5` | 보관할 백업 로그 파일 개수 |
-
-### 자동 로그 레벨 결정
-
-`LOG_LEVEL`을 설정하지 않으면 `DEBUG` 설정에 따라 자동 결정됩니다:
-
-```
-DEBUG=true  → 로그 레벨: DEBUG (모든 로그 출력)
-DEBUG=false → 로그 레벨: INFO (INFO 이상만 출력)
-```
-
-### 사용 방법
-
-#### 1. 기본 사용법
-
-```python
-from app.utils.logs import get_logger
-
-# 기능별 로거 생성 (이름으로 로그 출처 구분)
-logger = get_logger("my_module")
-
-# 로그 레벨별 출력
-logger.debug("디버깅 정보")           # 개발 시 상세 정보
-logger.info("일반 정보")              # 정상 동작 정보
-logger.warning("경고 메시지")         # 잠재적 문제
-logger.error("에러 발생")             # 오류 상황
-logger.critical("심각한 오류")        # 시스템 중단 수준 오류
-```
-
-#### 2. 추가 정보와 함께 로깅
-
-```python
-# extra 파라미터로 추가 정보 포함
-logger.error(
-    "데이터베이스 연결 실패",
-    extra={
-        "host": "localhost",
-        "port": 3306,
-        "error_code": "CONNECTION_REFUSED"
-    }
-)
-
-# 예외 정보 포함
-try:
-    result = some_operation()
-except Exception as e:
-    logger.exception("작업 실패", exc_info=True)  # 스택 트레이스 포함
-```
-
-#### 3. 서비스별 로거 활용
-
-```python
-# 각 서비스/기능에서 고유 이름으로 로거 생성
-# 이렇게 하면 로그에서 어떤 기능에서 발생했는지 쉽게 구분 가능
-
-# app/product/services/product_service.py
-logger = get_logger("product_service")
-logger.info(f"상품 생성 완료: {product.id}")
-
-# app/user/services/user_service.py
-logger = get_logger("user_service")
-logger.info(f"사용자 로그인: {user.email}")
-
-# 출력 예시:
-# [2024-01-15 10:30:00] INFO     [product_service:create:45] 상품 생성 완료: abc123
-# [2024-01-15 10:30:01] INFO     [user_service:login:78] 사용자 로그인: user@example.com
-```
-
-### 로그 파일 구조
-
-```
-logs/
-├── 2024-01-15_app.log      # 일반 로그 (INFO 이상)
-├── 2024-01-15_app.log.1    # 로테이션된 백업 파일
-├── 2024-01-15_app.log.2
-├── 2024-01-15_error.log    # 에러 로그 (ERROR 이상)
-└── 2024-01-15_error.log.1
-```
-
-### 로그 포맷
-
-기본 로그 포맷:
-```
-[{asctime}] {levelname:8} [{name}:{funcName}:{lineno}] {message}
-```
-
-출력 예시:
-```
-[2024-01-15 10:30:00] INFO     [main:startup:45] 애플리케이션 시작
-[2024-01-15 10:30:01] DEBUG    [product_service:create:78] 상품 생성 시작: iPhone 15
-[2024-01-15 10:30:02] ERROR    [database:connect:23] 연결 실패: timeout
-```
-
-### 로거 이름 규칙
-
-별도의 상수 없이 기능/출처를 나타내는 문자열로 로거를 만든다(예: `"home"`, `"database"`,
-`"celery"`). 로그 헤더의 `[app=..]` 세그먼트가 소스 경로에서 앱을 자동 식별한다.
-
-```python
-from app.utils.logs import get_logger
-
-logger = get_logger("home")  # 이름은 로그에서 출처를 구분하는 문자열
-```
+`SESSION_*`·`SMTP_*`·`UPLOAD_*`·`API_VERSION` 은 설정만 있고 이를 쓰는 기능은 아직 없습니다. 설정 로딩
+순서와 클래스별 소비 지점, 로그 구성은 [ARCHITECTURE §4·§5](docs/guides/ARCHITECTURE.md)를 봅니다.
 
 ---
 
-## 접속 로그 미들웨어
+## 운영 배포
 
-모든 API 요청의 접속 정보를 자동으로 수집하고 데이터베이스에 저장하는 미들웨어입니다.
+**앱이 막는 것.** `ENV=staging` 또는 `ENV=production` 이면 `config.py` 의 `validate_deployment_safety()` 가
+다음 중 하나라도 있으면 **기동을 거부**하고 위반을 한 번에 보여 줍니다.
 
-### 아키텍처
+- `DEBUG=true` · `ADMIN=true`
+- `change-this-` 로 시작하는 access/refresh/session 키, 또는 access 와 refresh 키가 같음
+- `CORS_ALLOW_ORIGINS` 의 `*` · `LOG_SQL_ECHO_ENABLED=true`
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        HTTP Request                          │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────┐
-│                   UserInfoMiddleware                         │
-│  1. 요청 시작 시간 기록                                        │
-│  2. User-Agent 파싱 (OS, 브라우저, 디바이스)                    │
-│  3. IP 주소 추출 (프록시 환경 지원)                             │
-│  4. 요청 정보 수집                                             │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────┐
-│                      API 처리 (Router)                       │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────┐
-│                   UserInfoMiddleware                         │
-│  5. 응답 시간 계산                                             │
-│  6. asyncio.create_task로 DB 저장 (Non-blocking)              │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────┐
-│                       HTTP Response                          │
-└─────────────────────────────────────────────────────────────┘
-```
+**사람이 확인할 것.**
 
-### 환경 변수 설정
+| # | 확인 | 이유 |
+|---|---|---|
+| 1 | `ENV` 를 실제 환경 값으로 넘겼는가 | 기본값 `development` 에서는 위 게이트가 돌지 않는다 |
+| 2 | 트래픽 전환 전에 `alembic upgrade head` 를 적용했는가 | 서버 기동은 migration 을 하지 않는다 |
+| 3 | 외부 노출이 필요 없으면 `SERVER_HOST=127.0.0.1` 인가, 프록시·방화벽에서 `/admin` 을 막았는가 | 기본 바인딩은 `0.0.0.0` 이다 |
+| 4 | 프록시 뒤라면 `TRUST_PROXY_HEADERS=true` 이고 프록시가 외부 전달 헤더를 지우는가 | 아니면 접속 로그 IP 가 위조되거나 프록시 IP 로 찍힌다 |
+| 5 | readiness 는 `/ready`, Redis 는 별도로 감시하는가 | `/health` 는 DB·Redis 를 보지 않는다 |
+| 6 | 공개할 CRUD 에 인가를 붙였는가 | 현재 예제 API 에는 인증·소유권 검사가 없다 |
 
-| 환경변수 | 기본값 | 설명 |
-|---------|--------|------|
-| `ACCESS_LOG_ENABLED` | `true` | 접속 로그 수집 활성화 |
-| `ACCESS_LOG_EXCLUDE_PATHS` | `["/health", ...]` | 로그 수집 제외 경로 (JSON 배열) |
-| `ACCESS_LOG_EXCLUDE_EXTENSIONS` | `[".css", ...]` | 로그 수집 제외 확장자 (JSON 배열) |
+**`/admin` 에는 인증이 없습니다.** 인증 백엔드는 붙이지 않기로 확정했고(영구 비목표), 기본값 `true` 는
+로컬에서 바로 DB 를 들여다보기 위한 의도된 선택입니다. 켜져 있으면 도달 가능한 누구나 데이터를
+조회·수정·삭제하고 CSV 로 내보낼 수 있습니다(비밀번호 해시만 제외). 개발 서버를 네트워크에 노출할
+때는 `ADMIN=false` 를 둡니다. 보안 경계와 현재 한계 전체는 [ARCHITECTURE §10](docs/guides/ARCHITECTURE.md)
+에 있습니다.
 
-### 기본 제외 경로 및 확장자
+---
 
-```python
-# 기본 제외 경로
-ACCESS_LOG_EXCLUDE_PATHS = [
-    "/health",           # 헬스체크
-    "/docs",             # API 문서
-    "/redoc",            # ReDoc
-    "/openapi.json",     # OpenAPI 스키마
-    "/favicon.ico",      # 파비콘
-]
+## API
 
-# 기본 제외 확장자
-ACCESS_LOG_EXCLUDE_EXTENSIONS = [
-    ".css", ".js", ".ico", ".png", ".jpg", ".jpeg", ".gif", ".svg"
-]
-```
+`app.openapi()` 실측 **22 경로 / 37 오퍼레이션**입니다. 경로를 바꾸면 이 표와
+`tests/test_route_inventory.py` 를 함께 갱신합니다. 목록은 `skip`·`limit` 페이지 조회, 생성은 201,
+삭제는 204 입니다.
 
-### 커스텀 제외 설정
+| 기능 | 메서드 | 경로 |
+|---|---|---|
+| 블로그 `blog` | GET · POST | `/api/v1/blog/posts` |
+| | GET · PATCH · DELETE | `/api/v1/blog/posts/{post_id}` |
+| 댓글 `reply` | GET · POST | `/api/v1/reply/replies` |
+| | GET · PATCH · DELETE | `/api/v1/reply/replies/{reply_id}` |
+| SNS `sns` | GET · POST | `/api/v1/sns/posts` |
+| | GET · PATCH · DELETE | `/api/v1/sns/posts/{post_id}` |
+| 사용자 `user` | GET · POST | `/api/v1/user/users` |
+| | GET · PATCH · DELETE | `/api/v1/user/users/{user_id}` |
+| 상품 `catalog` (ORM 예제) | GET · POST | `/api/v1/catalog/products` |
+| | GET · PATCH · DELETE | `/api/v1/catalog/products/{product_id}` |
+| 매출 `reports` (Raw 예제) | GET | `/api/v1/reports/sales/daily?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD` |
+| 접속 로그 `home` | GET | `/api/v1/home/access-logs` (목록) · `/recent` · `/by-ip/{ip_address}` · `/by-user/{user_id}` · `/stats` |
+| 인증 `auth` | POST | `/api/v1/auth/register` (JSON, 201 · 사용자명 중복 409) |
+| | POST | `/api/v1/auth/login` (**form-urlencoded**, 200 · 불일치 401) |
+| | POST | `/api/v1/auth/refresh` (JSON `{"refresh_token": ...}`, 200 · 무효 401) |
+| | GET | `/api/v1/auth/me` (Bearer access 토큰) |
+| 공통 | GET | `/health` (liveness) · `/ready` (DB readiness, 실패 503) |
 
-`.env` 파일에서 JSON 배열 형식으로 설정:
+`/api/v1/home/access-logs/stats` 는 `{total_count, device_types[], os_list[], browsers[]}` 를 돌려줍니다.
+모든 오류는 `{"error_code", "message", "detail"}` 형식이고, 처리되지 않은 예외는 `DEBUG` 와 무관하게
+고정 메시지의 500 입니다.
+
+### 인증 흐름
 
 ```bash
-# 제외 경로 추가
-ACCESS_LOG_EXCLUDE_PATHS=["/health", "/docs", "/admin", "/metrics", "/internal"]
-
-# 제외 확장자 추가
-ACCESS_LOG_EXCLUDE_EXTENSIONS=[".css", ".js", ".ico", ".png", ".woff2", ".map"]
-```
-
-### 수집 정보
-
-#### 네트워크 정보
-
-| 필드 | 설명 |
-|------|------|
-| `ip_address` | 클라이언트 IP 주소 |
-| `forwarded_for` | X-Forwarded-For 헤더 (프록시 경유 시) |
-| `real_ip` | X-Real-IP 헤더 (Nginx 등) |
-
-#### User-Agent 파싱 정보
-
-| 필드 | 설명 | 예시 |
-|------|------|------|
-| `user_agent` | 원본 User-Agent 문자열 | `Mozilla/5.0 (Windows NT 10.0...)` |
-| `os_name` | 운영체제 이름 | `Windows`, `iOS`, `Android` |
-| `os_version` | 운영체제 버전 | `10.0`, `17.2`, `14` |
-| `browser_name` | 브라우저 이름 | `Chrome`, `Safari`, `Firefox` |
-| `browser_version` | 브라우저 버전 | `120.0.0`, `17.2` |
-| `device_type` | 장치 유형 | `desktop`, `mobile`, `tablet` |
-| `device_brand` | 장치 제조사 | `Apple`, `Samsung` |
-| `device_model` | 장치 모델 | `iPhone`, `Galaxy S24` |
-| `is_bot` | 봇 여부 | `true`, `false` |
-
-#### 요청/응답 정보
-
-| 필드 | 설명 |
-|------|------|
-| `request_path` | 요청 경로 (`/api/v1/home/access-logs`) |
-| `request_method` | HTTP 메서드 (`GET`, `POST`, ...) |
-| `query_string` | 쿼리 스트링 (`?page=1&limit=10`) |
-| `referer` | Referer 헤더 |
-| `response_status` | HTTP 응답 상태 코드 |
-| `response_time_ms` | 응답 시간 (밀리초) |
-
-#### 사용자 정보
-
-| 필드 | 설명 |
-|------|------|
-| `session_id` | 세션 ID (쿠키에서 추출) |
-| `user_id` | 인증된 사용자 ID |
-| `accept_language` | Accept-Language 헤더 |
-
-### 데이터베이스 모델
-
-`user_access_logs` 테이블에 저장되며, 다음 인덱스가 설정되어 있습니다:
-
-```python
-# 인덱스 설정 (검색 최적화)
-- ip_address        # IP별 조회
-- created_at        # 시간별 조회
-- device_type       # 장치 유형별 통계
-- os_name          # OS별 통계
-- browser_name     # 브라우저별 통계
-- session_id       # 세션별 조회
-- user_id          # 사용자별 조회
-```
-
-### API 엔드포인트
-
-접속 로그 조회 API가 제공됩니다:
-
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| GET | `/api/v1/home/access-logs` | 접속 로그 목록 (페이지네이션) |
-| GET | `/api/v1/home/access-logs/recent` | 최근 접속 로그 |
-| GET | `/api/v1/home/access-logs/by-ip/{ip_address}` | IP별 접속 로그 |
-| GET | `/api/v1/home/access-logs/by-user/{user_id}` | 사용자별 접속 로그 |
-| GET | `/api/v1/home/access-logs/stats` | 접속 통계 (장치, OS, 브라우저별) |
-
-### 활용 예시
-
-#### 통계 대시보드 구현
-
-```python
-# 접속 통계 조회
-stats = await service.get_stats()
-
-# 응답 예시
-{
-    "total_count": 15420,
-    "device_types": [
-        {"device_type": "desktop", "count": 8500},
-        {"device_type": "mobile", "count": 6200},
-        {"device_type": "tablet", "count": 720}
-    ],
-    "os_list": [
-        {"os_name": "Windows", "count": 6000},
-        {"os_name": "iOS", "count": 4500},
-        {"os_name": "Android", "count": 3200}
-    ],
-    "browsers": [
-        {"browser_name": "Chrome", "count": 9000},
-        {"browser_name": "Safari", "count": 4000}
-    ]
-}
-```
-
-#### IP 기반 접속 추적
-
-```python
-# 특정 IP의 접속 기록 조회
-logs = await service.get_logs_by_ip("192.168.1.100")
-
-# 의심스러운 활동 감지
-suspicious = [log for log in logs if log.is_bot and log.response_status == 403]
-```
-
-### 성능 고려사항
-
-1. **Non-blocking 저장**: 접속 로그는 `asyncio.create_task()`로 백그라운드에서 저장되어 API 응답 시간에 영향을 주지 않습니다.
-
-2. **분리된 커넥션 풀**: 접속 로그 sink는 `background_db_session()`(별도 백그라운드 풀)을 사용하여 메인 API 풀 고갈을 방지합니다.
-
-3. **제외 설정 최적화**: 헬스체크, 정적 파일 등 빈번한 요청은 기본적으로 제외됩니다.
-
-4. **인덱스 활용**: 자주 조회되는 필드에 인덱스가 설정되어 있습니다.
-
-```python
-# 미들웨어 내부 동작
-async def dispatch(self, request: Request, call_next: Callable):
-    # 제외 경로 체크 (빠른 반환)
-    if self._should_skip(request.url.path):
-        return await call_next(request)
-
-    # 요청 처리
-    response = await call_next(request)
-
-    # 백그라운드에서 비동기 저장 (응답 지연 없음)
-    # 태스크 참조를 유지하여 GC에 의한 소실 방지
-    task = asyncio.create_task(self._save_access_log(data))
-    self._background_tasks.add(task)
-    task.add_done_callback(self._background_tasks.discard)
-    return response
-```
-
----
-
-## 인증 (JWT)
-
-OAuth2 **password flow** + JWT access/refresh 토큰. 비밀번호는 bcrypt 해시로 저장합니다.
-자격증명은 `user` 기능의 `User.hashed_password` 에 두고, `auth` 는 인증 로직만 담당합니다
-(횡단 관심사라 `auth → user` 의존은 의도된 예외입니다).
-
-- 기능: `app/features/auth/`
-- 토큰 유틸: `app/utils/authenticator/`
-
-### 엔드포인트
-
-| 메서드 | 경로 | 인증 | 요청 | 성공 | 실패 |
-|---|---|---|---|---|---|
-| `POST` | `/api/v1/auth/register` | — | JSON | `201` | `409` 사용자명 중복 · `422` 검증 |
-| `POST` | `/api/v1/auth/login` | — | **form** | `200` | `401` 자격증명 불일치 · `422` |
-| `POST` | `/api/v1/auth/refresh` | — | JSON | `200` | `401` 토큰 무효·만료 · `422` |
-| `GET` | `/api/v1/auth/me` | Bearer | — | `200` | `401` |
-
-> `login` 만 `application/x-www-form-urlencoded` 입니다 — OAuth2 password flow 규격이라
-> `username`·`password` 를 form 필드로 받습니다. 나머지는 JSON 입니다.
-
-### 사용 예시
-
-```bash
-# 1) 가입 — 비밀번호는 8자 이상
+# 1) 가입 — 비밀번호 8자 이상
 curl -X POST localhost:8000/api/v1/auth/register \
   -H 'Content-Type: application/json' \
   -d '{"username":"alice","email":"alice@example.com","password":"secret-pw-1234"}'
 
-# 2) 로그인 — form 전송(-d 기본값이 form 이므로 헤더 불요)
-curl -X POST localhost:8000/api/v1/auth/login \
-  -d 'username=alice&password=secret-pw-1234'
+# 2) 로그인 — OAuth2 password flow 규격이라 form 전송 (curl -d 기본값)
+curl -X POST localhost:8000/api/v1/auth/login -d 'username=alice&password=secret-pw-1234'
 # → {"access_token":"eyJ...","refresh_token":"eyJ...","token_type":"bearer"}
 
-# 3) 보호 엔드포인트 호출
+# 3) 보호 엔드포인트
 curl localhost:8000/api/v1/auth/me -H 'Authorization: Bearer <access_token>'
 
-# 4) 재발급 — access 가 만료되면 refresh 로 둘 다 새로 받는다
+# 4) 재발급 — access·refresh 를 둘 다 새로 받는다
 curl -X POST localhost:8000/api/v1/auth/refresh \
-  -H 'Content-Type: application/json' \
-  -d '{"refresh_token":"<refresh_token>"}'
+  -H 'Content-Type: application/json' -d '{"refresh_token":"<refresh_token>"}'
 ```
 
-### 토큰 정책
-
-| 설정 | 기본값 | 설명 |
-|---|---|---|
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Access Token 수명(분) |
-| `REFRESH_TOKEN_EXPIRE_DAYS` | `7` | Refresh Token 수명(일) |
-| `JWT_ALGORITHM` | `HS256` | 서명 알고리즘 |
-| `ACCESS_TOKEN_SECRET_KEY` | `change-this-...` | Access 서명 키 |
-| `REFRESH_TOKEN_SECRET_KEY` | `change-this-...` | Refresh 서명 키 (access 와 **다른 값** 권장) |
-
-- `refresh` 는 access·refresh 를 **둘 다** 새로 발급합니다(refresh 토큰 회전).
-- 토큰에는 종류 표식이 들어 있어 access 토큰을 refresh 자리에 넣으면 거부됩니다.
-- 비활성 사용자(`is_active=false`)는 재발급 단계에서 차단됩니다.
-
-> **운영 배포 전 필수:** 두 서명 키는 `.env` 에서 반드시 교체하세요. 기본값
-> (`change-this-...`)이 그대로면 누구나 토큰을 위조할 수 있습니다. 서버 측 토큰 폐기
-> 목록(블랙리스트)은 구현돼 있지 않으므로, 유출된 refresh 토큰은 만료까지 유효합니다 —
-> 짧은 수명이 필요하면 `REFRESH_TOKEN_EXPIRE_DAYS` 를 줄이세요.
-
-### 보안 설계 메모
-
-- **상수 시간 인증** — 사용자가 없어도 더미 해시로 bcrypt 검증을 상시 수행합니다. 응답
-  시간차로 사용자명 존재 여부를 알아내는 열거 공격을 막습니다.
-- **논블로킹 해싱** — bcrypt 는 `asyncio.to_thread` 로 격리합니다. 동기 호출하면 로그인마다
-  이벤트 루프가 수백 ms 멈춥니다.
-- **관리 화면 노출 차단** — `hashed_password` 는 SQLAdmin 의 목록·상세·폼·내보내기 어디에도
-  나오지 않으며, `User` 는 admin 생성이 막혀 있습니다(비밀번호 없이 만들면 로그인 불가
-  계정이 쌓입니다). 구조 증거: `tests/core/test_admin_views.py`.
+access 30분, refresh 7일(`ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS`), HS256 입니다. 토큰 종류가
+섞이면 거부되고, 비활성 사용자는 로그인·재발급에서 막힙니다. 서버 측 토큰 폐기 목록은 없어 유출된
+refresh 토큰은 만료까지 유효합니다.
 
 ---
 
-## 신규 기능 개발 가이드
+## 새 기능 추가
 
-> 상세 아키텍처 및 각 파일의 역할은 **[docs/guides/ARCHITECTURE.md](docs/guides/ARCHITECTURE.md)** 를 참고하세요.
+중앙 파일은 열지 않습니다.
 
-새 기능은 `app/features/<name>/` vertical slice 를 만들면 끝입니다. **중앙 파일 편집은 없습니다** — `main.py` · `migrations/env.py` · `app/features/admin.py` 를 열지 않습니다. 규약은 [앱 자동 등록 규약](#앱-자동-등록-규약) 참고.
+1. **생성** — `uv run python -m scripts.new_app <name> [--with-admin]`. 이름은 파이썬 식별자여야 하고, 이미
+   있는 앱은 덮어쓰지 않습니다(`--force` 로만). 생성기는 뼈대만 만듭니다.
+2. **작성** — 데이터 접근 방식(ORM/Raw)을 정하고 모델·migration·스키마·Repository·Service·
+   Dependency·엔드포인트·테스트를 씁니다. 라우터 변수명은 반드시 `<name>_router` 입니다.
+3. **재시작** — 라우터가 `/api` 에, 모델이 `Base.metadata` 에, `admin_views` 가 SQLAdmin 에 붙습니다.
 
-### 최소 절차 (3단계)
-
-**1. 앱 생성** — 생성기를 쓰면 규약에 맞는 뼈대가 한 번에 나옵니다.
-
-```bash
-python -m scripts.new_app <name>                # 기본
-python -m scripts.new_app <name> --with-admin   # 관리 화면 자리까지
-```
-
-생성기는 이름이 파이썬 식별자가 아니거나 예약어면 거부하고, `app/features` 바깥 경로를 거부하며, **이미 있는 앱은 덮어쓰지 않습니다**(정말 다시 만들려면 `--force`). 손으로 만들어도 되지만 라우터 변수명은 반드시 `<name>_router` 여야 합니다.
-
-**2. 코드 작성** (`api/routers/`, `models/`, `schemas/`, `repositories/`, `services/`, `dependencies/`)
-생성된 `api/routers/router.py` 의 `<name>_router` 에 v1 서브라우터를 include 합니다. 모델은 `models/models.py` 에 두고 `models/__init__.py` 에서 재노출합니다.
-
-**3. 서버 재시작** — 라우터가 `/api` 에 마운트되고, 모델이 `Base.metadata` 에, `admin_views` 가 SQLAdmin 에 자동 등록됩니다.
-
-> 앱이 안 보인다면: 디렉터리 이름이 파이썬 식별자인지, 언더스코어로 시작하지 않는지, `__init__.py` 가 있는지, 라우터 변수명이 `<name>_router` 인지 확인하세요. 파일 **내부**의 import 오류라면 조용히 넘어가지 않고 기동이 실패합니다.
-
-### 개발 체크리스트
-
-- [ ] `python -m scripts.new_app <name>` (또는 규약에 맞게 수동 생성)
-- [ ] `api/routers/router.py` 의 `<name>_router` + `v1/` — 엔드포인트 정의
-- [ ] `models/models.py` — SQLAlchemy ORM 모델 (`models/__init__.py` 에서 재노출)
-- [ ] `repositories/` — BaseRepository 확장
-- [ ] `dependencies/` — 기능 의존성(Service 구성; 쓰기/조회 세션 분리)
-- [ ] `services/` — 비즈니스 로직
-- [ ] `schemas/` — Pydantic 요청/응답 스키마
-- [ ] `tests/` — pytest 테스트
-- [ ] Celery 태스크는 중앙 `app/celery/tasks.py` 에 추가 (선택)
-- [ ] SQLAdmin 은 기능 `admin.py` 에 ModelView + `admin_views` (선택) — 중앙 취합 편집 **불필요**
-- [ ] 모델을 추가했다면 Alembic revision 생성 (`env.py` 는 손대지 않음)
+파일 순서·체크리스트·세션 선택·테스트는 [개발 가이드](docs/guides/orm-raw-workflow.md)에 있습니다.
+Celery 태스크는 기능 폴더가 아니라 `app/celery/tasks.py` 에 둡니다.
 
 ---
 
-## API 문서
+## 자주 막히는 지점
 
-### 접근 URL
-
-| 문서 | URL | 조건 |
-|------|-----|------|
-| Scalar API 문서 | http://localhost:8000/docs | DEBUG=true |
-| OpenAPI JSON | http://localhost:8000/openapi.json | DEBUG=true |
-| 관리자 페이지 | http://localhost:8000/admin | ADMIN=true (인증 없음 — 아래 주의) |
-| 헬스체크 | http://localhost:8000/health | 항상 |
-
-> **⚠️ `/admin` 에는 인증이 없습니다.** 로그인 화면을 두지 않기로 확정했습니다(`/admin/login` 은 503).
-> `ADMIN=true` 이면 자격증명 없이 사용자·게시글·댓글·접속로그의 조회·수정·삭제와 CSV 내보내기가
-> 가능합니다(비밀번호 해시만 제외). 기본값이 `true` 인 것은 **개발 편의를 우선한 의도된 선택**입니다.
-
-#### 운영 배포 체크리스트 — 앱이 막아주지 않습니다
-
-**확정된 정책(2026-08-12): 앱에 운영 강제 차단을 넣지 않습니다.** `ENV=production` 과
-`ADMIN=true` 를 함께 줘도 기동은 성공합니다 — 이 조합을 거부하는 설정 검증은 **일부러
-두지 않았습니다.** 개발 기본값을 그대로 두는 대신, 차단 책임을 배포 쪽에 둡니다.
-따라서 아래 세 가지는 **사람이 확인해야 합니다.**
-
-| # | 확인 | 빠뜨리면 |
+| 증상 | 원인 | 조치 |
 |---|---|---|
-| 1 | 운영·스테이징에 **`ADMIN=false` 를 명시적으로** 넘겼는가 | 기본값이 `true` 라 관리 화면이 열립니다 |
-| 2 | 외부 노출이 필요한 컨테이너가 아니면 **`SERVER_HOST=127.0.0.1`** 인가 | 기본값 `0.0.0.0` 이라 네트워크에 바인딩됩니다 |
-| 3 | 리버스 프록시·방화벽에서 **`/admin` 을 차단**했는가 | 위 둘이 뚫리면 마지막 방어선이 없습니다 |
+| startup 에서 `Redis 연결 실패` | Redis 미기동, 주소·포트·비밀번호 오류 | `REDIS_*` 와 서버 확인. `DEBUG=false` 로 우회되지 않는다 |
+| startup 에서 `Can't connect to MySQL server` | `DEBUG=true` 기본값이 테이블 생성을 시도 | MySQL 을 띄우거나 `DEBUG=false` |
+| staging/production 에서 `안전하지 않은 설정으로 기동할 수 없습니다` | 배포 게이트 | 메시지의 설정을 모두 고친다 ([운영 배포](#운영-배포)) |
+| `/docs` 가 404 | `DEBUG=false` | `DEBUG=true` (MySQL 필요) |
+| 기능 API 만 500, `/ready` 503 | 앱은 떴지만 DB 가 없다 | MySQL 준비 |
+| 새 기능이 마운트되지 않음 | 디렉터리명이 식별자가 아니거나 `_` 로 시작, `__init__.py` 없음, 라우터 변수명이 `<name>_router` 가 아님 | [ARCHITECTURE §2](docs/guides/ARCHITECTURE.md). 파일 **안의** import 오류라면 조용히 넘어가지 않고 기동이 실패한다 |
+| startup 에서 `AppContractError` | `router.py`/`admin.py` 의 export 가 규약과 다르거나 두 앱이 같은 객체를 내보냄 | 오류 메시지의 앱과 export 를 고친다 |
+| 기동 INFO 로그가 안 보임 | `LOG_LEVEL`/`LOG_CONSOLE_LEVEL` 명시값이 우선 | [ARCHITECTURE §5](docs/guides/ARCHITECTURE.md) |
 
-**1과 2는 곱해집니다.** `ADMIN=true` 하나만으로는 로컬 접근이고, `SERVER_HOST=0.0.0.0`
-하나만으로는 공개 API 노출입니다. **둘이 겹치면 인증 없는 관리 화면이 네트워크에 열립니다.**
-기본값이 각각 `true` 와 `0.0.0.0` 이므로, 아무것도 설정하지 않은 배포가 정확히 그 상태입니다.
+---
 
-### 현재 구현된 API
+## 문서 안내
 
-> 아래는 `app.openapi()` 로 실측한 전량입니다 — **18 경로 / 30 오퍼레이션**.
-> 새 라우트를 추가하면 이 표도 갱신하세요(`tests/test_route_inventory.py` 가 경로 목록을 고정합니다).
+이 저장소의 문서 목록은 여기 하나뿐입니다.
 
-#### 콘텐츠 기능 — blog · reply · sns
+| 순서 | 문서 | 무엇을 답하나 |
+|---|---|---|
+| 1 | 이 README | 무엇인가, 어떻게 띄우나, 어떤 API 가 있나, 운영 전에 무엇을 확인하나 |
+| 2 | [docs/guides/orm-raw-workflow.md](docs/guides/orm-raw-workflow.md) | **새 기능을 어떻게 만드나** — ORM/Raw 선택, 파일 순서, 세션·트랜잭션, migration, 테스트 |
+| 3 | [docs/guides/ARCHITECTURE.md](docs/guides/ARCHITECTURE.md) | **실행 중에 어떻게 조립되나** — 앱 자동 등록, 설정·로깅, 기동·종료, 요청 처리, DB 세션·라우팅, 보안 경계 |
 
-세 기능이 같은 CRUD 형태를 공유합니다.
+| 경로 | 성격 | 언제 보나 |
+|---|---|---|
+| `docs/guides/` | **현행 문서.** 코드 기준으로 유지하고 `review_gate` docs 그룹이 경로·환경변수를 검사한다 | 개발할 때 |
+| [docs/specs/django-style-app-automation.md](docs/specs/django-style-app-automation.md) | **고정 기준선.** 앱 자동 등록 요구사항(`FR-*`·`NFR-*`·`SEC-*` 등 — 코드 주석이 인용)과 설계 근거 | 규칙의 원래 의도를 볼 때 |
+| [docs/specs/orm-raw-repository/](docs/specs/orm-raw-repository/) | **고정 기준선.** ORM/Raw 착수 명세 3종 — [requirements](docs/specs/orm-raw-repository/requirements.md) · [development-plan](docs/specs/orm-raw-repository/development-plan.md) · [workflow-guide](docs/specs/orm-raw-repository/workflow-guide.md) (코드 주석의 `workflow-guide §N` 출처) | 규칙의 원래 의도를 볼 때 |
+| [docs/crp/](docs/crp/) | **검수 이력(append-only).** 그룹별 결함 대장·잔여 위험·라운드 로그 — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
 
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| GET | `/api/v1/blog/posts` | 게시글 목록 (페이지네이션) |
-| POST | `/api/v1/blog/posts` | 게시글 생성 |
-| GET | `/api/v1/blog/posts/{post_id}` | 게시글 단건 |
-| PATCH | `/api/v1/blog/posts/{post_id}` | 게시글 부분 수정 |
-| DELETE | `/api/v1/blog/posts/{post_id}` | 게시글 삭제 |
-| GET · POST | `/api/v1/reply/replies` | 댓글 목록 · 생성 |
-| GET · PATCH · DELETE | `/api/v1/reply/replies/{reply_id}` | 댓글 단건 · 수정 · 삭제 |
-| GET · POST | `/api/v1/sns/posts` | SNS 게시글 목록 · 생성 |
-| GET · PATCH · DELETE | `/api/v1/sns/posts/{post_id}` | SNS 게시글 단건 · 수정 · 삭제 |
+문서 유지 규칙:
 
-#### 사용자 — user
-
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| GET · POST | `/api/v1/user/users` | 사용자 목록 · 생성 |
-| GET · PATCH · DELETE | `/api/v1/user/users/{user_id}` | 사용자 단건 · 수정 · 삭제 |
-
-#### 인증 — auth
-
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| POST | `/api/v1/auth/register` | 회원 가입 (JSON) |
-| POST | `/api/v1/auth/login` | 로그인 — **form-urlencoded** |
-| POST | `/api/v1/auth/refresh` | 액세스 토큰 재발급 (JSON) |
-| GET | `/api/v1/auth/me` | 내 정보 (Bearer) |
-
-> 요청·응답 형식과 토큰 정책은 [인증 (JWT)](#인증-jwt) 절을 참고하세요.
-
-#### 접속 로그 — home
-
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| GET | `/api/v1/home/access-logs` | 접속 로그 목록 (페이지네이션) |
-| GET | `/api/v1/home/access-logs/recent` | 최근 접속 로그 |
-| GET | `/api/v1/home/access-logs/by-ip/{ip_address}` | IP별 접속 로그 |
-| GET | `/api/v1/home/access-logs/by-user/{user_id}` | 사용자별 접속 로그 |
-| GET | `/api/v1/home/access-logs/stats` | 접속 통계 |
-
-#### 그 외
-
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| GET | `/health` | 헬스체크 — DB 를 건드리지 않아 항상 응답 |
+- 코드와 문서가 다르면 **코드가 정답**입니다. 현행 문서를 고치고, 기준선(`docs/specs/`)과 이력
+  (`docs/crp/`)의 내용은 고쳐 쓰지 않습니다(파일을 옮길 때의 경로 문자열만 예외).
+- 한 주제는 한 문서가 소유합니다. 다른 문서는 링크만 겁니다.
+- 정확히 `YYYY-MM-DD` 이름인 폴더는 로컬 작업 기록이라 `.gitignore` 가 제외합니다. 남길 내용은
+  위 문서로 옮깁니다.
+- 규칙 대부분은 문서가 아니라 **테스트가 강제**합니다. 학습 경로 자체도
+  `tests/test_docs_learnability.py` 가 지킵니다(진입점·링크·예제 실재).
 
 ---
 
 ## 참고 자료
 
-- [FastAPI 공식 문서](https://fastapi.tiangolo.com/)
-- [SQLAlchemy 2.0 문서](https://docs.sqlalchemy.org/en/20/)
-- [Pydantic v2 문서](https://docs.pydantic.dev/latest/)
-- [How to structure your FastAPI projects](https://medium.com/@amirm.lavasani/how-to-structure-your-fastapi-projects-0219a6600a8f)
-
----
+- [FastAPI](https://fastapi.tiangolo.com/) · [SQLAlchemy 2.0](https://docs.sqlalchemy.org/en/20/) ·
+  [Pydantic v2](https://docs.pydantic.dev/latest/) · [Alembic](https://alembic.sqlalchemy.org/)
 
 ## 라이선스
 

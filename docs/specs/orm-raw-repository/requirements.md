@@ -131,11 +131,11 @@ API용 Redis client, cache, session 저장소와 readiness 연계는 이번 작�
   각각 `import_models()`/`load_router()`에서만 일어나게 한다. init hook은 명시적·멱등적으로
   호출하며 `discover()` 단독 실행 전후의 metadata와 장기 자원 수가 같음을 테스트한다.
 
-### 4.8 `fastapi-default-project-structure` 재검수 추가 결정
+### 4.8 참조 구현 재검수 추가 결정
 
-2026-08-18에 참조 저장소 commit `db49e9c8d7106b026e2797f7356a0e1d1189056f`를 코드와
+2026-08-18에 참조 구현 commit `db49e9c8d7106b026e2797f7356a0e1d1189056f`를 코드와
 CI 설정부터 다시 검수했다. 로컬에서 MySQL 8.4가 실제 실행 가능한 상태에서는 전체 373건과
-`pytest -m mysql`의 선택된 6건이 모두 통과했다. 그러나 참조 저장소의
+`pytest -m mysql`의 선택된 6건이 모두 통과했다. 그러나 참조 구현의
 `.github/workflows/ci.yml`은 MySQL service나 Compose 기동 단계가 없으므로 깨끗한 GitHub runner에서는
 6건이 skip되고, 바로 뒤의 skip 0 검사에서 실패한다. 따라서 결함 원장의 “CI는 항상 MySQL을
 기동한다”는 서술은 구현 증거로 인정하지 않는다. 같은 commit의 현재 lock 환경에서
