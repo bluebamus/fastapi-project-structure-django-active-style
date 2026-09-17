@@ -306,6 +306,9 @@ DOC_ALLOWED_MISSING_PATHS = {
     "app/core/bootstrap.py",  # F-210 — create_app() 시대 잔재, 문서만 남아 있었다
     "docs/concepts/README.md",  # F-210 — 삭제된 폴더
     "docs/review/improvement-plan-2026-08-10.md",  # F-213 — 애초에 없던 인용
+    # 2026-09-17 문서 재구성(docs-learnability ADR-006) — 내용은 README·ARCHITECTURE 로 합쳤다.
+    "docs/README.md",  # F-203 이 만든 문서 안내 → README 「문서 안내」 절
+    "docs/guides/QUICKSTART.md",  # → README 「빠른 시작」
     # 개발 안내서가 "새 기능을 만든다면" 의 가상 예시로 쓰는 경로다.
     "dependencies/inventory_dependencies.py",
 }
