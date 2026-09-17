@@ -6,8 +6,24 @@ startup 이 실패하면 `yield` 에 도달하지 못한다. 정리 코드가 `y
 """
 
 import pytest
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 import main
+from app.core import resources
+
+
+class _FakeRedis:
+    async def ping(self) -> bool:
+        return True
+
+    async def aclose(self) -> None:
+        return None
+
+
+class _FakeRedisFactory:
+    @staticmethod
+    def from_url(*args, **kwargs) -> _FakeRedis:
+        return _FakeRedis()
 
 
 class _FakeTasks:
@@ -25,8 +41,13 @@ def recorded(monkeypatch):
     async def fake_dispose():
         calls.append("dispose")
 
-    monkeypatch.setattr(main, "dispose_engine", fake_dispose)
-    monkeypatch.setattr(main, "access_log_tasks", _FakeTasks(calls))
+    async def fake_stop_logging():
+        return None
+
+    monkeypatch.setattr(resources, "dispose_engine", fake_dispose)
+    monkeypatch.setattr(resources, "access_log_tasks", _FakeTasks(calls))
+    monkeypatch.setattr(resources, "stop_queue_listener", fake_stop_logging)
+    monkeypatch.setattr(resources, "Redis", _FakeRedisFactory)
     return calls
 
 
@@ -34,7 +55,7 @@ async def test_normal_shutdown_drains_then_disposes(recorded, monkeypatch):
     async def noop_create():
         recorded.append("create")
 
-    monkeypatch.setattr(main, "create_db_tables", noop_create)
+    monkeypatch.setattr(resources, "create_db_tables", noop_create)
 
     async with main.lifespan(main.app):
         assert "dispose" not in recorded, "yield 중에 이미 정리됐습니다."
@@ -48,8 +69,8 @@ async def test_startup_failure_still_releases_resources(recorded, monkeypatch):
     async def boom():
         raise RuntimeError("테이블 생성 실패")
 
-    monkeypatch.setattr(main, "create_db_tables", boom)
-    monkeypatch.setattr(main.app_settings, "DEBUG", True)
+    monkeypatch.setattr(resources, "create_db_tables", boom)
+    monkeypatch.setattr(resources.app_settings, "DEBUG", True)
 
     with pytest.raises(RuntimeError, match="테이블 생성 실패"):
         async with main.lifespan(main.app):
@@ -67,10 +88,36 @@ async def test_resources_are_released_exactly_once(recorded, monkeypatch):
     async def noop_create():
         pass
 
-    monkeypatch.setattr(main, "create_db_tables", noop_create)
+    monkeypatch.setattr(resources, "create_db_tables", noop_create)
 
     async with main.lifespan(main.app):
         pass
 
     assert recorded.count("dispose") == 1
     assert recorded.count("drain") == 1
+
+
+async def test_redis_connection_failure_stops_startup(recorded, monkeypatch):
+    """필수 Redis의 PING 실패는 startup을 중단하고 앞선 자원을 정리한다."""
+
+    class _UnavailableRedis(_FakeRedis):
+        async def ping(self) -> bool:
+            raise RedisConnectionError("Redis unavailable")
+
+        async def aclose(self) -> None:
+            recorded.append("redis_close")
+
+    class _UnavailableRedisFactory:
+        @staticmethod
+        def from_url(*args, **kwargs) -> _UnavailableRedis:
+            return _UnavailableRedis()
+
+    monkeypatch.setattr(resources, "Redis", _UnavailableRedisFactory)
+
+    with pytest.raises(RedisConnectionError):
+        async with main.lifespan(main.app):
+            pytest.fail("Redis 연결이 실패했는데 애플리케이션이 시작됐다")
+
+    assert recorded == ["redis_close", "dispose"]
+    assert main.app.state.redis is None
+    assert main.app.state.resources is None

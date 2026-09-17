@@ -24,6 +24,11 @@ Repository 패턴과 계층 분리 아키텍처를 적용한 FastAPI 프로젝�
 
 ---
 
+## HTML 단계별 가이드
+
+- [서버 수명주기 안내서](./docs/guides/server-lifecycle-guide.html): `.env` 설정 → 자동 발견·hook·모델 → lifespan → Redis·DB → 요청 → 종료를 클래스·함수 중심으로 추적합니다.
+- [신규 뷰·테이블 개발 안내서](./docs/guides/feature-development-guide.html): MVC 대응, DI, ORM/Raw, 트랜잭션, 비동기, migration, 테스트와 현재 구현의 제한을 설명합니다.
+
 ## 개요
 
 이 프로젝트는 FastAPI 기반의 확장 가능한 백엔드 애플리케이션 템플릿입니다.
@@ -51,7 +56,7 @@ Repository 패턴과 계층 분리 아키텍처를 적용한 FastAPI 프로젝�
 | Database | MySQL (aiomysql) |
 | Validation | Pydantic v2 |
 | Migration | Alembic |
-| Message Broker | Redis (Celery 브로커·결과 백엔드 전용 — 앱 캐시로는 쓰지 않음) |
+| Redis | startup 연결 검증 + Celery 브로커·결과 백엔드 |
 | Admin | SQLAdmin |
 | API Docs | Scalar |
 | Task Queue | Celery + Redis |
@@ -111,7 +116,7 @@ Router(view) → Depends(get_<name>_service) → Service(session) → Repository
 
 ## 프로젝트 구조
 
-> 상세한 아키텍처 설명은 **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** 를 참고하세요.
+> 상세한 아키텍처 설명은 **[docs/guides/ARCHITECTURE.md](docs/guides/ARCHITECTURE.md)** 를 참고하세요.
 
 ```
 fastapi-default-project-structure/
@@ -162,8 +167,11 @@ fastapi-default-project-structure/
 ├── migrations/                  # Alembic (env.py 가 런타임과 같은 AppRegistry 로 메타데이터 수집)
 ├── .github/workflows/ci.yml     # CI 게이트 (ruff · format · mypy 콜드캐시 · pytest · bandit · alembic)
 ├── docs/
-│   ├── ARCHITECTURE.md          # 아키텍처 공식 문서 (SSOT)
-│   └── QUICKSTART.md            # 최소 실행 경로
+│   ├── README.md                # 문서 안내
+│   └── guides/                  # 현행 사용자·개발자 가이드
+│       ├── ARCHITECTURE.md      # 아키텍처 공식 문서 (SSOT)
+│       ├── QUICKSTART.md        # 최소 실행 경로
+│       └── orm-raw-workflow.md  # ORM/Raw 개발 지침
 └── logs/ media/ static/ poc/    # 런타임·예약 디렉터리 (.gitkeep 만 추적)
 ```
 
@@ -260,11 +268,12 @@ Router  →  Depends(get_<name>_service)  →  Service(session)  →  Repository
 
 `app/features/<name>/` 디렉터리를 만드는 것이 곧 **앱 등록 선언**입니다. 중앙 목록도, 앱별 설정 파일도 없습니다. 부팅할 때 `AppRegistry` 가 그 아래를 훑어 앱 목록을 만들고, 같은 목록으로 라우터·모델·관리 화면을 결선합니다.
 
-### 규약 — registry 가 찾는 네 가지
+### 규약 — registry 가 찾는 다섯 가지
 
 | 경로 | 계약 | 없으면 |
 |------|------|--------|
-| `<name>/__init__.py` | 앱 패키지. import-time 초기화 훅 | 패키지가 아니므로 **발견되지 않음** |
+| `<name>/__init__.py` | 앱 패키지 선언. **여기에 부수효과를 두지 않습니다** | 패키지가 아니므로 **발견되지 않음** |
+| `<name>/apps.py` | `ready()` — 부팅 시 한 번 실행되는 초기화 훅 | 초기화 훅 없는 앱으로 정상 처리 |
 | `<name>/api/routers/router.py` | `<name>_router: APIRouter` | 라우터 없는 앱으로 정상 처리 |
 | `<name>/models/` | import 시 ORM 모델이 `Base.metadata` 에 등록 | 모델 없는 앱으로 정상 처리 (실제 `auth` 가 그렇습니다) |
 | `<name>/admin.py` | `admin_views: list[type]` (SQLAdmin `ModelView`) | 관리 화면 없는 앱으로 정상 처리 |
@@ -285,13 +294,25 @@ Router  →  Depends(get_<name>_service)  →  Service(session)  →  Repository
 | `router.py` 는 있는데 `<name>_router` 가 없다 / `APIRouter` 가 아니다 | `AppContractError` 로 **기동 실패** |
 | 두 앱이 같은 라우터 객체나 같은 `ModelView` 를 내보낸다 | `AppContractError` 로 **기동 실패** |
 
-### 초기화 훅의 한계
+### 초기화 훅 — `apps.py` 의 `ready()`
 
-앱 패키지의 `__init__.py` 는 발견 단계에서 import 되므로 등록 훅으로 쓸 수 있습니다(`home` 이 access-log sink 를 등록하는 방식). 다만 **Django 의 `AppConfig.ready()` 와 같은 생명주기가 아닙니다** — 프레임워크가 보장하는 준비 단계가 아니라 그냥 파이썬 import 입니다.
+부팅 시 한 번 해야 하는 결선은 앱의 `apps.py` 에 `ready()` 로 둡니다. `AppRegistry.install_hooks()` 가 발견 순서대로 호출합니다.
 
-- 빠르고 **멱등적**이어야 합니다. import 는 캐시되므로 두 번 실행되지 않는다는 전제에 기대지만, 그 전제를 깨는 코드를 두면 안 됩니다.
+```python
+# app/features/home/apps.py — Django 의 AppConfig.ready() 자리
+from app.features.home.access_log_sink import register_sink
+
+
+def ready() -> None:
+    register_sink()   # core 미들웨어에 자신을 등록한다
+```
+
+**`__init__.py` 의 import-time 부수효과는 쓰지 않습니다.** import 부작용은 "이 모듈을 import 하면 무슨 일이 일어나는가" 를 코드에서 읽을 수 없게 만들고, 테스트가 모듈을 건드리는 것만으로 상태가 바뀌어 결과가 실행 순서에 좌우됩니다. 그래서 `discover()` 는 **부작용이 0** 이고(앱이 무엇인지 알아내기만 합니다), 초기화는 부르는 쪽이 `install_hooks()` 로 명시적으로 요청합니다.
+
+- `ready()` 는 **멱등**이어야 합니다 — 재기동·재진입에서 다시 불릴 수 있습니다.
 - **DB·네트워크 I/O 를 하지 마세요.** 부팅이 외부 상태에 묶이고 실패 원인이 발견 단계로 숨습니다.
-- 무거운 계산도 피하세요. 모든 앱의 `__init__.py` 가 부팅 시간에 직접 더해집니다.
+- 무거운 계산도 피하세요. 모든 앱의 `ready()` 가 부팅 시간에 직접 더해집니다.
+- Django 의 `AppConfig.ready()` 와 **역할은 같지만 생명주기 보장은 다릅니다** — 프레임워크가 보장하는 준비 단계가 아니라 `main.py` 가 부르는 함수입니다.
 
 ### Django 와의 대응 범위
 
@@ -300,7 +321,7 @@ FastAPI 와 Django 는 생명주기와 URL 조립 방식이 다르므로 내부 
 | Django | 이 프로젝트 | 판정 |
 |--------|------------|------|
 | 앱 registry | `AppRegistry` 가 목록을 한 번 만들어 공통 결선에 제공 | 대응 |
-| `AppConfig.ready()` | 앱 `__init__.py` 의 빠르고 멱등적인 훅 | **역할만** 대응 (생명주기 보장은 다름) |
+| `AppConfig.ready()` | 앱 `apps.py` 의 `ready()` — `install_hooks()` 가 호출 | **역할만** 대응 (생명주기 보장은 다름) |
 | 모델 발견 | 앱 `models` import 로 `Base.metadata` 구성 | 대응 |
 | Admin 등록 | 앱 `admin.py` 의 `admin_views` 자동 수집 | 대응 |
 | `startapp` | `python -m scripts.new_app <name>` | 대응 |
@@ -561,7 +582,7 @@ Raw 입니다. reports 예제가 집계 전용 ORM 모델을 만들지 **않은*
 
 ## 시작하기
 
-> **처음이라면 [docs/QUICKSTART.md](docs/QUICKSTART.md) 부터.** 인프라 없이 30초 만에
+> **처음이라면 [docs/guides/QUICKSTART.md](docs/guides/QUICKSTART.md) 부터.** Redis만 준비해 30초 만에
 > 기동을 확인하는 최소 경로와, 첫 실행에서 가장 자주 막히는 지점(`DEBUG=true` 기본값이
 > MySQL을 요구한다)을 다룬다. 아래는 전체 설치 절차다.
 
@@ -1142,7 +1163,7 @@ curl -X POST localhost:8000/api/v1/auth/refresh \
 
 ## 신규 기능 개발 가이드
 
-> 상세 아키텍처 및 각 파일의 역할은 **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** 를 참고하세요.
+> 상세 아키텍처 및 각 파일의 역할은 **[docs/guides/ARCHITECTURE.md](docs/guides/ARCHITECTURE.md)** 를 참고하세요.
 
 새 기능은 `app/features/<name>/` vertical slice 를 만들면 끝입니다. **중앙 파일 편집은 없습니다** — `main.py` · `migrations/env.py` · `app/features/admin.py` 를 열지 않습니다. 규약은 [앱 자동 등록 규약](#앱-자동-등록-규약) 참고.
 

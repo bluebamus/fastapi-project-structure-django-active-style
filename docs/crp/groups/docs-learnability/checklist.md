@@ -31,4 +31,17 @@
 - [x] residual-risk 갱신 (R-011·R-202 범위 축소)
 - [x] run-log 수렴 판정 `CONVERGED`
 
+## Round 3 — 2026-08-25 (목적 기준 검수: 자동 등록·자동 라우팅 골격) — 완료
+- [x] (F-208) 초기화 훅 위치 정정 — README·ARCHITECTURE 직접 교체 / concept 02·spec 03 갱신 블록
+- [x] (F-209) 생성기 안내에 `apps.py` 의 `ready()` 추가 (출력·독스트링만, 로직 불변)
+- [x] (F-210) `docs/concepts/` 삭제 — "현행 배선" 이라 소개된 `create_app()` 시대 도식
+- [x] (F-211) `01-project-hardening-plan` 삭제 — 상태표 3/4 가 이후 해소돼 거짓
+- [x] (F-212) ARCHITECTURE 폴더 트리의 형제 저장소 이름 정정
+- [x] (F-213) 세션 alias 표기·중복 절 번호·죽은 문서 인용 정정
+- [x] 삭제 문서로 향하던 링크 3곳 정리 (docs/README 표 · spec README · concept 02 참고)
+- [x] C-1 기계 검증 — 애플리케이션 동작 코드 diff 0 (생성기는 출력 문구, 테스트는 독스트링만)
+- [x] 게이트: 674 passed / 31 skipped(로컬 MySQL 부재) · review_gate 6그룹 · 라우트 22/37 · alembic `d4e6f8b12c34`
+- [x] ADR-004 기록 — 현행을 참칭하는 문서는 갱신이 아니라 삭제
+- [x] run-log 수렴 판정 `CONVERGED`
+
 > 미닫힘(`[ ]`) 항목이 1개라도 있으면 그 라운드는 GATE 5 Done 이 아니다.

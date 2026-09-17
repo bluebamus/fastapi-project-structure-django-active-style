@@ -279,7 +279,15 @@ def _repo_files() -> list[str]:
 
 
 # 의도적 전방 참조 — 이월된 결함이 예고하는 산출물이다. 만들어지면 여기서 지운다.
-DOC_ALLOWED_MISSING_PATHS = {"app/core/resources.py"}
+# 뒤쪽 셋은 그 거울인 **후방 참조**다: 이미 지운 파일을 CRP ledger 가 "무엇을 왜 지웠는가"
+# 로 기록한다. 이력은 당시의 사실이라 고쳐 쓰지 않으므로(C-3) 여기서 면제한다 —
+# 살아 있는 문서가 이 경로들을 다시 가리키기 시작하면 그건 이 목록이 아니라 리뷰가 잡을 일이다.
+DOC_ALLOWED_MISSING_PATHS = {
+    "app/core/resources.py",
+    "app/core/bootstrap.py",  # F-210 — create_app() 시대 잔재, 문서만 남아 있었다
+    "docs/concepts/README.md",  # F-210 — 삭제된 폴더
+    "docs/review/improvement-plan-2026-08-10.md",  # F-213 — 애초에 없던 인용
+}
 DOC_ALLOWED_MISSING_ENV = {
     "LOG_SQL_ECHO_ENABLED",  # F-018 이 예고하는 설정(Phase 1-R2)
 }
