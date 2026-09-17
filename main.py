@@ -56,7 +56,7 @@ logger.info("앱 자동 발견: %s", [m.name for m in registry.enabled_apps])
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """
     애플리케이션 수명 주기 관리
 
@@ -198,7 +198,7 @@ class HealthResponse(BaseModel):
     """헬스체크(liveness) 응답 스키마"""
 
     model_config = ConfigDict(
-        json_schema_extra={"examples": [{"status": "ok", "version": "1.0.0"}]}
+        json_schema_extra={"examples": [{"status": "healthy", "version": "0.1.0"}]}
     )
 
     status: str = Field(description="상태 문자열")

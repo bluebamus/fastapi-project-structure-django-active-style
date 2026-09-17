@@ -199,8 +199,8 @@ async def create_product(
 
 **응답 DTO 검증은 commit 앞에서** 합니다. 세션은 `expire_on_commit=False` 라 commit 자체로 속성이
 만료되지는 않지만, DTO 검증이나 적재되지 않은 관계 접근이 commit 뒤에 실패하면 **이미 저장된
-데이터에 대해 500** 이 나갑니다. blog·reply·sns·user 는 commit 뒤에 검증하는 이전 순서이므로, 새
-기능은 catalog 순서를 따릅니다.
+데이터에 대해 500** 이 나갑니다. catalog·blog·reply·sns·user 의 생성·수정 핸들러가 모두 이 순서이고,
+`tests/test_dto_before_commit.py` 가 DTO 검증을 강제로 실패시켜 commit 0회·DB 불변을 확인합니다.
 
 ### 5.3 `BaseRepository` 공개 계약
 
@@ -345,6 +345,8 @@ async def get_catalog_service_readonly(
 | 복제 지연을 허용할 수 없는 조회 | `get_writer_db_session` | writer 고정 조회, commit 없음 |
 
 - GET/POST 라는 이름이 아니라 **유스케이스**로 고릅니다.
+- 기존 앱 중 catalog 만 쓰기에 `get_writer_db_session` 을 쓰고, blog·reply·sns·user·auth 의 쓰기
+  Dependency 는 동적 라우팅 `get_routed_db_session` 입니다(초기 구조). 새 기능은 writer 를 씁니다.
 - 조회에 쓰기 세션을 재사용하지 않습니다. writer 가 자동 commit 하지는 않지만 read-only 보호와
   replica 선택을 잃습니다. **Raw 라는 이유로 쓰기 세션을 쓰지 않습니다** — Raw 는 접근 방식이지
   권한이 아닙니다.
@@ -491,6 +493,8 @@ uv run python -m scripts.review_gate --group static structure docs
 | 문서 | 내용 |
 |---|---|
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) | 조립·설정·세션·라우팅·보안 경계 |
+| [`feature-development-guide.html`](./feature-development-guide.html) | 이 문서의 흐름을 catalog·reports 요청 도식으로 따라가는 안내서 |
+| [`server-lifecycle-guide.html`](./server-lifecycle-guide.html) | 설정 → 기동 → 요청 → 종료 추적 안내서 |
 | [`../specs/orm-raw-repository/`](../specs/orm-raw-repository/) | ORM/Raw 요구명세·개발계획·지침 원본 (착수 기준선, 코드 주석의 `workflow-guide §N` 출처) |
 | [`../crp/groups/orm-raw-repository/design-baseline.md`](../crp/groups/orm-raw-repository/design-baseline.md) | 설계 결정과 선택 근거 |
 | [`../specs/django-style-app-automation.md`](../specs/django-style-app-automation.md) | 앱 자동 등록 요구사항·설계 근거 |

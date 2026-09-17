@@ -38,7 +38,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
-      # .python-version(3.14)을 uv 가 읽어 인터프리터를 맞춘다.
+      # .python-version(3.14)을 uv 가 읽어 인터프리터를 맞춘다(지원 하한은 requires-python >=3.13).
       # --frozen: uv.lock 을 그대로 쓰고, 락이 pyproject 와 어긋나면 실패한다(재현성).
       - name: 의존성 설치
         run: uv sync --frozen

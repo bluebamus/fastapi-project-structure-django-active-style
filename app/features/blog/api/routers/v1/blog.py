@@ -2,7 +2,9 @@
 Blog v1 API 엔드포인트 — 게시글 CRUD.
 
 view 는 HTTP 역할만 한다: 파라미터 수신 → 의존성으로 주입된 Service 호출 → 응답 변환.
-비즈니스 로직과 트랜잭션 경계는 services / dependencies 가 담당한다(UnitOfWork 제거).
+업무 규칙은 Service 가, 트랜잭션 경계는 쓰기 핸들러 본문이 맡는다: 응답 DTO 를 먼저
+검증하고 그다음 `await service.commit()` 을 한 번 부른다(catalog 와 같은 순서 —
+검증이 실패해도 커밋된 데이터 위에 500 이 나가지 않는다).
 """
 
 from typing import Any
@@ -42,8 +44,9 @@ async def create_post(
     service: BlogService = Depends(get_blog_service),
 ) -> PostResponse:
     post = await service.create_post(payload)
+    response = PostResponse.model_validate(post)
     await service.commit()
-    return PostResponse.model_validate(post)
+    return response
 
 
 @router.get(
@@ -97,8 +100,9 @@ async def update_post(
     service: BlogService = Depends(get_blog_service),
 ) -> PostResponse:
     post = await service.update_post(post_id, payload)
+    response = PostResponse.model_validate(post)
     await service.commit()
-    return PostResponse.model_validate(post)
+    return response
 
 
 @router.delete(
