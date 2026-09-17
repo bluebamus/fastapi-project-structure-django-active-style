@@ -1,5 +1,9 @@
 # ORM / Raw 데이터 접근 워크플로
 
+검토 기준: **2026-09-17 현재 작업 트리**. 클래스·함수의 전체 추적과 신규 CRUD 개발은
+[개발 HTML 안내서](./feature-development-guide.html), 설정·lifespan·자원 해제는
+[서버 수명 HTML 안내서](./server-lifecycle-guide.html)에서 이어서 읽습니다.
+
 > **이 문서를 읽는 사람:** 이 구조로 새 기능을 만들려는 개발자.
 > **이 문서가 답하는 것:** 언제 ORM 을 쓰고 언제 Raw SQL 을 쓰는가, 그리고 각각 어떤 순서로 어떤
 > 파일을 만드는가.
@@ -66,8 +70,8 @@ commit 하지 않습니다 — 커밋 주체가 둘이 되면 실패 시 어디�
 | 조회 | `get_read_only_db_session` | 쓰기를 시도하면 예외. commit 없음 |
 | 변경 | `get_writer_db_session` | 첫 쿼리부터 writer 고정 |
 
-조회에 쓰기 세션을 재사용하지 마세요. 불필요한 COMMIT 왕복이 생기고, read-only 세션이
-주는 안전망을 잃습니다. **Raw 라는 이유로 쓰기 세션을 쓰지 않습니다** — Raw 는 접근
+조회에 쓰기 세션을 재사용하지 마세요. writer dependency 자체가 자동 commit하는 것은 아니지만,
+read-only 보호와 replica 선택 의미를 잃습니다. **Raw 라는 이유로 쓰기 세션을 쓰지 않습니다** — Raw 는 접근
 방식이지 권한이 아닙니다.
 
 ---
@@ -77,8 +81,11 @@ commit 하지 않습니다 — 커밋 주체가 둘이 되면 실패 시 어디�
 새 기능을 만들 때의 파일 순서입니다. `app/features/catalog/` 를 같은 순서로 열어 보세요.
 
 ```bash
-python -m scripts.new_app <name> --with-admin   # 1. 뼈대 생성
+uv run python -m scripts.new_app <name> --with-admin   # 1. 뼈대 생성 (기존 앱이면 중단, 덮어쓰기는 --force)
 ```
+
+생성기는 패키지 골격·빈 `<name>_router`·의존성 예시 주석·빈 `admin_views` 까지만 만듭니다.
+아래 2번부터의 파일 내용은 직접 작성합니다(`models/models.py` 도 생성되지 않습니다).
 
 | # | 파일 | catalog 에서 볼 것 |
 |---|---|---|
@@ -104,9 +111,10 @@ await service.commit()                               # 그다음
 return response
 ```
 
-commit 뒤에 검증하면 만료된 속성을 다시 읽으려다 lazy I/O 가 나고, 그 I/O 가 실패하면
-**이미 커밋된 트랜잭션 위에서 500** 이 납니다 — 클라이언트는 실패로 보는데 데이터는
-저장돼 있습니다.
+현재 세션은 `expire_on_commit=False`라 commit 자체로 속성이 만료되지는 않습니다.
+그러나 DTO 타입/필드 검증이나 아직 적재되지 않은 관계 접근이 commit 뒤 실패하면
+**이미 저장된 데이터에 대해 500**이 나갑니다. 실제 catalog처럼 DTO 검증을 먼저 마칩니다.
+관계가 필요한 응답은 Repository에서 필요한 데이터를 미리 적재합니다.
 
 **빈 PATCH 는 오류가 아닙니다.** 존재 확인 후 현재 상태를 그대로 돌려줍니다.
 `BaseRepository.update()` 가 그렇게 동작하며, 전달하지 않은 필드는 건드리지 않습니다.
@@ -144,7 +152,7 @@ text(f"SELECT * FROM t WHERE id = {user_id}")   # 금지 — 정적 검사가 �
 text("SELECT * FROM t WHERE id = :id")          # 허용
 ```
 
-`tests/core/test_raw_sql_static_guard.py` 가 `app/`·`scripts/`·`migrations/` 를 AST 로 훑어
+`tests/core/test_raw_sql_static_guard.py` 가 `app/`·`main.py`·`scripts/`·`migrations/` 를 AST 로 훑어
 조립된 SQL 을 거부합니다. 리뷰가 아니라 **코드가 막습니다**.
 
 **② 모든 외부 값은 named bind 입니다.** `IN` 목록은 `bindparam(expanding=True)` 를 씁니다.
@@ -170,9 +178,9 @@ DTO 필드 이름과 SQL 의 컬럼 alias 가 어긋나면 **그 자리에서 �
 
 | 메서드 | 0행 | 1행 | 복수 행 |
 |---|---|---|---|
-| `fetch_one` | `None` | `RowMapping` | **오류** |
+| `fetch_one` | `None` | `RowMapping` | **오류** (`MultipleResultsFound`) |
 | `fetch_all` | `[]` | 1개 목록 | 목록 |
-| `fetch_scalar` | `None` | 값 (SQL `NULL` 도 `None`) | **오류** |
+| `fetch_scalar` | `None` | 값 (SQL `NULL` 도 `None`) | **오류** (`MultipleResultsFound`) |
 | `execute` | 영향 행 수(`int`), 드라이버 미제공 시 `None` | | |
 
 `fetch_scalar` 는 "0행" 과 "값이 NULL" 을 구분하지 못합니다. 구분이 필요하면 `fetch_one`
@@ -181,11 +189,13 @@ DTO 필드 이름과 SQL 의 컬럼 alias 가 어긋나면 **그 자리에서 �
 ### DB 방언은 실제 DB 에서 검증합니다
 
 reports 의 집계 SQL 은 MySQL 문법(`DATE_ADD(..., INTERVAL 1 DAY)`)입니다.
+현재 Active Service는 역전 기간을 검사하지만 Default/Passive의 최대 366일 정책이나
+Default의 스냅샷 적재 endpoint는 구현하지 않습니다. 형제 저장소의 계약을 그대로 가정하지 않습니다.
 **SQLite 통과는 MySQL 승인 근거가 되지 못합니다.** 그래서:
 
 ```bash
 docker compose -f compose.test.yaml up -d --wait
-pytest -m mysql
+uv run python -m pytest -m mysql
 docker compose -f compose.test.yaml down -v
 ```
 
@@ -197,10 +207,11 @@ docker compose -f compose.test.yaml down -v
 
 ## 5. Raw 로 쓰기(DML)를 해야 한다면
 
-공개 endpoint 를 만들지 않는 것이 이 저장소의 선택입니다. 필요하면 **Service/UoW 가
-writer 세션의 commit/rollback 을 소유**하고 Repository 는 rowcount 만 돌려줍니다.
-형태는 `tests/integration/test_sales_report_mysql.py` 하단 `_SalesOrderWriteService` 를
-보세요.
+현재 reports에는 공개 Raw 쓰기 endpoint가 없습니다. 새 API로 추가한다면 writer dependency →
+Service → Raw Repository 순서를 유지하고 **View가 응답 전 commit 1회** 합니다. Repository는
+rowcount만 반환합니다. 별도 UoW 클래스는 없습니다.
+`tests/integration/test_sales_report_mysql.py`의 `_SalesOrderWriteService`는 테스트용 helper로
+endpoint 대신 commit/rollback을 호출합니다. 이 테스트 helper의 경계를 운영 Service 규약과 혼동하지 않습니다.
 
 read-only 세션에서 Raw DML 을 시도하면 `ReadOnlyRoutingError` 로 거부됩니다.
 `DB_ROUTER_ENABLED` 설정과 **무관하게** 그렇습니다.
@@ -211,23 +222,11 @@ read-only 세션에서 Raw DML 을 시도하면 `ReadOnlyRoutingError` 로 거�
 
 | 문서 | 내용 |
 |---|---|
-| [`../orm-raw-repository/2026-08-13/workflow-guide.md`](../orm-raw-repository/2026-08-13/workflow-guide.md) | 원본 지침서 — 코드 예시 전문, 보안 규칙, 테스트 지침 |
-| [`../orm-raw-repository/2026-08-13/requirements.md`](../orm-raw-repository/2026-08-13/requirements.md) | 요구 명세 — 각 규칙의 수용 기준 |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | 현재 구조와 계층별 책임 |
+| [`../crp/groups/orm-raw-repository/design-baseline.md`](../crp/groups/orm-raw-repository/design-baseline.md) | 설계 결정과 선택 근거 |
 | [`../../README.md#앱-자동-등록-규약`](../../README.md) | 앱 자동 등록 규약 |
 
-위 두 문서는 이 구조를 만들 때의 **설계 기준선**입니다. 규칙의 근거를 확인하거나
-"왜 이렇게 정했는가" 가 궁금할 때 보세요. 일상적인 개발에는 이 문서와 두 예제 코드로
-충분합니다.
-
-### 지침서와 코드가 달라 보이는 지점 하나
-
-원본 지침서 §2.1 은 Dependency 인자와 Service/Repository 속성을 `db_session` /
-`self.db_session` 으로 씁니다. **저장소 코드는 `session` / `self.session` 을 씁니다.**
-지침서는 당시의 설계 기록이라 고치지 않습니다(그래야 "왜 이렇게 정했는가" 가 남습니다).
-
-동작을 결정하는 것은 **Dependency 함수 이름** — 어떤 세션을 받는가 — 이고, 그건
-지침서와 코드가 같습니다(`get_read_only_db_session` / `get_writer_db_session`).
-달라 보이는 것은 받아 둔 변수의 이름뿐입니다. **코드를 따르세요.**
+규칙의 근거는 설계 기준선에서, 현재 사용법은 이 문서와 두 예제 코드에서 확인합니다.
 
 > 규칙이 실제로 지켜지는지는 테스트가 강제합니다. 위반하면 `pytest` 가 막습니다 —
 > 문서를 안 읽어도 틀린 코드는 통과하지 못하게 되어 있습니다.
