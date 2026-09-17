@@ -4,7 +4,8 @@
 네이밍 컨벤션만으로 라우터·모델·Admin 을 발견·연결한다.
 
 컨벤션 (app/features/<name>/):
-    __init__.py             →  앱 패키지. import-time 초기화 훅 (선택)
+    __init__.py             →  앱 패키지 선언. 부수효과를 두지 않는다
+    apps.py                 →  ready(): 부팅 초기화 훅 (선택, install_hooks() 가 호출)
     api/routers/router.py   →  <name>_router: APIRouter   (있으면 prefix /api 에 마운트)
     models/                 →  import 시 Base.metadata 에 테이블 등록 (선택)
     admin.py                →  admin_views: list[type]      (선택, SQLAdmin ModelView)
@@ -29,8 +30,9 @@
 
 Note:
     Django `AppConfig.ready()` 와 역할은 비슷하지만 생명주기는 다르다. 여기서
-    초기화 훅은 그냥 파이썬 패키지 import 이며, 프레임워크가 보장하는 준비 단계가
-    아니다. 그래서 훅은 빠르고 멱등적이어야 하고 DB·네트워크 I/O 를 하면 안 된다.
+    초기화 훅은 `apps.py` 의 `ready()` 를 `main.py` 가 `install_hooks()` 로 부르는
+    것이며, 프레임워크가 보장하는 준비 단계가 아니다. 그래서 훅은 빠르고 멱등적이어야
+    하고 DB·네트워크 I/O 를 하면 안 된다.
 """
 
 from __future__ import annotations

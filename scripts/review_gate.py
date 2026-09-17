@@ -140,6 +140,24 @@ _DOC_PATH = re.compile(
 _DOC_ENV = re.compile(r"\b([A-Z][A-Z0-9_]{3,})=")
 
 
+_RELATIVE_PREFIX = re.compile(r"^(?:\.\.?/)+")
+
+# HTML 가이드는 경로를 백틱이 아니라 `<code>` 로 감싼다. 같은 규칙을 적용하려고
+# 백틱 표기로 바꿔 넣는다.
+_HTML_CODE = re.compile(r"<code>([^<]+)</code>")
+
+# `## N. 변경 이력` 절은 당시의 사실을 적는다 — 지운 파일·옛 이름이 나오는 것이 정상이다.
+# 다음 같은 수준 이상의 제목(또는 문서 끝)까지 검사에서 뺀다.
+_HISTORY_SECTION = re.compile(r"^(#{1,6}) [^\n]*변경 이력[^\n]*\n.*?(?=^#{1,6} |\Z)", re.M | re.S)
+
+
+def doc_text_for_check(text: str, *, html: bool) -> str:
+    """검사 대상 본문 — 변경 이력 절을 빼고, HTML 은 `<code>` 를 백틱으로 바꾼다."""
+    if html:
+        text = _HTML_CODE.sub(r"`\1`", text)
+    return _HISTORY_SECTION.sub("", text)
+
+
 def check_doc_paths(
     doc_text: str, known_paths: Iterable[str], allowed_missing: set[str]
 ) -> list[str]:
@@ -157,7 +175,8 @@ def check_doc_paths(
     for reference in sorted(set(_DOC_PATH.findall(doc_text))):
         if reference in allowed_missing:
             continue
-        needle = reference.replace("\\", "/")
+        # `../crp/x.md` 같은 상대 표기는 접두사를 떼야 접미사 비교가 성립한다.
+        needle = _RELATIVE_PREFIX.sub("", reference.replace("\\", "/"))
         if not any(path.endswith(needle) for path in known):
             problems.append(f"{reference}: 저장소에 없는 경로입니다")
     return problems
@@ -287,6 +306,8 @@ DOC_ALLOWED_MISSING_PATHS = {
     "app/core/bootstrap.py",  # F-210 — create_app() 시대 잔재, 문서만 남아 있었다
     "docs/concepts/README.md",  # F-210 — 삭제된 폴더
     "docs/review/improvement-plan-2026-08-10.md",  # F-213 — 애초에 없던 인용
+    # 개발 안내서가 "새 기능을 만든다면" 의 가상 예시로 쓰는 경로다.
+    "dependencies/inventory_dependencies.py",
 }
 DOC_ALLOWED_MISSING_ENV = {
     "LOG_SQL_ECHO_ENABLED",  # F-018 이 예고하는 설정(Phase 1-R2)
@@ -304,6 +325,7 @@ EXTERNAL_ENV = {
     "GITHUB_TOKEN",
     "MYSQL_TEST_PORT",
     "ALEMBIC_DATABASE_URL",
+    "MYSQL_ALLOW_EMPTY_PASSWORD",  # mysql 컨테이너 이미지의 변수(QUICKSTART docker 예시)
 }
 
 
@@ -330,6 +352,13 @@ def check_docs() -> list[str]:
     readme = REPO_ROOT / "README.md"
     if readme.exists():
         targets.append(readme)
+    # 현행 가이드는 사람이 **따라 하는** 문서라 틀리면 가장 비싸다. 게이트 밖에 두면
+    # 코드가 바뀐 뒤에도 초록불이 유지된다(2026-09-17 가이드 대조에서 실제로 여러 건).
+    targets += sorted((REPO_ROOT / "docs" / "guides").glob("*.md"))
+    targets += sorted((REPO_ROOT / "docs" / "guides").glob("*.html"))
+    docs_index = REPO_ROOT / "docs" / "README.md"
+    if docs_index.exists():
+        targets.append(docs_index)
     # 워크플로 주석도 계약 문서를 가리킨다. 검사 밖에 두면 그 참조만 조용히
     # 썩는다 — 실제로 ci.yml 첫 줄이 존재하지 않는 charter 를 1개월간 가리켰다
     # (F-035). 여기서도 규칙은 같다: 백틱으로 감싼 경로만 본다.
@@ -337,8 +366,10 @@ def check_docs() -> list[str]:
 
     problems: list[str] = []
     for doc in targets:
-        text = doc.read_text(encoding="utf-8")
         name = str(doc.relative_to(REPO_ROOT)).replace("\\", "/")
+        text = doc.read_text(encoding="utf-8")
+        if name.startswith("docs/guides/") or name == "docs/README.md":
+            text = doc_text_for_check(text, html=doc.suffix == ".html")
         problems += [
             f"{name}: {issue}"
             for issue in check_doc_paths(text, known_paths, DOC_ALLOWED_MISSING_PATHS)

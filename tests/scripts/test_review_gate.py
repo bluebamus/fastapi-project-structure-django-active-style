@@ -25,7 +25,9 @@ from scripts.review_gate import (
     check_doc_deprecated_names,
     check_doc_env_vars,
     check_doc_paths,
+    check_docs,
     check_image_digests,
+    doc_text_for_check,
     judge_pytest_summary,
     main,
     scan_secrets,
@@ -167,6 +169,44 @@ def test_repository_workflow_doc_references_exist():
         problems += check_doc_paths(text, known, DOC_ALLOWED_MISSING_PATHS)
 
     assert problems == []
+
+
+def test_dot_relative_doc_path_resolves():
+    """가이드는 `../crp/...` 처럼 상대 표기로 쓴다. 접두사 때문에 실재 파일을 놓치면 안 된다."""
+    known = ["docs/crp/groups/a/design-baseline.md"]
+
+    assert check_doc_paths("`../crp/groups/a/design-baseline.md`", known, set()) == []
+    assert check_doc_paths("`../crp/groups/nope/design-baseline.md`", known, set())
+
+
+def test_history_section_is_excluded_but_body_is_checked():
+    """변경 이력은 당시 사실이라 옛 경로가 정상이다. 본문의 옛 경로는 여전히 잡는다."""
+    doc = "## 1. 구조\n`app/gone.py`\n## 8. 변경 이력\n| x | `app/apps.py` 제거 |\n"
+
+    text = doc_text_for_check(doc, html=False)
+
+    assert "app/apps.py" not in text
+    assert check_doc_paths(text, [], set()) == ["app/gone.py: 저장소에 없는 경로입니다"]
+
+
+def test_html_code_paths_are_checked():
+    """HTML 가이드는 경로를 `<code>` 로 감싼다 — 그대로 두면 검사가 헛돈다."""
+    text = doc_text_for_check("<p><code>app/core/nope.py</code></p>", html=True)
+
+    assert check_doc_paths(text, [], set())
+
+
+def test_current_guides_are_in_the_docs_gate(tmp_path, monkeypatch):
+    """docs/guides 가 게이트 밖이면 코드가 바뀐 뒤에도 초록불이 유지된다."""
+    import scripts.review_gate as gate
+
+    guides = tmp_path / "docs" / "guides"
+    guides.mkdir(parents=True)
+    (guides / "GUIDE.md").write_text("`app/core/nope.py`", encoding="utf-8")
+    monkeypatch.setattr(gate, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(gate, "_config_env_names", set)
+
+    assert check_docs() == ["docs/guides/GUIDE.md: app/core/nope.py: 저장소에 없는 경로입니다"]
 
 
 def test_forward_reference_can_be_declared():
