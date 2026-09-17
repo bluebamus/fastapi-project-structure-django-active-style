@@ -68,22 +68,24 @@ class TimezoneSettings(BaseSettings):
 # API 설명 (Scalar 문서에 표시)
 # =============================================================================
 API_DESCRIPTION = """
-## FastAPI Default Project Structure
+## FastAPI Project Structure — Django Active Style
 
-Repository 패턴과 Unit of Work 패턴을 적용한 FastAPI 프로젝트 템플릿입니다.
+Repository 패턴과 계층 분리를 적용한 FastAPI 프로젝트 골격입니다.
+`app/features/<name>/` 디렉터리를 두면 라우터·모델·관리 화면이 자동으로 등록됩니다.
 
 ### 주요 기능
 
-- **접속 로그 수집**: 모든 API 요청에 대한 접속 로그 자동 수집
-- **사용자 정보 파싱**: User-Agent 기반 OS, 브라우저, 장치 정보 분석
-- **통계 API**: 장치 유형, OS, 브라우저별 접속 통계
+- **앱 자동 등록**: `AppRegistry` 가 `<name>_router` 를 `/api` 에 마운트
+- **CRUD 예제**: blog · reply · sns · user · catalog(ORM 예제)
+- **Raw SQL 예제**: reports 일별 매출 집계
+- **인증**: OAuth2 password flow + JWT access/refresh
+- **접속 로그**: User-Agent 파싱, 조회·통계 API (home)
 
 ### 아키텍처
 
 ```
-Router → Service → Repository → Database
-           ↑
-      UnitOfWork (트랜잭션 관리)
+Router → Depends(get_<name>_service) → Service → Repository → Database
+   └ 쓰기 핸들러가 응답 DTO 검증 뒤 await service.commit() 한 번
 ```
 
 ### 기술 스택
@@ -97,8 +99,9 @@ Router → Service → Repository → Database
 
 | 설정 | 설명 |
 |------|------|
-| `DEBUG=true` | 개발 모드 (DEBUG 로그, 테이블 자동 생성) |
-| `DEBUG=false` | 운영 모드 (INFO 로그, Alembic 마이그레이션 사용) |
+| `DEBUG=true` | 개발 모드 (DEBUG 로그, 테이블 자동 생성, `/docs`) |
+| `DEBUG=false` | 운영 모드 (INFO 로그, Alembic 마이그레이션, `/docs` 404) |
+| Redis | 기동 시 `ping()` 필수 — 실패하면 서버가 시작하지 않는다 |
 """
 
 
@@ -161,7 +164,7 @@ class AppSettings(BaseSettings):
         description="관리자 페이지 활성화 (인증 없음 — 운영에서는 false 권장)",
     )
 
-    # 실행 환경 (헬스체크 응답에 포함)
+    # 실행 환경. 로그 구성(핸들러·UTC)과 배포 안전 게이트가 따른다.
     ENV: Literal["development", "staging", "production", "test"] = Field(
         default="development",
         description="실행 환경",
@@ -557,13 +560,14 @@ class LogSettings(BaseSettings):
     )
 
     # === 출력 대상 설정 ===
-    # 콘솔(stdout) 로그 출력 활성화
+    # 선언만 있고 로깅 구성(build_dictconfig)이 읽지 않는다 — false 로 둬도 콘솔
+    # 핸들러는 항상 붙는다. 켜고 끄는 기능이 필요해지면 그때 연결한다.
     LOG_CONSOLE_ENABLED: bool = Field(
         default=True,
-        description="콘솔 로그 활성화",
+        description="콘솔 로그 활성화 (현재 미사용 — 콘솔 핸들러는 항상 붙는다)",
     )
 
-    # 파일 로그 출력 활성화
+    # 파일 로그 출력 활성화 (staging/production 에서만 파일 핸들러를 붙인다)
     LOG_FILE_ENABLED: bool = Field(
         default=True,
         description="파일 로그 활성화",
@@ -831,7 +835,8 @@ class ApiSettings(BaseSettings):
         extra="ignore",
     )
 
-    # REST API 버전 (URL prefix 에 사용: /api/v1/...)
+    # REST API 버전. 선언만 있고 라우터 prefix 는 각 앱 router.py 의 "/v1/..." 가
+    # 정한다 — 이 값을 바꿔도 URL 은 바뀌지 않는다.
     API_VERSION: str = Field(
         default="v1",
         description="REST API 버전",
@@ -856,7 +861,7 @@ class SessionSettings(BaseSettings):
         extra="ignore",
     )
 
-    # 세션 쿠키 이름
+    # 세션 쿠키 이름 (현재 미사용 — 접속 로그는 `session_id` 쿠키 이름을 코드에 고정해 읽는다)
     SESSION_COOKIE_NAME: str = Field(
         default="session",
         description="세션 쿠키 이름",

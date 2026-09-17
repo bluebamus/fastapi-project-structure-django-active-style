@@ -10,10 +10,11 @@ SQLAlchemy 비동기 엔진과 세션 팩토리를 설정합니다.
     - background_engine: 백그라운드 태스크용 분리 엔진 (pool_size=10, max_overflow=10)
     - AsyncSessionLocal: 메인 세션 팩토리
     - BackgroundSessionLocal: 백그라운드 세션 팩토리
-    - get_session(): FastAPI DI용 세션 제너레이터 (읽기/쓰기 자동 라우팅)
-    - get_read_session(): 읽기 전용 세션 제너레이터 (쓰기 시도 시 실패)
-    - get_write_session(): 쓰기 세션 제너레이터 (항상 primary)
-    - get_background_session(): 백그라운드 태스크용 세션 제너레이터
+    - get_routed_db_session(): 세션 제너레이터 (읽기/쓰기 자동 라우팅)
+    - get_read_only_db_session(): 읽기 전용 세션 제너레이터 (쓰기 시도 시 실패)
+    - get_writer_db_session(): 쓰기 세션 제너레이터 (항상 primary)
+    - get_background_db_session() / background_db_session(): 요청 밖 작업용
+    (파일 끝의 get_session 등은 같은 객체를 가리키는 옛 별칭이다)
 
 커넥션 풀 분리 이유:
     백그라운드 태스크(예: 접속 로그 저장)가 메인 API 요청의 커넥션 풀을
@@ -25,23 +26,16 @@ SQLAlchemy 비동기 엔진과 세션 팩토리를 설정합니다.
     나갑니다. 라우터를 끄면 모든 쿼리가 단일 엔진으로 갑니다(기존 동작).
     자세한 규칙은 app/core/db/router.py 를 참고하세요.
 
-사용 예시:
-    # FastAPI 엔드포인트에서 (읽기/쓰기 자동 라우팅)
-    @app.get("/users")
-    async def get_users(session: AsyncSession = Depends(get_session)):
-        result = await session.execute(select(User))
-        return result.scalars().all()
+사용 예시 (기능 코드는 세션을 직접 받지 않고 Dependency 가 Service 를 조립한다):
+    async def get_catalog_service(
+        session: AsyncSession = Depends(get_writer_db_session),
+    ) -> CatalogService:
+        return CatalogService(session)
 
-    # 읽기 전용임이 확실한 엔드포인트 (쓰기를 코드 수준에서 차단)
-    @app.get("/users/stats")
-    async def stats(session: AsyncSession = Depends(get_read_session)):
-        ...
-
-    # 백그라운드 태스크에서
-    async def save_log(data: dict):
-        async for session in get_background_session():
-            session.add(AccessLog(**data))
-            await session.commit()
+    # 요청 밖 작업
+    async with background_db_session() as session:
+        await SomeService(session).do_write()
+        await session.commit()
 """
 
 import time
@@ -193,11 +187,11 @@ BackgroundSessionLocal = async_sessionmaker(
 async def background_db_session() -> AsyncGenerator[AsyncSession, None]:
     """요청 밖(백그라운드 태스크·Celery)에서 사용하는 세션 컨텍스트.
 
-    요청 스코프 DI(get_session)를 쓸 수 없는 곳에서 트랜잭션 경계를 제공한다.
+    요청 스코프 Depends(get_*_db_session)를 쓸 수 없는 곳에서 트랜잭션 경계를 제공한다.
     예외 시 롤백하고, 컨텍스트 종료 시 세션을 닫는다. 커밋은 호출자가 명시한다.
 
     Example:
-        async with background_session() as session:
+        async with background_db_session() as session:
             await SomeService(session).do_write()
             await session.commit()
     """
@@ -213,9 +207,8 @@ async def create_db_tables() -> None:
     """
     데이터베이스 테이블을 생성합니다.
 
-    애플리케이션 시작 시 lifespan에서 호출됩니다.
-    각 기능 앱의 models 모듈을 import 하여 Base.metadata에 모든 테이블을 등록한 후
-    테이블을 생성합니다.
+    DEBUG=true 일 때 lifespan(manage_application_resources)에서 호출됩니다.
+    이미 채워진 Base.metadata 의 테이블 중 없는 것만 만듭니다(checkfirst, 30초 guard).
 
     Note:
         모델 발견은 **이 함수가 하지 않는다**. main.py 가 만든 동일 ``AppRegistry``
@@ -260,14 +253,15 @@ async def get_routed_db_session() -> AsyncGenerator[AsyncSession, None]:
         @app.get("/users/{id}")
         async def get_user(
             id: str,
-            session: AsyncSession = Depends(get_session)
+            session: AsyncSession = Depends(get_routed_db_session)
         ):
             user = await session.get(User, id)
             return user
 
     Note:
         - 세션은 요청 범위(request scope)로 관리됩니다
-        - 한 요청 내에서 여러 번 호출해도 같은 세션을 반환하지 않습니다
+        - 한 요청 안에서 같은 Dependency 는 FastAPI 캐시로 같은 세션을 재사용합니다
+          (writer·read-only 등 다른 getter 는 서로 다른 세션입니다)
         - 트랜잭션 경계는 쓰기 핸들러 본문이 `await service.commit()` 으로 관리합니다
     """
     start_time = time.perf_counter()
@@ -288,23 +282,24 @@ async def get_read_only_db_session() -> AsyncGenerator[AsyncSession, None]:
     """
     읽기 전용 세션 제너레이터 (FastAPI DI)
 
-    조회만 하는 엔드포인트에서 사용합니다. 라우터가 켜져 있으면 세션이
-    replica 에 고정되고, 쓰기를 시도하면 ``ReadOnlyRoutingError`` 로 즉시 실패해
-    "읽기 전용 핸들러가 몰래 쓰는" 사고를 코드 수준에서 차단합니다.
+    조회만 하는 엔드포인트에서 사용합니다. 쓰기를 시도하면 ``ReadOnlyRoutingError``
+    로 즉시 실패해 "읽기 전용 핸들러가 몰래 쓰는" 사고를 코드 수준에서 차단합니다.
+    라우터와 복제가 켜져 있으면 SELECT 는 replica 로 갑니다.
 
     Yields:
         AsyncSession: 읽기 전용 데이터베이스 세션
 
     Example:
         @app.get("/posts")
-        async def list_posts(session: AsyncSession = Depends(get_read_session)):
+        async def list_posts(session: AsyncSession = Depends(get_read_only_db_session)):
             result = await session.execute(select(Post))
             return result.scalars().all()
 
     Note:
-        - DB_ROUTER_ENABLED=false 면 라우팅·쓰기 차단이 동작하지 않고
-          get_session() 과 동일하게 단일 엔진 세션을 반환합니다.
-        - 복제 지연을 허용할 수 없는 읽기라면 get_session() + using_writer() 를 쓰세요.
+        - 쓰기 차단은 ``DB_ROUTER_ENABLED`` 와 무관하게 동작합니다. 세션 클래스
+          이벤트(``before_flush``·``do_orm_execute``, app/core/db/router.py)가 집행합니다.
+          라우터가 꺼져 있으면 읽기도 단일(writer) 엔진으로 나갈 뿐입니다.
+        - 복제 지연을 허용할 수 없는 읽기라면 get_writer_db_session() 을 쓰세요.
     """
     async with AsyncSessionLocal() as session:
         mark_read_only(session)
@@ -326,9 +321,9 @@ async def get_writer_db_session() -> AsyncGenerator[AsyncSession, None]:
         AsyncSession: primary 에 고정된 데이터베이스 세션
 
     Note:
-        get_session() 도 쓰기를 감지하면 primary 로 전환되므로 대부분의 경우
-        구분 없이 써도 됩니다. 이 의존성은 "이 핸들러는 쓰기다"를 명시하고,
-        첫 SELECT 조차 replica 로 새지 않도록 보장할 때 사용합니다.
+        get_routed_db_session() 도 쓰기를 감지하면 primary 로 전환되지만, 신규 코드는
+        이 의존성으로 "이 핸들러는 쓰기다"를 명시하고 첫 SELECT 조차 replica 로
+        새지 않도록 합니다. commit 은 하지 않습니다(쓰기 핸들러 본문이 합니다).
     """
     async with AsyncSessionLocal() as session:
         using_writer(session)
@@ -351,14 +346,14 @@ async def get_background_db_session() -> AsyncGenerator[AsyncSession, None]:
 
     Example:
         async def save_access_log(data: dict):
-            async for session in get_background_session():
+            async for session in get_background_db_session():
                 log = UserAccessLog(**data)
                 session.add(log)
                 await session.commit()
 
     Note:
         - 메인 API 풀과 분리되어 있어 백그라운드 작업이 API를 블로킹하지 않습니다
-        - 요청 밖 트랜잭션 경계는 background_session() 컨텍스트 사용을 권장합니다
+        - 요청 밖 트랜잭션 경계는 background_db_session() 컨텍스트 사용을 권장합니다
     """
     start_time = time.perf_counter()
 

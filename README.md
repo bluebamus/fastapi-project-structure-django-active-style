@@ -94,7 +94,7 @@ docs/              guides(현행) · specs(고정 기준선) · crp(검수 이�
 - SQL 은 상수, 값은 named bind — 요청 값으로 SQL 을 조립하면 정적 검사가 막습니다
 - Raw 결과(`RowMapping`)는 Service 에서 DTO 로 바꿉니다
 
-**→ 파일 순서·결과 API 의미·MySQL 검증까지: [docs/guides/orm-raw-workflow.md](docs/guides/orm-raw-workflow.md)**
+**→ 파일 순서·결과 API 의미·MySQL 검증까지: [docs/guides/DEVELOPMENT.md](docs/guides/DEVELOPMENT.md)**
 
 ---
 
@@ -209,7 +209,7 @@ uv run uvicorn main:app --reload     # DEBUG=true 여도 자동 생성은 할 �
 됩니다. 지원하는 기동 방식은 `python main.py` / `uvicorn main:app` 단일 프로세스이고, 다중 worker 는
 `DEBUG=false` + Alembic 이 유일한 안전한 조합입니다. 현재 revision 체인과 `env.py` 동작은
 [ARCHITECTURE §12](docs/guides/ARCHITECTURE.md), 작성 절차는
-[개발 가이드 §10](docs/guides/orm-raw-workflow.md)에 있습니다.
+[개발 가이드 §10](docs/guides/DEVELOPMENT.md)에 있습니다.
 
 ### 테스트
 
@@ -365,7 +365,7 @@ refresh 토큰은 만료까지 유효합니다.
    Dependency·엔드포인트·테스트를 씁니다. 라우터 변수명은 반드시 `<name>_router` 입니다.
 3. **재시작** — 라우터가 `/api` 에, 모델이 `Base.metadata` 에, `admin_views` 가 SQLAdmin 에 붙습니다.
 
-파일 순서·체크리스트·세션 선택·테스트는 [개발 가이드](docs/guides/orm-raw-workflow.md)에 있습니다.
+파일 순서·체크리스트·세션 선택·테스트는 [개발 가이드](docs/guides/DEVELOPMENT.md)에 있습니다.
 Celery 태스크는 기능 폴더가 아니라 `app/celery/tasks.py` 에 둡니다.
 
 ---
@@ -387,20 +387,24 @@ Celery 태스크는 기능 폴더가 아니라 `app/celery/tasks.py` 에 둡니�
 
 ## 문서 안내
 
-이 저장소의 문서 목록은 여기 하나뿐입니다.
+이 저장소의 문서 목록은 여기 하나뿐입니다. 위에서부터 읽는 순서입니다.
 
-| 순서 | 문서 | 무엇을 답하나 |
+| 문서 | 역할 | 언제 보나 |
 |---|---|---|
-| 1 | 이 README | 무엇인가, 어떻게 띄우나, 어떤 API 가 있나, 운영 전에 무엇을 확인하나 |
-| 2 | [docs/guides/orm-raw-workflow.md](docs/guides/orm-raw-workflow.md) | **새 기능을 어떻게 만드나** — ORM/Raw 선택, 파일 순서, 세션·트랜잭션, migration, 테스트 |
-| 3 | [docs/guides/ARCHITECTURE.md](docs/guides/ARCHITECTURE.md) | **실행 중에 어떻게 조립되나** — 앱 자동 등록, 설정·로깅, 기동·종료, 요청 처리, DB 세션·라우팅, 보안 경계 |
+| 이 README | 개요 · 빠른 시작 · API 목록 · 운영 전 확인 · 문서 안내 | 처음 받았을 때 |
+| [docs/guides/ARCHITECTURE.md](docs/guides/ARCHITECTURE.md) | 구조 · 런타임 동작 레퍼런스 — 앱 자동 등록, 설정·로깅, 기동·종료, 요청 처리, DB 세션·라우팅, 보안 경계 | 실행 중에 무엇이 어떻게 조립되는지 찾을 때 |
+| [docs/guides/DEVELOPMENT.md](docs/guides/DEVELOPMENT.md) | 기능 개발 가이드 — ORM/Raw 선택, 파일 순서, 세션·트랜잭션, migration, 테스트, 체크리스트 | 새 기능을 만들 때 |
+| [docs/guides/server-lifecycle-guide.html](docs/guides/server-lifecycle-guide.html) | 서버 수명주기 안내서 — 설정 → 기동 → 요청 → 종료를 도식으로 추적 (브라우저로 연다) | 기동·종료 흐름을 한 번에 따라가 볼 때 |
+| [docs/guides/feature-development-guide.html](docs/guides/feature-development-guide.html) | 신규 뷰·테이블 개발 안내서 — catalog·reports 요청을 따라가는 도식 설명 (브라우저로 연다) | 개발 가이드를 예제 흐름으로 익힐 때 |
+| [docs/specs/orm-raw-repository/requirements.md](docs/specs/orm-raw-repository/requirements.md) | 고정 기준선 — ORM/Raw 착수 요구명세 | 규칙의 원래 의도를 볼 때 |
+| [docs/specs/orm-raw-repository/development-plan.md](docs/specs/orm-raw-repository/development-plan.md) | 고정 기준선 — ORM/Raw 개발 계획 | 규칙의 원래 의도를 볼 때 |
+| [docs/specs/orm-raw-repository/workflow-guide.md](docs/specs/orm-raw-repository/workflow-guide.md) | 고정 기준선 — ORM/Raw 지침 원본 (코드 주석의 `workflow-guide §N` 출처) | 규칙의 원래 의도를 볼 때 |
+| [docs/specs/django-style-app-automation.md](docs/specs/django-style-app-automation.md) | 고정 기준선 — 앱 자동 등록 요구사항(`FR-*`·`NFR-*`·`SEC-*` 등, 코드 주석이 인용)과 설계 근거 | 자동 등록 규칙의 원래 의도를 볼 때 |
+| [docs/crp/groups/](docs/crp/groups/) | 검수 이력(append-only) — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
 
-| 경로 | 성격 | 언제 보나 |
-|---|---|---|
-| `docs/guides/` | **현행 문서.** 코드 기준으로 유지하고 `review_gate` docs 그룹이 경로·환경변수를 검사한다 | 개발할 때 |
-| [docs/specs/django-style-app-automation.md](docs/specs/django-style-app-automation.md) | **고정 기준선.** 앱 자동 등록 요구사항(`FR-*`·`NFR-*`·`SEC-*` 등 — 코드 주석이 인용)과 설계 근거 | 규칙의 원래 의도를 볼 때 |
-| [docs/specs/orm-raw-repository/](docs/specs/orm-raw-repository/) | **고정 기준선.** ORM/Raw 착수 명세 3종 — [requirements](docs/specs/orm-raw-repository/requirements.md) · [development-plan](docs/specs/orm-raw-repository/development-plan.md) · [workflow-guide](docs/specs/orm-raw-repository/workflow-guide.md) (코드 주석의 `workflow-guide §N` 출처) | 규칙의 원래 의도를 볼 때 |
-| [docs/crp/](docs/crp/) | **검수 이력(append-only).** 그룹별 결함 대장·잔여 위험·라운드 로그 — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
+`docs/guides/` 는 **현행 문서**라 코드 기준으로 유지하고, `review_gate` docs 그룹이 Markdown 의 백틱
+경로와 HTML 의 `<code>` 경로·환경변수를 검사합니다. HTML 안내서는 흐름을 요약하고 표·목록의 원문은
+Markdown 문서에 둡니다.
 
 문서 유지 규칙:
 
