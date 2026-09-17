@@ -13,7 +13,7 @@
 | 프로젝트 메타 | `pyproject.toml` | 설정 | 패키지명 |
 | 생성기 안내 | `scripts/new_app.py` | 소스 | 출력 문구만(로직 불변) |
 | 회귀 테스트 | `tests/test_docs_learnability.py` | 테스트(신규) | ADR-002 |
-| 설계 기준선 | `docs/specs/orm-raw-repository/**` | 문서 | **읽기 전용** — 옮기지도 고치지도 않는다 |
+| 설계 기준선 | `docs/specs/orm-raw-repository/**` | 문서 | **읽기 전용** — 내용은 고치지 않는다 (2026-09-17 ADR-005 로 날짜 폴더에서 이 경로로 이동) |
 
 - 기준선: 677 tests · commit `0704961` · 22 paths / 37 operations · alembic `d4e6f8b12c34`
 

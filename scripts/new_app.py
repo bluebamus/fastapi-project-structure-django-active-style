@@ -192,7 +192,7 @@ def scaffold(
         full.mkdir(parents=True, exist_ok=True)
         _touch_init_chain(base, rel)
 
-    # App root __init__.py (import-time 부수효과가 필요하면 여기에 추가)
+    # App root __init__.py — 패키지 선언만. 초기화가 필요하면 apps.py 의 ready() 에 둔다
     (base / "__init__.py").touch()
 
     # Core files
