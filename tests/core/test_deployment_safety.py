@@ -156,3 +156,87 @@ def test_sql_echo_off_passes_in_production(monkeypatch):
     _install(monkeypatch, env="production", sql_echo=False)
 
     config_module.validate_deployment_safety()
+
+
+# ---------------------------------------------------------------- secret guard
+# placeholder 판정은 config.is_placeholder_secret 하나가 소유한다:
+# strip·lower 후 "change-this" 포함, "your-" 로 시작, 또는 빈 문자열.
+
+_SECRET_NAMES = ("ACCESS_TOKEN_SECRET_KEY", "REFRESH_TOKEN_SECRET_KEY", "SESSION_SECRET_KEY")
+
+
+def test_env_example_secrets_are_rejected_without_leaking_values(monkeypatch):
+    """`.env.example` 을 그대로 복사해 운영에 올리면 세 키가 모두 거부된다."""
+    from pathlib import Path
+
+    from dotenv import dotenv_values
+
+    example = dotenv_values(Path(config_module.__file__).parent / ".env.example")
+    values = {
+        "access": example["ACCESS_TOKEN_SECRET_KEY"],
+        "refresh": example["REFRESH_TOKEN_SECRET_KEY"],
+        "session": example["SESSION_SECRET_KEY"],
+    }
+    _install(monkeypatch, env="production", secrets=values)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        config_module.validate_deployment_safety()
+
+    message = str(excinfo.value)
+    for name in _SECRET_NAMES:
+        assert f"{name} 이 기본 placeholder" in message
+    for value in values.values():
+        assert value not in message
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "your-access-token-secret-key-change-this",
+        "CHANGE-THIS-access-token-secret-key",
+        "prefix-Change-This-suffix",
+        "  Your-secret  ",
+        "",
+        "   ",
+    ],
+    ids=["old-your-style", "upper", "infix", "your-padded", "empty", "blank"],
+)
+@pytest.mark.parametrize("key", ["access", "refresh", "session"])
+def test_placeholder_variants_are_rejected(monkeypatch, key, value):
+    _install(monkeypatch, env="staging", secrets={key: value})
+    with pytest.raises(RuntimeError, match="기본 placeholder"):
+        config_module.validate_deployment_safety()
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("change-this-x", True),
+        ("x-CHANGE-THIS", True),
+        (" your-key", True),
+        ("", True),
+        ("  ", True),
+        ("my-your-key", False),
+        ("kQ9v3xR7_strong_random_value", False),
+    ],
+)
+def test_is_placeholder_secret(value, expected):
+    assert config_module.is_placeholder_secret(value) is expected
+
+
+def test_distinct_strong_secrets_pass(monkeypatch):
+    import secrets as secrets_module
+
+    generated = {k: secrets_module.token_urlsafe(48) for k in ("access", "refresh", "session")}
+    _install(monkeypatch, env="production", secrets=generated)
+    config_module.validate_deployment_safety()
+
+
+@pytest.mark.parametrize("env", ["development", "test"])
+def test_placeholder_secrets_are_not_checked_outside_deployment(monkeypatch, env):
+    _install(
+        monkeypatch,
+        env=env,
+        secrets={"access": "", "refresh": "", "session": "your-session-change-this"},
+    )
+    config_module.validate_deployment_safety()

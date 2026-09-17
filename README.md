@@ -251,7 +251,7 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_PASSWORD` | `localhost` / `6379` / `0` / 없음 | startup `ping()` 대상, Celery broker |
 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | `localhost` / `3306` / `root` / `""` / `fastapi_db` | primary(writer) DB |
 | `DB_ROUTER_ENABLED` / `DB_REPLICATION_ENABLED` / `MYSQL_REPLICA_HOSTS` | `false` / `false` / `[]` | 읽기/쓰기 분리 (선택) |
-| `ACCESS_TOKEN_SECRET_KEY` / `REFRESH_TOKEN_SECRET_KEY` | `change-this-...` | JWT 서명 키. 배포 전 서로 다른 값으로 교체 |
+| `ACCESS_TOKEN_SECRET_KEY` / `REFRESH_TOKEN_SECRET_KEY` / `SESSION_SECRET_KEY` | `change-this-...` | 서명·세션 키. 배포 전 서로 다른 값으로 교체 — 생성: `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"` |
 | `CORS_ALLOW_ORIGINS` | `["*"]` | JSON 배열로 지정 |
 | `TRUST_PROXY_HEADERS` | `false` | 리버스 프록시 뒤에서만 `true` — 접속 로그 IP 에 X-Forwarded-For 사용 |
 | `ACCESS_LOG_ENABLED` | `true` | 접속 로그 수집 |
@@ -277,7 +277,8 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 다음 중 하나라도 있으면 **기동을 거부**하고 위반을 한 번에 보여 줍니다.
 
 - `DEBUG=true` · `ADMIN=true`
-- `change-this-` 로 시작하는 access/refresh/session 키, 또는 access 와 refresh 키가 같음
+- placeholder 인 access/refresh/session 키(앞뒤 공백 제거·소문자화 후 `change-this` 를 포함하거나 `your-` 로 시작하거나 빈 값 — `config.is_placeholder_secret`),
+  또는 access 와 refresh 키가 같음. `.env.example` 의 키 예시는 일부러 이 규칙에 걸린다
 - `CORS_ALLOW_ORIGINS` 의 `*` · `LOG_SQL_ECHO_ENABLED=true`
 
 **사람이 확인할 것.**
