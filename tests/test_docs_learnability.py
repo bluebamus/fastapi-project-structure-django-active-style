@@ -19,20 +19,48 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 README = REPO_ROOT / "README.md"
-DOCS_INDEX = REPO_ROOT / "docs" / "README.md"
 GUIDE = REPO_ROOT / "docs" / "guides" / "orm-raw-workflow.md"
+ARCHITECTURE = REPO_ROOT / "docs" / "guides" / "ARCHITECTURE.md"
+# 문서 목록은 README 의 이 절 한 곳에만 둔다(별도 docs/README.md 없음).
+DOCS_INDEX_HEADING = "## 문서 안내"
+
+# 마크다운 링크 `[..](target)` 의 target. 외부 URL·순수 앵커는 호출부에서 거른다.
+LINK = re.compile(r"\]\(([^)\s]+)\)")
 
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _docs_index() -> str:
+    """README 의 문서 안내 절(다음 `## ` 제목 전까지)."""
+    text = _read(README)
+    start = text.index(DOCS_INDEX_HEADING)
+    end = text.find("\n## ", start + len(DOCS_INDEX_HEADING))
+    return text[start : end if end != -1 else len(text)]
+
+
+def _broken_relative_links(doc: Path, text: str) -> tuple[int, list[str]]:
+    """문서 기준 상대 링크를 풀어 실재하지 않는 것을 돌려준다(검사 수, 끊긴 목록)."""
+    checked = 0
+    missing = []
+    for raw in LINK.findall(text):
+        target = raw.split("#", 1)[0]
+        if not target or "://" in target or target.startswith("mailto:"):
+            continue
+        checked += 1
+        if not (doc.parent / target).resolve().exists():
+            missing.append(f"{doc.relative_to(REPO_ROOT).as_posix()}: {raw}")
+    return checked, missing
+
+
 # ------------------------------------------------------------------ 진입점
 
 
 def test_learner_entry_points_exist():
-    for path in (README, DOCS_INDEX, GUIDE):
+    for path in (README, GUIDE, ARCHITECTURE):
         assert path.exists(), f"학습 진입점이 없습니다: {path.relative_to(REPO_ROOT)}"
+    assert DOCS_INDEX_HEADING in _read(README), "README 에 문서 안내 절이 없습니다."
 
 
 def test_readme_identifies_this_repository():
@@ -53,7 +81,9 @@ def test_readme_reaches_the_orm_raw_guide():
 
 
 def test_docs_index_reaches_the_guide():
-    assert "guides/orm-raw-workflow.md" in _read(DOCS_INDEX)
+    index = _docs_index()
+    assert "docs/guides/orm-raw-workflow.md" in index
+    assert "docs/guides/ARCHITECTURE.md" in index
 
 
 # ------------------------------------------------------------------ 선택 기준
@@ -147,38 +177,34 @@ def test_schema_management_policy_is_documented_in_both_places():
     ), "처음부터 Alembic 을 쓰는 경로(no-op 이 되는 이유)가 주석에서 사라졌습니다."
 
 
-def test_project_guide_update_notes_link_to_live_docs():
-    """버전이 박힌 가이드의 `갱신` 블록이 가리키는 문서가 실재하는지 확인한다.
+def test_all_docs_relative_links_resolve():
+    """현행·기준선 문서의 상대 링크가 모두 실재하는 파일·폴더를 가리키는지 확인한다.
 
-    v1.0.0 문서는 시대를 기록한 것이라 원문을 남기고 갱신 블록을 덧붙인다. 그
-    블록만이 학습자를 현행 자료로 보내므로, 여기 링크가 끊기면 정정 자체가
-    사라진 것과 같다 — 그런데 원문은 그대로 남아 계속 틀린 것을 가르친다.
+    예전에는 날짜가 박힌 버전 가이드의 `갱신` 블록 링크만 검사했다 — 그 블록이 학습자를
+    현행 자료로 보내는 유일한 길이었기 때문이다. 버전 가이드를 현행 문서로 합친 뒤에는
+    학습자가 따라가는 링크가 README·가이드·명세 전체에 있으므로 검사 범위를 그만큼
+    넓힌다. `docs/crp/` 는 당시 경로를 그대로 기록하는 이력이라 제외한다.
     """
-    guides = sorted((REPO_ROOT / "docs/project-guide").rglob("*.md"))
-    assert guides, "project-guide 문서가 없습니다 — 검사가 무의미해집니다."
+    docs = [README] + sorted(
+        p for p in (REPO_ROOT / "docs").rglob("*.md") if "crp" not in p.relative_to(REPO_ROOT).parts
+    )
 
     checked = 0
-    missing = []
-    for doc in guides:
-        for line in _read(doc).splitlines():
-            if "갱신(" not in line:
-                continue
-            for target in re.findall(r"\]\((\.\.?/[^)#]+)\)", line):
-                checked += 1
-                if not (doc.parent / target).resolve().exists():
-                    missing.append(f"{doc.name}: {target}")
+    missing: list[str] = []
+    for doc in docs:
+        count, broken = _broken_relative_links(doc, _read(doc))
+        checked += count
+        missing += broken
 
-    assert checked, "갱신 블록에 상대 링크가 없습니다 — 검사가 무의미해집니다."
-    assert not missing, f"갱신 블록의 끊긴 링크: {missing}"
+    assert checked, "상대 링크가 하나도 없습니다 — 검사가 무의미해집니다."
+    assert not missing, f"끊긴 문서 링크: {missing}"
 
 
 def test_docs_index_links_resolve():
-    text = _read(DOCS_INDEX)
-    targets = re.findall(r"\]\((\.\.?/[^)#]+|[A-Za-z][^)#:]*\.md|[a-z-]+/)\)", text)
+    checked, missing = _broken_relative_links(README, _docs_index())
 
-    assert targets
-    missing = [t for t in targets if not (DOCS_INDEX.parent / t).resolve().exists()]
-    assert not missing, f"docs 안내의 끊긴 링크: {missing}"
+    assert checked, "문서 안내 절에 상대 링크가 없습니다."
+    assert not missing, f"문서 안내의 끊긴 링크: {missing}"
 
 
 # ------------------------------------------------------------------ 생성기
