@@ -29,7 +29,7 @@ FastAPI와 Django는 공식 생명주기와 URL 조립 방식이 다르므로 �
 | Django 개념 | 이 프로젝트의 대응 동작 | 판정 |
 |---|---|---|
 | 앱 registry | `AppRegistry`가 앱 목록을 한 번 만들고 공통 결선에 제공 | 적용 |
-| `AppConfig.ready()` | 앱 패키지 `__init__.py`의 빠르고 멱등적인 등록 훅 | 역할 수준 대응 |
+| `AppConfig.ready()` | 앱 패키지 `__init__.py`의 빠르고 멱등적인 등록 훅 (→ **갱신(2026-08-25):** 현행은 앱 `apps.py` 의 `ready()` 를 `install_hooks()` 가 호출) | 역할 수준 대응 |
 | 모델 발견 | 앱 `models` import로 `Base.metadata` 구성 | 적용 |
 | Admin 등록 | 앱 `admin.py`의 `admin_views` 자동 수집 | 적용 |
 | `startapp` | `python -m scripts.new_app <name>` | 적용 |
