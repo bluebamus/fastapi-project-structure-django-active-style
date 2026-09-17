@@ -21,7 +21,7 @@
 | Admin | `app/features/admin.py`, 기능별 `admin.py` | 소스 | 인증 백엔드 미주입(F-006) |
 | 설정 | `config.py`, `.env.example` | 설정 | staging/production fail-fast |
 | 마이그레이션 | `migrations/**`, `alembic.ini` | 설정 | single head 유지 |
-| 문서 | `docs/orm-raw-repository/2026-08-13/**` | 문서 | 설계·계획 기준선 |
+| 문서 | `docs/specs/orm-raw-repository/**` | 문서 | 설계·계획 기준선 |
 | CI·테스트 인프라 | `.github/workflows/ci.yml`, `compose.test.yaml` | 설정 | Phase 5 완료 — gate/mysql 2개 job |
 | MySQL 통합 테스트 | `tests/integration/**` | 테스트 | 전용 컨테이너(3310) 하네스 |
 | 검증 스크립트 | `scripts/review_gate.py` | 소스 | Phase 9 완료 — 6그룹(static/tests/structure/supply/docs/deps) |

@@ -168,6 +168,7 @@ fastapi-default-project-structure/
 ├── .github/workflows/ci.yml     # CI 게이트 (ruff · format · mypy 콜드캐시 · pytest · bandit · alembic)
 ├── docs/
 │   ├── README.md                # 문서 안내
+│   ├── specs/orm-raw-repository/ # ORM/Raw 요구명세·개발계획·지침 원본 (착수 기준선)
 │   └── guides/                  # 현행 사용자·개발자 가이드
 │       ├── ARCHITECTURE.md      # 아키텍처 공식 문서 (SSOT)
 │       ├── QUICKSTART.md        # 최소 실행 경로

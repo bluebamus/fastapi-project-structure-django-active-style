@@ -39,9 +39,9 @@
 - **설정 의존**: 환경 변수나 실행 모드에 따라 활성 여부가 달라진다.
 - **계획**: 구현 계약이 아니라 별도 설계 문서에만 존재한다.
 
-`docs/orm-raw-repository/2026-08-13/`의 ORM/Raw 저장소 문서는 후속 고도화 계획이다. 이 가이드에서 현재 `BaseRepository` 동작과 혼합해 구현 완료로 표현하지 않는다.
+`docs/specs/orm-raw-repository/`의 ORM/Raw 저장소 문서는 후속 고도화 계획이다. 이 가이드에서 현재 `BaseRepository` 동작과 혼합해 구현 완료로 표현하지 않는다.
 
-> **갱신(2026-08-20).** 이 문단은 작성 시점(2026-08-18) 기준이었다. `docs/orm-raw-repository/2026-08-13/` 는 더 이상 계획이 아니라 **구현된 구조의 설계 기준선**이다. ORM(`BaseRepository`)과 Raw(`RawRepositoryBase`)가 모두 존재하며 예제는 `app/features/catalog/`(ORM)와 `app/features/reports/`(Raw)다. 학습은 [`../../guides/orm-raw-workflow.md`](../../guides/orm-raw-workflow.md) 로 시작한다.
+> **갱신(2026-08-20).** 이 문단은 작성 시점(2026-08-18) 기준이었다. `docs/specs/orm-raw-repository/` 는 더 이상 계획이 아니라 **구현된 구조의 설계 기준선**이다. ORM(`BaseRepository`)과 Raw(`RawRepositoryBase`)가 모두 존재하며 예제는 `app/features/catalog/`(ORM)와 `app/features/reports/`(Raw)다. 학습은 [`../../guides/orm-raw-workflow.md`](../../guides/orm-raw-workflow.md) 로 시작한다.
 
 ## 관련 기존 문서
 
@@ -49,7 +49,7 @@
 - [기존 아키텍처 설명](../../guides/ARCHITECTURE.md)
 - [빠른 시작](../../guides/QUICKSTART.md)
 - [Django-style 앱 규약](../../django-style-app-automation-development-spec-2026-08-12/)
-- [ORM/Raw 저장소 고도화 계획](../../orm-raw-repository/2026-08-13/)
+- [ORM/Raw 저장소 고도화 계획](../../specs/orm-raw-repository/)
 
 ## 갱신 규칙
 
