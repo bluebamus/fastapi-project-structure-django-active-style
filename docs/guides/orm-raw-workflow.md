@@ -224,6 +224,7 @@ read-only 세션에서 Raw DML 을 시도하면 `ReadOnlyRoutingError` 로 거�
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | 현재 구조와 계층별 책임 |
 | [`../crp/groups/orm-raw-repository/design-baseline.md`](../crp/groups/orm-raw-repository/design-baseline.md) | 설계 결정과 선택 근거 |
+| [`../specs/orm-raw-repository/`](../specs/orm-raw-repository/) | 요구명세·개발계획·지침 원본 (착수 기준선) |
 | [`../../README.md#앱-자동-등록-규약`](../../README.md) | 앱 자동 등록 규약 |
 
 규칙의 근거는 설계 기준선에서, 현재 사용법은 이 문서와 두 예제 코드에서 확인합니다.
