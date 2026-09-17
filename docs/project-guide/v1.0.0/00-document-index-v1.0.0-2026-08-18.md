@@ -46,8 +46,8 @@
 ## 관련 기존 문서
 
 - [프로젝트 README](../../../README.md)
-- [기존 아키텍처 설명](../../ARCHITECTURE.md)
-- [빠른 시작](../../QUICKSTART.md)
+- [기존 아키텍처 설명](../../guides/ARCHITECTURE.md)
+- [빠른 시작](../../guides/QUICKSTART.md)
 - [Django-style 앱 규약](../../django-style-app-automation-development-spec-2026-08-12/)
 - [ORM/Raw 저장소 고도화 계획](../../orm-raw-repository/2026-08-13/)
 

@@ -21,10 +21,10 @@
 ## 정리 순서
 
 등록의 **역순**이다. 나중에 만든 것이 먼저 만든 것에 의존하기 때문이다 —
-background task 는 DB 엔진을 쓰고, 로깅은 그 둘의 종료 메시지를 받아야 한다.
+background task는 Redis와 DB 엔진을 쓰고, 로깅은 그 종료 메시지를 받아야 한다.
 
-    등록: 로깅 → 엔진 → 백그라운드 태스크
-    정리: 백그라운드 태스크 → 엔진 → 로깅
+    등록: 로깅 → 엔진 → Redis → 백그라운드 태스크
+    정리: 백그라운드 태스크 → Redis → 엔진 → 로깅
 
 ## 쓰는 법
 
@@ -42,12 +42,20 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
-from app.utils.logs import get_logger
+from fastapi import FastAPI
+from redis.asyncio import Redis
 
-__all__ = ["ManagedResource", "ResourceManager"]
+from app.core.db.session import create_db_tables, dispose_engine
+from app.core.middlewares.background_tasks import access_log_tasks
+from app.utils.logs import get_logger
+from app.utils.logs.queue_logging import stop_queue_listener
+from config import app_settings, redis_settings
+
+__all__ = ["ManagedResource", "ResourceManager", "manage_application_resources"]
 
 logger = get_logger("resources")
 
@@ -58,6 +66,7 @@ DEFAULT_DEADLINE_SECONDS = 20.0
 # 마지막 자원까지 최소한의 시간을 남겨두기 위한 예비분. 앞선 자원이 예산을 다 써도
 # 뒤의 자원이 "0초" 를 받지 않게 한다.
 CLEANUP_RESERVE_SECONDS = 1.0
+REDIS_TIMEOUT_SECONDS = 5.0
 
 
 @dataclass(slots=True)
@@ -182,3 +191,64 @@ class ResourceManager:
                 len(self._resources),
                 elapsed,
             )
+
+
+@asynccontextmanager
+async def manage_application_resources(
+    app: FastAPI,
+) -> AsyncIterator[ResourceManager]:
+    """필수 프로세스 자원을 준비하고 startup 실패도 같은 경로로 정리한다."""
+    resources = ResourceManager()
+    app.state.resources = resources
+    app.state.redis = None
+    logger.info("[Startup] 애플리케이션 시작 (DEBUG=%s)", app_settings.DEBUG)
+
+    resources.register("logging-queue", stop_queue_listener, budget=5.0)
+    resources.register("db-engines", dispose_engine, budget=10.0)
+
+    redis_client = Redis.from_url(
+        redis_settings.REDIS_URL,
+        socket_connect_timeout=REDIS_TIMEOUT_SECONDS,
+        socket_timeout=REDIS_TIMEOUT_SECONDS,
+    )
+
+    async def start_redis() -> None:
+        try:
+            await redis_client.ping()
+        except Exception as exc:
+            logger.error("[Startup] Redis 연결 실패: %s", type(exc).__name__)
+            raise
+        app.state.redis = redis_client
+        logger.info("[Startup] Redis 연결 확인 완료")
+
+    async def close_redis() -> None:
+        try:
+            await redis_client.aclose()
+        finally:
+            app.state.redis = None
+
+    try:
+        await resources.acquire(
+            "redis",
+            start_redis,
+            close_redis,
+            budget=REDIS_TIMEOUT_SECONDS,
+        )
+        resources.register("background-tasks", access_log_tasks.drain, budget=5.0)
+
+        if app_settings.DEBUG:
+            # 전환 절차는 README의 "스키마 관리 — 자동 생성에서 Alembic 으로"를 본다.
+            # 먼저 `alembic upgrade head`를 적용하면 create_all(checkfirst)은 no-op이다.
+            # 운영 전환 뒤에는 DEBUG=false로 이 개발용 경로 자체를 닫는다.
+            await create_db_tables()
+            logger.info("[Startup] 데이터베이스 테이블 생성 완료 (DEBUG 모드)")
+        else:
+            logger.info("[Startup] 테이블 자동 생성 건너뜀 (DEBUG=False, Alembic 사용)")
+
+        yield resources
+    finally:
+        logger.info("[Shutdown] 애플리케이션 종료 시작")
+        await resources.close()
+        app.state.redis = None
+        app.state.resources = None
+        logger.info("[Shutdown] 애플리케이션 종료 완료")

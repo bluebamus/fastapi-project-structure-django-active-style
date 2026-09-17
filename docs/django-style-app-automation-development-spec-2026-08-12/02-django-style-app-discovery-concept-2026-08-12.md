@@ -89,6 +89,14 @@ export 형태도 자동 발견을 위한 구조 규약이다. 규약을 늘리�
 
 ### 2-3. `__init__.py` 를 확장 훅으로 쓴다
 
+> **갱신(2026-08-25).** 이 절이 서술하는 import-time 부수효과 방식은 **더 이상 현행이 아니다.**
+> 초기화 훅은 앱의 `apps.py` 에 `ready()` 로 옮겼고 `AppRegistry.install_hooks()` 가 명시적으로
+> 호출한다. `discover()` 는 부작용이 0 이다(design-baseline ADR-006). 이유는 추적 가능성이다 —
+> import 부작용은 "이 모듈을 import 하면 무슨 일이 일어나는가" 를 코드에서 읽을 수 없게 만들고,
+> 테스트가 모듈을 건드리는 것만으로 상태가 바뀌어 결과가 실행 순서에 좌우된다. 아래 원문은
+> 당시의 설계 기록으로 남긴다. **현행 규약은 저장소 README §앱 자동 등록 규약을 본다.**
+
+
 Django의 `AppConfig.ready()`와 **역할상 유사한 프로젝트 전용 초기화 훅**이다. 발견
 과정에서 각 앱 패키지를 실제로 `import`하므로, `__init__.py`에 쓴 코드가 부팅 시점에
 실행된다. 다만 앱 registry 준비 후 호출되는 Django의 공식 생명주기 훅과 달리, 이것은
@@ -130,6 +138,11 @@ register_sink()   # 부팅 시 core 미들웨어에 자신을 등록한다
 ---
 
 ## 4. 부팅 흐름
+
+> **갱신(2026-08-25).** `app/core/bootstrap.py` 와 `create_app()` 팩토리는 **현재 없다.**
+> 조립은 `main.py` 가 직접 하고, 순서는 `discover()` → `install_hooks()` → `import_models()`
+> → FastAPI 생성·미들웨어·예외 핸들러 → `install_routers()` 순이다. 아래 흐름도의 단계 구성은
+> 유효하지만 담는 그릇과 훅 실행 시점이 다르다.
 
 `main.py` 는 한 줄이고, 조립은 전부 `create_app()` 안에서 일어난다
 (`app/core/bootstrap.py:247`).
@@ -300,5 +313,4 @@ mypy 135 files Success · bandit MEDIUM+ 0 · SKIP/xfail 0 · alembic 단일 hea
 ## 참고
 
 - 구조·사용법 기준 문서: [`../../README.md`](../../README.md)
-- 자동 발견 상세 흐름·도식: [`../concepts/auto-discovery-registry-2026-06-25.html`](../concepts/auto-discovery-registry-2026-06-25.html)
 - 핵심 코드: `app/core/registry.py` · `app/core/bootstrap.py` · `migrations/env.py` · `scripts/new_app.py`

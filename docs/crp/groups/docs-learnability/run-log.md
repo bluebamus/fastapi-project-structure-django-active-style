@@ -15,8 +15,8 @@
   | | Raw언급 | catalog | reports | RawRepositoryBase |
   |---|---|---|---|---|
   | `README.md` | 0 | 0 | 0 | 0 |
-  | `docs/QUICKSTART.md` | 0 | 0 | 0 | 0 |
-  | `docs/ARCHITECTURE.md` | 0 | 0 | 0 | 0 |
+  | `docs/guides/QUICKSTART.md` | 0 | 0 | 0 | 0 |
+  | `docs/guides/ARCHITECTURE.md` | 0 | 0 | 0 | 0 |
 
 - **판정:** 두 학습 목표 중 **① 앱 자동 인지는 달성, ② ORM/Raw 워크플로는 미달성.**
   ②는 자료가 없어서가 아니라 **도달할 수 없어서** 미달성이다 — 1,206행 지침서와 두 완결
@@ -75,9 +75,42 @@
   라우트 22/37 불변 · alembic `d4e6f8b12c34` 불변 · 애플리케이션 동작 코드 diff 0
 - **수렴 판정:** `CONVERGED` (Open Fix 0).
 
+## Round 3 — 2026-08-25 (목적 기준 검수)
+
+- **입력:** REQ-003 — "이 저장소의 목적은 django 기반 자동 app 등록·자동 url 라우터 관리 골격이다.
+  이를 기반으로 코드를 검수하고 불필요한 문서는 삭제, 필요한 문서는 업데이트."
+  앞선 두 라운드가 **ORM/Raw 학습 경로**를 다뤘다면 이번은 **골격 자체**가 대상이다.
+- **코드 검수 결과:** 골격은 건강하다. `registry.py` 335행이 목적 전부를 담고, 발견/결선 분리·
+  계약 위반 fail-fast·중복 라우터 감지·`ADMIN=false` 시 sqladmin 미로드·런타임과 Alembic 동일
+  목록이 전부 실행 테스트로 고정돼 있다. **코드에서 나온 결함은 F-209 하나**(생성기가 훅을
+  안내하지 않음)이고 나머지 5건은 전부 문서였다.
+- **F-208 — 문서 전체가 훅의 위치를 틀리게 가르쳤다.** 이 라운드에서 가장 비싼 결함이다.
+  코드는 ADR-006(runtime-lifecycle)에서 `__init__.py` import-time 부수효과를 버리고
+  `apps.py::ready()` + `install_hooks()` 로 옮겼는데, 문서 4종이 옛 방식을 그대로 가르치고 있었다.
+  `home/__init__.py` 에는 **"여기 두지 마라"** 가 적혀 있어 문서와 코드가 정면으로 반대다.
+  자동 등록 골격에서 이건 단순 오기가 아니다 — 훅을 틀린 자리에 두면 **조용히 실행되지 않고**,
+  그게 정확히 이 구조가 취약한 실패 모드다(concept 02 §5 가 같은 성질의 사고를 셋 기록한다).
+- **왜 두 문서는 갱신이 아니라 삭제인가 (ADR-004):** 갱신 블록은 원문이 **당시의 기록임을
+  스스로 밝히는** 문서에서만 작동한다. `concepts/auto-discovery-registry` 는 인덱스가 그것을
+  "현행 배선" 이라 소개했고, `01-project-hardening-plan` 은 "기준선 교체 후 재확인한 실제 적용
+  여부" 라는 상태표였다. 둘 다 독자에게 **현재를 주장한다.** 여기에 정정을 덧대면 틀린 본문과
+  정정이 공존하고, 정정 링크가 끊기는 순간 틀린 본문만 남는다 — F-207 이 이미 관측한 고장 모드다.
+- **삭제로 잃은 것 점검:** `01-hardening` 의 유일하게 살아 있던 정보(`TRUSTED_PROXY_IPS` 부재)는
+  `project-guide/01-system-design` §보안 경계와 `06-home-access-log` §클라이언트 IP 판정이 더
+  정확히 서술하고 있고 두 문서는 유지된다. 나머지 3건(DB 오류 detail·lifespan·FOR UPDATE 라우팅)은
+  코드에서 실측으로 해소를 확인했다 — 즉 삭제한 것은 **거짓이 된 서술**뿐이다.
+- **게이트 부작용 하나:** ledger 가 삭제된 경로를 "무엇을 왜 지웠는가" 로 기록하자 docs 게이트의
+  경로 실재 검사에 걸렸다. 기록을 고치는 것은 C-3 위반이므로 게이트의 `DOC_ALLOWED_MISSING_PATHS`
+  에 3건을 면제로 넣었다 — 전방 참조의 거울인 **후방 참조**다. 사유를 주석에 남겼다.
+- **게이트 결과:** review_gate 6그룹 통과 · **674 passed / 31 skipped**(로컬 MySQL 부재, CI mysql
+  job 담당) · 라우트 22 paths / 37 operations 불변 · alembic `d4e6f8b12c34` 불변 ·
+  애플리케이션 동작 코드 diff 0.
+- **수렴 판정:** `CONVERGED` (Open Fix 0).
+
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
 | 0 | 0 | 1 | 3 | 1 | 5 | NOT CONVERGED (Open Fix 5) |
 | 1 | 0 | 0 | 0 | 0 | 0 (5건 전부 Fixed) | **CONVERGED** (Open Fix 0) |
 | 2 | 0 | 0 | 0 | 2 | 2 (전부 같은 라운드에 Fixed) | **CONVERGED** (Open Fix 0) |
+| 3 | 0 | 1 | 3 | 2 | 6 (전부 같은 라운드에 Fixed) | **CONVERGED** (Open Fix 0) |
