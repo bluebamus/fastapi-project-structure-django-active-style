@@ -11,6 +11,7 @@ Django-style ``startapp`` equivalent. 앱은 별도 선언(config.py) 없이 디
         models/                 →  ORM 모델 (Base.metadata 자동 등록)
         schemas/ services/ repositories/ dependencies/ tests/
         admin.py (선택)         →  admin_views: list[type]
+        apps.py (선택, 수동)    →  ready(): 부팅 초기화 훅. install_hooks() 가 호출
 
 Usage (CLI):
     python -m scripts.new_app <name> [--with-admin]
@@ -275,6 +276,7 @@ def main() -> None:
     print("이 앱은 디렉터리 컨벤션으로 자동 발견됩니다 — 중앙 파일 수정 불필요.")
     print(f"  - router: api/routers/router.py 의 {name}_router 가 /api 에 자동 마운트")
     print("  - models: models/ 에 ORM 모델을 두면 Base.metadata 에 자동 등록")
+    print("  - 초기화 훅이 필요하면 apps.py 에 ready() 를 두세요 (__init__.py 부수효과 금지)")
     if args.with_admin:
         print(f"  - admin: admin.py 의 admin_views 에 {class_name}Admin 을 추가하면 자동 노출")
     print("  - 서버 재시작 시 라우터가 마운트됩니다")
