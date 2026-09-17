@@ -24,6 +24,7 @@
 | [`guides/QUICKSTART.md`](guides/QUICKSTART.md) · [`guides/ARCHITECTURE.md`](guides/ARCHITECTURE.md) | 살아 있는 문서 | 시작할 때·구조를 확인할 때 |
 | [`project-guide/`](project-guide/) | 버전별 시스템 가이드 | 기능별 워크플로를 훑을 때 |
 | [`django-style-app-automation-development-spec-2026-08-12/`](django-style-app-automation-development-spec-2026-08-12/) | **설계 기준선 (날짜 고정)** | 앱 자동화의 원 명세를 볼 때 |
+| [`specs/orm-raw-repository/`](specs/orm-raw-repository/) | **설계 기준선 (착수 시점 고정)** | ORM/Raw 규칙의 원 명세를 볼 때 |
 | [`crp/`](crp/) | **검수 이력 (내부용)** | 어떤 결함이 왜 그렇게 고쳐졌는지 추적할 때 |
 
 ### 날짜 이름 폴더는 로컬 작업 기록입니다

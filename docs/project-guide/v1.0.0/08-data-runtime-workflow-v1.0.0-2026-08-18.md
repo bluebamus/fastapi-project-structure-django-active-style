@@ -122,8 +122,8 @@ Celery worker의 이벤트 루프와 엔진 정리는 FastAPI lifespan의 관리
 
 ## 관련 계획 문서
 
-- [ORM/Raw 요구사항](../../orm-raw-repository/2026-08-13/requirements.md)
-- [ORM/Raw 개발 계획](../../orm-raw-repository/2026-08-13/development-plan.md)
-- [ORM/Raw 워크플로우 계획](../../orm-raw-repository/2026-08-13/workflow-guide.md)
+- [ORM/Raw 요구사항](../../specs/orm-raw-repository/requirements.md)
+- [ORM/Raw 개발 계획](../../specs/orm-raw-repository/development-plan.md)
+- [ORM/Raw 워크플로우 계획](../../specs/orm-raw-repository/workflow-guide.md)
 
 위 문서는 후속 설계이며 현재 `BaseRepository` 구현보다 우선하는 실행 계약이 아니다.

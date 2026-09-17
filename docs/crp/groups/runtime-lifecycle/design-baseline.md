@@ -13,7 +13,7 @@
 선택: **보통** · 선택일: 2026-08-19 · 변경 이력: (없음)
 
 근거: 앞선 `orm-raw-repository` 그룹과 같은 수준이다. 설계·계획서가 이미 존재하고
-(`docs/orm-raw-repository/2026-08-13/development-plan.md` §8), 이 그룹은 그 문서가 명시한
+(`docs/specs/orm-raw-repository/development-plan.md` §8), 이 그룹은 그 문서가 명시한
 항목을 이행하는 작업이라 "무엇을 만들지" 는 이미 확정돼 있다. 질문이 필요한 지점은
 **어떻게** 에 한정된다.
 
