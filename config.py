@@ -1118,7 +1118,16 @@ upload_settings = get_upload_settings()
 # 결정 2026-08-12 — ADMIN 필드 주석 참고). 그래서 무인증 /admin 에 대한 방어선은
 # "인증을 붙인다" 가 아니라 **운영·스테이징에서 아예 기동을 막는다** 이다.
 # 개발·테스트 환경은 지금까지의 편의 기본값(ADMIN=true, DEBUG=true)을 그대로 둔다.
-_PLACEHOLDER_SECRET_PREFIX = "change-this-"
+def is_placeholder_secret(value: str) -> bool:
+    """서명·세션 키가 자리표시자(placeholder)인지 판정한다.
+
+    앞뒤 공백을 지우고 소문자로 바꾼 뒤 다음 중 하나면 placeholder 다.
+        - ``change-this`` 를 포함한다 (위치·대소문자 무관)
+        - ``your-`` 로 시작한다 (옛 예시 파일의 ``your-...-change-this`` 형식 포함)
+        - 빈 문자열이다
+    """
+    v = value.strip().lower()
+    return "change-this" in v or v.startswith("your-") or v == ""
 
 
 def validate_deployment_safety() -> None:
@@ -1127,7 +1136,7 @@ def validate_deployment_safety() -> None:
     검사 항목:
         - ``DEBUG=true``      : 상세 오류·문서 노출
         - ``ADMIN=true``      : 자격증명 없는 /admin 공개
-        - placeholder secret  : ``change-this-`` 로 시작하는 서명·세션 키
+        - placeholder secret  : ``is_placeholder_secret`` 가 참인 서명·세션 키
         - 와일드카드 CORS     : ``CORS_ALLOW_ORIGINS`` 에 ``*``
         - SQL echo           : ``LOG_SQL_ECHO_ENABLED=true`` (파라미터가 로그에 남는다)
 
@@ -1155,7 +1164,7 @@ def validate_deployment_safety() -> None:
         ("REFRESH_TOKEN_SECRET_KEY", jwt_settings.REFRESH_TOKEN_SECRET_KEY),
         ("SESSION_SECRET_KEY", session_settings.SESSION_SECRET_KEY),
     ):
-        if value.startswith(_PLACEHOLDER_SECRET_PREFIX):
+        if is_placeholder_secret(value):
             # 값 자체는 절대 메시지에 담지 않는다 (C-5).
             problems.append(f"{name} 이 기본 placeholder 입니다. 실제 키로 교체하세요.")
 
