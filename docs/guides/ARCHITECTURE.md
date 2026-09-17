@@ -275,7 +275,9 @@ ASGI lifespan 진입
 
 - `DEBUG=true`
 - `ADMIN=true` — 프록시에서 `/admin` 을 막아도 이 검사는 통과하지 못합니다
-- `change-this-` 로 시작하는 `ACCESS_TOKEN_SECRET_KEY`·`REFRESH_TOKEN_SECRET_KEY`·`SESSION_SECRET_KEY`
+- placeholder 인 `ACCESS_TOKEN_SECRET_KEY`·`REFRESH_TOKEN_SECRET_KEY`·`SESSION_SECRET_KEY` —
+  `is_placeholder_secret()` 가 판정한다: 앞뒤 공백 제거·소문자화 후 `change-this` 를 포함하거나 `your-` 로 시작하거나 빈 값.
+  옛 예시 파일의 `your-...-change-this` 형식도 여기에 걸린다
 - access/refresh 서명 키가 같음
 - `CORS_ALLOW_ORIGINS` 에 `*`
 - `LOG_SQL_ECHO_ENABLED=true`
@@ -532,7 +534,7 @@ Repository 의 DB 오류 변환도 드라이버 원문을 응답에 싣지 않�
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | 30 |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | 7 |
 | `JWT_ALGORITHM` | HS256 |
-| `ACCESS_TOKEN_SECRET_KEY` / `REFRESH_TOKEN_SECRET_KEY` | `change-this-...` (staging/production 에서는 게이트가 거부) |
+| `ACCESS_TOKEN_SECRET_KEY` / `REFRESH_TOKEN_SECRET_KEY` | `change-this-...` (placeholder — staging/production 에서는 게이트가 거부, §4) |
 
 ### 10.2 SQLAdmin
 
