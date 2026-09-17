@@ -37,7 +37,7 @@ Repository 패턴과 계층 분리를 적용한 FastAPI 프로젝트 골격입�
 
 | 구분 | 기술 |
 |---|---|
-| Framework | FastAPI 0.141 (Python 3.14, 최소 3.12) |
+| Framework | FastAPI 0.141 (Python 3.14, 최소 3.13 — `TypeVar(default=...)` 사용) |
 | ORM / DB | SQLAlchemy 2.0 async · MySQL(aiomysql) |
 | Validation / Settings | Pydantic v2 · pydantic-settings |
 | Migration | Alembic |
