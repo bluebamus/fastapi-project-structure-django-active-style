@@ -198,7 +198,7 @@ class HealthResponse(BaseModel):
     """헬스체크(liveness) 응답 스키마"""
 
     model_config = ConfigDict(
-        json_schema_extra={"examples": [{"status": "ok", "version": "1.0.0"}]}
+        json_schema_extra={"examples": [{"status": "healthy", "version": "0.1.0"}]}
     )
 
     status: str = Field(description="상태 문자열")
