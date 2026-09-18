@@ -206,6 +206,11 @@ _LOCKING_READ = re.compile(
 )
 
 
+# 괄호 깊이 0 에 나타나면 그 구문은 읽기가 아니다.
+_TOP_LEVEL_WRITE = frozenset({"insert", "update", "delete", "replace", "merge", "into", "set"})
+_READABLE_LEAD = frozenset({"select", "with"})
+
+
 def is_read_only(session: Session | AsyncSession) -> bool:
     """이 세션이 읽기 전용으로 표시됐는가."""
     return bool(_session_info(session).get(_READ_ONLY))
@@ -225,30 +230,84 @@ def assert_writable(session: Session | AsyncSession, detail: str = "") -> None:
         )
 
 
+def _depth0_words(sql: str) -> list[str] | None:
+    """따옴표·역따옴표 안을 건너뛰며 괄호 깊이 0 의 단어만 모은다.
+
+    따옴표가 닫히지 않거나 괄호가 맞지 않으면 ``None`` — 호출부는 거부한다(fail-closed).
+    """
+    words: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    i = 0
+    n = len(sql)
+    while i < n:
+        char = sql[i]
+        if char in "'\"`":
+            if buf:
+                words.append("".join(buf).lower())
+                buf = []
+            quote = char
+            i += 1
+            closed = False
+            while i < n:
+                if sql[i] == "\\" and quote != "`":
+                    i += 2
+                    continue
+                if sql[i] == quote:
+                    if i + 1 < n and sql[i + 1] == quote:  # '' 로 이스케이프
+                        i += 2
+                        continue
+                    closed = True
+                    break
+                i += 1
+            if not closed:
+                return None
+            i += 1
+            continue
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth < 0:
+                return None
+        if char.isalnum() or char == "_":
+            buf.append(char)
+        else:
+            if buf:
+                if depth == 0:
+                    words.append("".join(buf).lower())
+                buf = []
+        i += 1
+    if buf and depth == 0:
+        words.append("".join(buf).lower())
+    return None if depth != 0 else words
+
+
 def _text_is_readable(sql: str) -> bool:
     """Raw SQL 문자열이 **확실히** 읽기인지 판별한다(default-deny).
 
-    parser 없이 SQL 을 완전히 분류할 수는 없다. 그래서 SELECT 로 시작하고 잠금을
-    획득하지 않는 단일 문장만 통과시키고 나머지는 전부 거부한다.
+    parser 없이 SQL 을 완전히 분류할 수는 없다. 그래서 주석을 걷어낸 단일 문장을
+    **괄호 깊이 0 의 단어**로 훑어(`_depth0_words`), 최상위 구문이 읽기임이 확실할
+    때만 통과시킨다. CTE 정의는 전부 괄호 안에 있으므로 깊이 0 에 남는 단어가 곧
+    최상위 구문이고, 거기 쓰기 키워드가 있으면 그 문장은 쓰기다.
 
-    `WITH` 를 거부하는 이유는 **CTE 정의 뒤에 오는 최상위 키워드가 쓰기일 수 있기
+    깊이 0 을 보는 이유는 **CTE 정의 뒤에 오는 최상위 키워드가 쓰기일 수 있기
     때문**이다. MySQL 8.4 에서 실측한 결과는 이렇다.
 
-    - ``WITH c AS (...) SELECT ...`` — 읽기
-    - ``WITH c AS (...) UPDATE ...`` — **쓰기** (유효한 문법이다)
-    - ``WITH c AS (...) DELETE ...`` — **쓰기** (유효한 문법이다)
+    - ``WITH c AS (...) SELECT ...`` — 읽기 (통과한다)
+    - ``WITH c AS (...) UPDATE ...`` — **쓰기** (유효한 문법이다 → 거부)
+    - ``WITH c AS (...) DELETE ...`` — **쓰기** (유효한 문법이다 → 거부)
     - ``WITH c AS (...) INSERT ...`` — 문법 오류. INSERT 는 `WITH` 로 시작할 수 없다
       (``INSERT INTO t WITH c AS (...) SELECT ...`` 형태만 유효하고, 이건 첫 토큰이
       `insert` 라 아래 검사가 이미 잡는다). `REPLACE` 도 같다.
 
-    즉 위험 표면은 **UPDATE 와 DELETE 둘**이다. CTE 안에 DML 을 넣는
-    ``WITH x AS (DELETE ... RETURNING ...)`` 은 PostgreSQL 문법이고 MySQL 에서는
-    문법 오류라 이 저장소의 위협이 아니다 — 근거를 그쪽에 두면 DB 를 바꿀 때
-    판단이 함께 틀어진다.
+    즉 위험 표면은 **UPDATE 와 DELETE 둘**이고, 깊이 0 스캔이 그 둘을 그대로 잡는다.
+    CTE 안에 DML 을 넣는 ``WITH x AS (DELETE ... RETURNING ...)`` 은 PostgreSQL
+    문법이고 MySQL 에서는 문법 오류라 이 저장소의 위협이 아니다 — 근거를 그쪽에
+    두면 DB 를 바꿀 때 판단이 함께 틀어진다.
 
-    `WITH` 를 정확히 통과시키려면 괄호 균형을 맞춰 CTE 정의를 건너뛴 뒤 그 다음
-    최상위 키워드를 봐야 한다. 지금은 그 요구가 없어 통째로 거부한다 — 부작용은
-    읽기 전용 CTE 조회도 함께 막히는 것이고, 그 거래를 의도적으로 택했다(R-001).
+    fail-closed: 따옴표가 닫히지 않거나 괄호가 맞지 않아 스캔이 무너지면 거부한다.
+    판정을 넓히거나 좁히는 절차는 `docs/guides/DEVELOPMENT.md` §6.5 에 있다.
     """
     stripped = _SQL_COMMENT.sub(" ", sql).strip()
     head, separator, tail = stripped.partition(";")
@@ -259,7 +318,12 @@ def _text_is_readable(sql: str) -> bool:
         return False
     if _LOCKING_READ.search(head):
         return False  # SELECT ... FOR UPDATE 는 잠금을 잡는 쓰기 성격이다
-    return head.split(None, 1)[0].lower() == "select"
+    words = _depth0_words(head)
+    if not words:
+        return False  # 스캔이 무너졌거나(fail-closed) 단어가 없다
+    if words[0] not in _READABLE_LEAD:
+        return False
+    return not any(word in _TOP_LEVEL_WRITE for word in words)
 
 
 def _statement_is_readable(clause: Any) -> bool:
@@ -291,7 +355,8 @@ def _block_read_only_execute(orm_execute_state: ORMExecuteState) -> None:
     if not _statement_is_readable(orm_execute_state.statement):
         raise ReadOnlyRoutingError(
             "읽기 전용 세션에서 읽기로 판별되지 않는 구문을 실행하려 했습니다. "
-            "SELECT 만 허용되며 WITH·잠금 획득·multi-statement·판별 불가 문장은 "
-            "기본 거부됩니다(WITH 는 뒤에 UPDATE·DELETE 가 올 수 있어 읽기로 보지 않습니다). "
+            "SELECT 와 읽기 전용 CTE(WITH ... SELECT)만 허용되며, 최상위에 쓰기 키워드가 "
+            "있거나(WITH ... UPDATE·DELETE 포함) 잠금을 획득하거나 multi-statement 이거나 "
+            "따옴표·괄호가 맞지 않아 판별할 수 없는 문장은 기본 거부됩니다. "
             "쓰기에는 get_writer_db_session() 을 사용하세요."
         )

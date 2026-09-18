@@ -4,8 +4,9 @@
 구성(단일 서버 기본값)과 background 세션 팩토리에서는 `mark_read_only()` 를 불러도
 쓰기가 그냥 통과했다. read-only 는 replica 라우팅 옵션이 아니라 **Dependency 계약**이다.
 
-판별은 default-deny 다. SELECT 로 확실히 읽기라고 판단되는 것만 통과시키고, `WITH`·
-잠금 획득·multi-statement·판별 불가 문장은 read-only 에서 거부한다.
+판별은 default-deny 다. 괄호 깊이 0 의 단어만 훑어 최상위 구문이 읽기임이 확실할 때만
+통과시킨다 — 읽기 전용 CTE(`WITH ... SELECT`)는 허용하고, 최상위에 쓰기 키워드가 있거나
+잠금을 잡거나 multi-statement 이거나 따옴표·괄호가 무너진 문장은 거부한다.
 
 테스트 모델은 별도 `DeclarativeBase` 를 쓴다 — 공유 metadata 와 migration 을 오염시키지
 않기 위해서다(workflow-guide §14).
@@ -21,6 +22,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.db.router import (
     DatabaseRouter,
     ReadOnlyRoutingError,
+    _text_is_readable,  # noqa: PLC2701
     assert_writable,
     create_routing_sessionmaker,
     is_read_only,
@@ -156,7 +158,6 @@ async def test_raw_dml_and_ddl_are_blocked(read_only, maker, sql):
     [
         "SELECT * FROM guard_widgets FOR UPDATE",
         "SELECT * FROM guard_widgets LOCK IN SHARE MODE",
-        "WITH c AS (SELECT 1) SELECT * FROM c",
         "SELECT 1; DELETE FROM guard_widgets",
         "CALL some_procedure()",
         "지원하지 않는 문장",
@@ -205,3 +206,68 @@ async def test_writable_session_raw_dml_succeeds(writable, maker):
     await writable.commit()
 
     assert await _rows(maker) == 2
+
+
+# ------------------------------------------------- 깊이 0 스캔 (적대적 케이스)
+
+_READABLE = [
+    "SELECT id FROM item",
+    "select id from item",
+    "WITH r AS (SELECT id FROM item) SELECT id FROM r",
+    "with r as (select id from item) select id from r",
+    "WITH a AS (SELECT 1), b AS (SELECT 2) SELECT * FROM a JOIN b",
+    "WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM t WHERE n<5) SELECT * FROM t",
+    "SELECT * FROM t WHERE note = 'please DELETE this row'",
+    "SELECT * FROM t WHERE note = 'it''s an UPDATE'",
+    "SELECT `update` FROM t",
+    "SELECT (SELECT max(id) FROM other) AS m FROM t",
+    "/* comment */ SELECT 1",
+]
+
+_UNREADABLE = [
+    "WITH r AS (SELECT id FROM item) UPDATE item SET name='x'",
+    "with r as (select id from item) update item set name='x'",
+    "WITH r AS (SELECT id FROM item) DELETE FROM item",
+    "UPDATE item SET name='x'",
+    "INSERT INTO item VALUES (1)",
+    "DROP TABLE item",
+    "SELECT id FROM item FOR UPDATE",
+    "SELECT id FROM item LOCK IN SHARE MODE",
+    "SELECT 1; DROP TABLE item",
+    "LOAD DATA INFILE 'x' INTO TABLE item",
+    "SELECT * FROM t WHERE x = 'unclosed",
+    "SELECT * FROM (SELECT 1",
+    "",
+]
+
+
+@pytest.mark.parametrize("sql", _READABLE)
+def test_depth0_scan_accepts_reads(sql):
+    """최상위 구문이 SELECT/WITH...SELECT 면 통과한다 — 문자열·역따옴표 안은 보지 않는다."""
+    assert _text_is_readable(sql) is True
+
+
+@pytest.mark.parametrize("sql", _UNREADABLE)
+def test_depth0_scan_rejects_writes_and_broken_input(sql):
+    """깊이 0 에 쓰기 키워드가 있거나 스캔이 무너지면 거부한다(fail-closed)."""
+    assert _text_is_readable(sql) is False
+
+
+# ------------------------------------------------- CTE 조회 (Raw / ORM 대칭)
+
+
+async def test_raw_cte_select_is_allowed(read_only):
+    """Raw CTE 조회가 읽기 전용 세션에서 실행된다."""
+    rows = await read_only.execute(
+        text("WITH r AS (SELECT name FROM guard_widgets) SELECT name FROM r")
+    )
+
+    assert [row[0] for row in rows] == ["seed"]
+
+
+async def test_orm_cte_select_stays_allowed(read_only):
+    """ORM 이 만든 CTE 조회는 예전처럼 통과한다(회귀 방지)."""
+    cte = select(Widget.name).cte("r")
+    rows = await read_only.execute(select(cte.c.name))
+
+    assert [row[0] for row in rows] == ["seed"]

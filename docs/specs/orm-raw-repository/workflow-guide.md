@@ -663,9 +663,10 @@ SQL 본문도 Repository 소유 상수로 고정하며 multi-statement와 요청
 
 ### `TextClause` 문장 분류
 
-첫 토큰만 보고 읽기/쓰기를 나누는 정규식은 완전한 SQL parser가 아니다. 특히
-`WITH ... DELETE/UPDATE/INSERT`는 선두 키워드가 `WITH`라서 단순 분류기를 우회할 수 있다.
-Repository가 소유한 SQL 상수만 허용하더라도 read-only 경계는 다음처럼 fail-closed로 동작한다.
+첫 토큰만 보고 읽기/쓰기를 나누는 분류기는 `WITH ... DELETE/UPDATE`를 놓친다. 그래서 분류기는
+따옴표·역따옴표 안을 건너뛰며 **괄호 깊이 0의 단어**를 모아 최상위 구문을 본다. CTE 정의는 모두
+괄호 안에 있으므로 깊이 0에 남는 쓰기 키워드가 곧 진짜 최상위 쓰기다. 이건 parser가 아니므로
+Repository가 소유한 SQL 상수만 허용하고, read-only 경계는 다음처럼 fail-closed로 동작한다.
 
 | 문장 | 분류/처리 |
 |---|---|
@@ -673,11 +674,14 @@ Repository가 소유한 SQL 상수만 허용하더라도 read-only 경계는 다
 | `SELECT ... FOR UPDATE` | writer; read-only에서 거부 |
 | `INSERT`/`UPDATE`/`DELETE` 및 DDL | writer; read-only에서 거부 |
 | `CALL`/저장 프로시저 | writer; read-only에서 거부 |
-| `WITH`로 시작하거나 판별 불가 | writer 또는 unknown; read-only에서 기본 거부 |
+| `WITH ... SELECT` (읽기 전용 CTE) | read |
+| `WITH ... UPDATE`/`DELETE` | writer; read-only에서 거부 |
+| 따옴표 미종료·괄호 불일치 등 판별 불가 | unknown; read-only에서 기본 거부(fail-closed) |
 | 빈 문장/multi-statement | 거부 |
 
-CTE를 지원 범위에 넣으려면 문자열 확장이 아니라 dialect-aware parser 또는 SQLAlchemy expression
-구조로 분류기를 교체하고, 그 전까지 CTE 기반 DML은 명시적인 잔여 위험으로 관리한다.
+깊이 0 스캔은 parser가 아니다. 방언별 신종 구문은 놓칠 수 있으므로, 실제로 오분류가 관측되면
+그때 dialect-aware parser 도입을 재검토한다. 판정을 넓히거나 좁히는 절차는
+[DEVELOPMENT §6.5](../../guides/DEVELOPMENT.md)에 있다.
 
 ## 7. 트랜잭션 지침
 
@@ -722,7 +726,8 @@ read-only는 replica 라우팅 옵션이 아니라 Dependency 계약이다. 현�
    이 Session은 reader 선택 없이 writer engine에 바인딩하되 쓰기 검증은 유지한다.
 2. 모든 session 실행 경계가 TextClause를 검사한다. `_execute()`뿐 아니라 fetch API로 전달한
    DML, 직접 `session.execute()`, `SELECT ... FOR UPDATE`, 저장 프로시저와 multi-statement를
-   거부한다. `WITH`와 판별 불가 문장은 writer/unknown으로 취급해 read-only에서 기본 거부한다.
+   거부한다. 읽기 전용 CTE(`WITH ... SELECT`)는 통과시키고, 최상위에 쓰기 키워드가 있거나
+   판별 불가인 문장은 read-only에서 기본 거부한다.
    Raw Repository 쓰기는 전용 primitive를 통과한다.
 3. `session.info`는 보안 경계가 아니므로 운영 배포는 read-only DB credential 또는 transaction
    read-only 설정을 최종 방어선으로 사용한다.
