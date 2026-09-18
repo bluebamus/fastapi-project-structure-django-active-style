@@ -32,6 +32,7 @@ DI·Service·세션 선택·트랜잭션 경계·검증·라우터 구성·문�
 |---|---|---|---|---|---|
 | REQ-001 | 2026-08-13 | default-structure 저장소의 `docs/specs/orm-raw-repository/` 문서를 이 프로젝트 docs 에 같은 경로로 복사 | 설계·계획 문서 3종을 이 저장소 기준선으로 반입 | Active | 문서 3종(untracked) |
 | REQ-002 | 2026-08-18 | "docs/orm-raw-repository/ 문서는 설계 및 개발계획서다. 이를 참고로 작업을 진행해줘" | 계획서 Phase 0~9 를 **독립 게이트·독립 커밋**으로 순차 실행. 이번 라운드는 Phase 0(기준선 확정, 코드 무변경)까지. | Active | ADR-001 · run-log Round 0 · ledger F-001~F-007 |
+| REQ-003 | 2026-09-18 | "default, passive와 같이 active도 get_writer_db_session, get_read_only_db_session 만 사용하도록" | 기능 코드(`app/features/**`)의 세션 Dependency 를 **쓰기=`get_writer_db_session` / 읽기=`get_read_only_db_session` 둘로 고정**한다. `get_routed_db_session` 은 코어에 남기되 승인된 특수 경로 전용으로 격하한다. | Active | ADR-006 |
 
 ## 3. 설계 결정 기록 (ADR — 확정 후 불변)
 
@@ -42,6 +43,7 @@ DI·Service·세션 선택·트랜잭션 경계·검증·라우터 구성·문�
 | ADR-003 | 2026-08-18 | 신규 기능은 `app/features/*` 규약 자동 발견으로만 결선한다. `main.py` 에 기능별 `include_router()` 를 추가하지 않는다. | development-plan §12 비목표. Django 스타일 자동배선이 이 저장소의 정체성. | Accepted | — |
 | ADR-004 | 2026-08-18 | SQL 은 Repository 만 소유하고, commit 은 쓰기 View 가 성공 응답 전에 정확히 한 번 수행한다. | workflow-guide §1·§7. 트랜잭션 경계 단일화. | Accepted | — |
 | ADR-005 | 2026-08-18 | SQLAdmin 에 인증 백엔드를 붙이지 않는다(**영구 비목표**). `ADMIN` 기본값 True 도 의도된 개발 편의 기본값으로 유지한다. 무인증 `/admin` 에 대한 방어선은 "인증 추가" 가 아니라 **staging/production 기동 거부(fail-fast)** 로 둔다. | 선행 확정 결정(2026-08-12, `config.py` ADMIN 필드 주석)을 그대로 승계한다. Phase 0 에서 이 결정을 모르고 F-006 을 "인증 백엔드 주입" 으로 적었다가 요구사항 회귀가 될 뻔했다. | Accepted | — |
+| ADR-006 | 2026-09-18 | 기능 코드의 세션 Dependency 는 `get_writer_db_session` 과 `get_read_only_db_session` **둘뿐**이다. `get_routed_db_session` 은 정의·export 를 유지하되 기능에서 쓰지 않으며, `tests/core/test_session_dependency_names.py` 가 `app/features/**` 를 AST 로 훑어 강제한다. | 세 의존성의 본문은 세션에 표시를 심는 한 줄만 다르고, 실제 분기는 `RoutingSession.get_bind()` 가 쿼리마다 한다. 쓰기 핸들러가 routed 를 쓰면 **첫 쿼리가 SELECT 일 때 replica 로 나갔다가** 쓰기에서 writer 로 옮겨붙어, 한 요청이 두 서버를 오간다. 의도를 진입점에 선언하면 그 창이 사라지고, 읽는 사람이 라우터 내부를 몰라도 핸들러의 의도를 읽을 수 있다. 부수 효과로 `tests/test_read_path_no_commit.py` 의 검사 범위가 넓어져 catalog 쓰기 라우트와 `/ready` 가 처음 검사에 들어왔다. | Accepted | — |
 
 ## 4. 불가침 제약 (INVARIANT REQUIREMENTS)
 
@@ -58,3 +60,4 @@ DI·Service·세션 선택·트랜잭션 경계·검증·라우터 구성·문�
 ## 5. 변경 이력
 - v0.1 (2026-08-18): 최초 작성. REQ-001/002, ADR-001~004, C-1~C-7 확정. Phase 0 기준선과 연결.
 - v0.2 (2026-08-18): Phase 1 수행 중 선행 확정 결정(2026-08-12 Admin 인증 영구 비목표)을 발견해 ADR-005·C-8 로 승계. 패키지 init 경량화 계약을 C-9 로 고정.
+- v0.3 (2026-09-18): REQ-003 · ADR-006 등록 — 기능 코드의 세션 Dependency 를 writer/read-only 둘로 고정하고 AST 회귀 테스트로 강제.
