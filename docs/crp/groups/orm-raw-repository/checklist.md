@@ -32,7 +32,7 @@
 ## Round 2 — 2026-08-18 (Phase 2: read-only 안전성) — 완료
 - [x] (ledger F-003) 설정 무관 read-only DML guard — `Session` 이벤트로 집행 지점 이동
 - [x] 중앙 `is_read_only()` / `assert_writable()` 도입
-- [x] Raw SQL default-deny 판별(SELECT 단일문·비잠금만 허용, WITH·multi-statement·판별불가 거부)
+- [x] Raw SQL default-deny 판별(SELECT·읽기 전용 CTE 허용, 최상위 쓰기 키워드·잠금·multi-statement·판별불가 거부 — 2026-09-18 ADR-007 로 판정 방법 교체)
 - [x] 정식 Dependency 명명 5쌍 도입 + 기존 이름을 동일 객체 alias 로 유지(override 키 보존)
 - [x] 저장소 내 호출부 103건(26파일) 정식 이름 전환 + AST 재발 방지 가드
 - [x] 라우터 on/off parameterize 검증 52건 통과, 라우트 인벤토리 19/31 불변

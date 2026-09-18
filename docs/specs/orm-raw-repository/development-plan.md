@@ -166,7 +166,8 @@ read-only 보장은 `DB_ROUTER_ENABLED`와 분리한다.
   저장 프로시저와 multi-statement 우회도 거부한다.
 - router on/off × ORM/Core/Raw DML을 매개변수화해 차단하고 SELECT 허용을 검증한다. session
   표식은 애플리케이션 방어선이므로 배포 환경은 read-only credential/transaction도 사용한다.
-- leading `WITH` 등 분류 불가능한 TextClause는 writer로 보내고 read-only에서는 차단한다.
+- TextClause는 괄호 깊이 0의 단어로 분류한다. 읽기 전용 CTE(`WITH ... SELECT`)는 read로 통과시키고,
+  최상위에 쓰기 키워드가 있거나 스캔이 무너진 문장은 read-only에서 차단한다(fail-closed).
   CTE DML/SELECT, leading comment, `FOR UPDATE`, `CALL`, DDL, multi-statement를 fixture로 고정한다.
 
 따라서 기본값 `DB_ROUTER_ENABLED=false`에서도 read-only는 실제 쓰기 방지 계약이다.
