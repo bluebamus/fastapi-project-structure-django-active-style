@@ -187,7 +187,8 @@ def check_doc_paths(
 # 따라 한 사람의 쓰기가 승인되지 않은 경로로 나간다. 생성기 템플릿에서 같은 일이
 # 실제로 일어났다(F-025) — 코드 스캔 범위 밖이라 문서에서도 따로 막는다.
 DEPRECATED_SESSION_ALIASES = {
-    "get_session": "get_routed_db_session (쓰기에는 get_writer_db_session)",
+    "get_session": "get_writer_db_session (기능 코드의 쓰기용 — 옛 별칭이 가리키던 "
+    "get_routed_db_session 은 승인된 특수 경로 전용이다)",
     "get_read_session": "get_read_only_db_session",
     "get_write_session": "get_writer_db_session",
     "get_background_session": "get_background_db_session",

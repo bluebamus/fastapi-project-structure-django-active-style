@@ -447,7 +447,7 @@ core 의 `UserInfoMiddleware` 가 수집하고, home 앱의 `HomeAccessLogSink` 
 |---|---|---|
 | `get_writer_db_session` | async generator | 쓰기. 첫 쿼리부터 writer 고정 |
 | `get_read_only_db_session` | async generator | 조회. read-only 표시, 쓰기 시도는 `ReadOnlyRoutingError` |
-| `get_routed_db_session` | async generator | 동적 라우팅(SELECT→reader, 쓰기 후 writer). 신규 코드에서 쓰지 않음 |
+| `get_routed_db_session` | async generator | 동적 라우팅(SELECT→reader, 쓰기 후 writer). 승인된 특수 경로 전용 — 기능 코드에서는 쓰지 않음 |
 | `get_background_db_session` | async generator | background 풀 (요청 밖, generator 형태) |
 | `background_db_session()` | async context manager | 요청 밖 트랜잭션의 권장 형태 |
 

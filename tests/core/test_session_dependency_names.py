@@ -96,3 +96,38 @@ def test_no_production_or_test_code_uses_deprecated_aliases():
                         )
 
     assert offenders == [], "deprecated alias 사용:\n  " + "\n  ".join(sorted(set(offenders)))
+
+
+def test_feature_code_uses_only_writer_and_read_only_sessions():
+    """기능 코드의 세션 Dependency 는 writer / read-only 둘뿐이다.
+
+    `get_routed_db_session` 은 구문을 보고 엔진을 고르므로, 쓰기 핸들러의 **첫
+    SELECT** 가 replica 로 새어나가 복제 지연을 읽을 수 있다. 의도는 코드가
+    미리 밝히는 편이 맞다 — 코어에는 승인된 특수 경로용으로 남기되 기능
+    (`app/features/**`)에서는 import 도 Depends 도 하지 않는다.
+    """
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    banned = "get_routed" + "_db_session"
+
+    offenders: list[str] = []
+    for path in (root / "app" / "features").rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id == banned:
+                offenders.append(f"{path.relative_to(root)}:{node.lineno} {banned}")
+            elif isinstance(node, ast.Attribute) and node.attr == banned:
+                offenders.append(f"{path.relative_to(root)}:{node.lineno} .{banned}")
+            elif isinstance(node, ast.ImportFrom):
+                offenders += [
+                    f"{path.relative_to(root)}:{node.lineno} import {banned}"
+                    for alias in node.names
+                    if alias.name == banned
+                ]
+
+    assert offenders == [], (
+        f"기능 코드가 {banned} 를 씁니다 — 쓰기는 get_writer_db_session, "
+        "조회는 get_read_only_db_session 을 쓰세요:\n  " + "\n  ".join(sorted(set(offenders)))
+    )
