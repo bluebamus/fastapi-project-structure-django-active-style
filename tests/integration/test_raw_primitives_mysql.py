@@ -186,7 +186,8 @@ async def test_read_only_session_allows_raw_select_on_mysql(raw_session_factory)
 async def test_cte_can_lead_update_and_delete_on_mysql(raw_session_factory):
     """`WITH` 뒤에 UPDATE·DELETE 가 올 수 있다는 **문법 사실**을 못박는다.
 
-    read-only 가드가 `WITH` 를 통째로 거부하는 근거가 이것이다. 근거를 주석에만
+    read-only 가드가 선두 단어가 아니라 괄호 깊이 0 의 단어 전체를 보는 근거가
+    이것이다. 근거를 주석에만
     두면 썩는다 — 실제로 한 번 썩었다. 이전 주석은 근거로 PostgreSQL 문법
     (``WITH x AS (DELETE ... RETURNING ...)``)을 들고 있었고 그건 MySQL 에서
     문법 오류라, 이 저장소에 존재하지 않는 위협을 근거로 삼고 있었다(F-036).
@@ -247,7 +248,19 @@ async def test_read_only_rejects_cte_led_writes(raw_session_factory):
             "UPDATE raw_widgets JOIN c ON raw_widgets.id = c.id SET score = 1",
             "WITH c AS (SELECT id FROM raw_widgets) "
             "DELETE raw_widgets FROM raw_widgets JOIN c ON raw_widgets.id = c.id",
-            "WITH c AS (SELECT 1 AS x) SELECT * FROM c",  # 읽기 CTE 도 함께 막힌다 (R-001)
         ):
             with pytest.raises(ReadOnlyRoutingError):
                 await session.execute(text(sql))
+
+
+async def test_read_only_allows_cte_select(raw_session_factory):
+    """읽기 전용 CTE 는 MySQL 에서도 통과한다 — ORM `.cte()` 와 같은 대우다."""
+    async with raw_session_factory() as session:
+        mark_read_only(session)
+        value = (
+            await session.execute(
+                text("WITH c AS (SELECT id FROM raw_widgets WHERE id = 1) SELECT id FROM c")
+            )
+        ).scalar_one()
+
+    assert value == 1
