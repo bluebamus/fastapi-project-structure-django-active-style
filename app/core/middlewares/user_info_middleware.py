@@ -198,8 +198,13 @@ class UserInfoMiddleware(BaseHTTPMiddleware):
                 return
             await sink.save(data)
         except Exception as e:
-            # 로그 저장 실패가 요청 처리에 영향을 주지 않도록 함
-            logger.error(f"접속 로그 저장 실패: {e}", exc_info=True)
+            # 로그 저장 실패가 요청 처리에 영향을 주지 않도록 함.
+            # 예외 **메시지**와 트레이스백은 기본 로그에 남기지 않는다 — 저장 실패는
+            # 대개 DB 예외라 str() 에 SQL 과 바인딩된 값이 실려 있고, 이 로거 이름
+            # ("user_info_middleware")은 SQLNoiseFilter 를 그대로 통과한다(C-4).
+            logger.error("접속 로그 저장 실패: %s", type(e).__name__)
+            # DEBUG=true(유효 로그 레벨 DEBUG)에서만 SQL·바인딩 값·트레이스백 전문을 남긴다.
+            logger.debug("접속 로그 저장 실패 상세", exc_info=True)
 
     async def dispatch(
         self,

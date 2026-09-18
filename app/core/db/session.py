@@ -266,10 +266,18 @@ async def get_routed_db_session() -> AsyncGenerator[AsyncSession]:
             yield session
         except Exception as e:
             await session.rollback()
+            # 예외 **메시지**는 기본 로그에 남기지 않는다 — DB 예외의 str() 에는 실행된
+            # SQL 과 바인딩된 값이 그대로 들어 있고, 이 로거 이름("database")은
+            # SQLNoiseFilter 의 NOISY_PREFIXES 에 걸리지 않아 그대로 통과한다.
+            # 값이 키워드 형태가 아니라 RedactingFilter 도 지우지 못한다(C-4).
+            # 추적이 필요한 debug 모드에서는 아래 debug 레코드가 전문을 남긴다.
             logger.error(
-                f"[get_session] ROLLBACK - error: {type(e).__name__}: {e}, "
-                f"duration: {(time.perf_counter() - start_time)*1000:.1f}ms"
+                "[get_routed_db_session] ROLLBACK - error: %s, duration: %.1fms",
+                type(e).__name__,
+                (time.perf_counter() - start_time) * 1000,
             )
+            # DEBUG=true(유효 로그 레벨 DEBUG)에서만 SQL·바인딩 값·트레이스백 전문을 남긴다.
+            logger.debug("[get_routed_db_session] ROLLBACK 상세", exc_info=True)
             raise e
 
 
@@ -358,11 +366,18 @@ async def get_background_db_session() -> AsyncGenerator[AsyncSession]:
             yield session
         except Exception as e:
             await session.rollback()
+            # 예외 **메시지**는 기본 로그에 남기지 않는다 — DB 예외의 str() 에는 실행된
+            # SQL 과 바인딩된 값이 그대로 들어 있고, 이 로거 이름("database")은
+            # SQLNoiseFilter 의 NOISY_PREFIXES 에 걸리지 않아 그대로 통과한다.
+            # 값이 키워드 형태가 아니라 RedactingFilter 도 지우지 못한다(C-4).
+            # 추적이 필요한 debug 모드에서는 아래 debug 레코드가 전문을 남긴다.
             logger.error(
-                f"[get_background_session] ROLLBACK - "
-                f"error: {type(e).__name__}: {e}, "
-                f"duration: {(time.perf_counter() - start_time)*1000:.1f}ms"
+                "[get_background_db_session] ROLLBACK - error: %s, duration: %.1fms",
+                type(e).__name__,
+                (time.perf_counter() - start_time) * 1000,
             )
+            # DEBUG=true(유효 로그 레벨 DEBUG)에서만 SQL·바인딩 값·트레이스백 전문을 남긴다.
+            logger.debug("[get_background_db_session] ROLLBACK 상세", exc_info=True)
             raise e
 
 
