@@ -1139,6 +1139,7 @@ def validate_deployment_safety() -> None:
         - placeholder secret  : ``is_placeholder_secret`` 가 참인 서명·세션 키
         - 와일드카드 CORS     : ``CORS_ALLOW_ORIGINS`` 에 ``*``
         - SQL echo           : ``LOG_SQL_ECHO_ENABLED=true`` (파라미터가 로그에 남는다)
+        - DEBUG 로그 레벨      : ``LOG_LEVEL=DEBUG`` (롤백 상세에 SQL·바인딩 값이 남는다)
 
     위반은 **한 번에 모두** 모아서 보고한다. 하나 고치고 재기동하는 왕복을
     줄이기 위해서다. 오류 메시지에는 설정 이름만 담고 값은 담지 않는다.
@@ -1183,6 +1184,14 @@ def validate_deployment_safety() -> None:
         problems.append(
             "LOG_SQL_ECHO_ENABLED=true — SQL 본문과 파라미터가 로그에 남습니다. "
             "development/test 에서만 사용하세요."
+        )
+
+    if (log_settings.LOG_LEVEL or "").upper() == "DEBUG":
+        # 롤백 로그의 SQL·바인딩 값 전문은 DEBUG 레코드로만 나간다(app/core/db/session.py).
+        # DEBUG=true 와 달리 LOG_LEVEL 은 단독으로도 유효 레벨을 DEBUG 로 올린다.
+        problems.append(
+            "LOG_LEVEL=DEBUG — 롤백 상세에 SQL 본문과 바인딩된 값이 남습니다. "
+            "INFO 이상으로 두세요."
         )
 
     if problems:

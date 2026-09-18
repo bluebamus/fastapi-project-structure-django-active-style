@@ -17,7 +17,15 @@ class _Stub:
 
 
 def _install(
-    monkeypatch, *, env, debug=False, admin=False, origins=None, secrets=None, sql_echo=False
+    monkeypatch,
+    *,
+    env,
+    debug=False,
+    admin=False,
+    origins=None,
+    secrets=None,
+    sql_echo=False,
+    log_level=None,
 ):
     secrets = secrets or {}
     monkeypatch.setattr(config_module, "app_settings", _Stub(ENV=env, DEBUG=debug, ADMIN=admin))
@@ -37,7 +45,11 @@ def _install(
         "session_settings",
         _Stub(SESSION_SECRET_KEY=secrets.get("session", "real-session-key")),
     )
-    monkeypatch.setattr(config_module, "log_settings", _Stub(LOG_SQL_ECHO_ENABLED=sql_echo))
+    monkeypatch.setattr(
+        config_module,
+        "log_settings",
+        _Stub(LOG_SQL_ECHO_ENABLED=sql_echo, LOG_LEVEL=log_level),
+    )
 
 
 @pytest.mark.parametrize("env", ["development", "test"])
@@ -154,6 +166,36 @@ def test_sql_echo_is_allowed_in_development(monkeypatch, env):
 
 def test_sql_echo_off_passes_in_production(monkeypatch):
     _install(monkeypatch, env="production", sql_echo=False)
+
+    config_module.validate_deployment_safety()
+
+
+# ------------------------------------------------------------------ debug 로그
+# 롤백 로그의 SQL·바인딩 값 전문은 DEBUG 레코드로만 나간다(C-4). 그래서 유효
+# 로그 레벨을 DEBUG 로 올리는 두 경로(DEBUG=true, LOG_LEVEL=DEBUG)를 모두 막아야
+# 한다. DEBUG=true 는 test_debug_true_is_rejected 가 이미 지킨다.
+
+
+@pytest.mark.parametrize("env", ["staging", "production"])
+@pytest.mark.parametrize("value", ["DEBUG", "debug", "Debug"])
+def test_debug_log_level_is_rejected_in_deployed_envs(monkeypatch, env, value):
+    """유효 레벨이 DEBUG 면 롤백 상세(SQL·바인딩 값)가 파일 로그에 쌓인다."""
+    _install(monkeypatch, env=env, log_level=value)
+
+    with pytest.raises(RuntimeError, match="LOG_LEVEL"):
+        config_module.validate_deployment_safety()
+
+
+@pytest.mark.parametrize("value", [None, "INFO", "WARNING"])
+def test_non_debug_log_level_passes_in_production(monkeypatch, value):
+    _install(monkeypatch, env="production", log_level=value)
+
+    config_module.validate_deployment_safety()
+
+
+@pytest.mark.parametrize("env", ["development", "test"])
+def test_debug_log_level_is_allowed_in_development(monkeypatch, env):
+    _install(monkeypatch, env=env, log_level="DEBUG")
 
     config_module.validate_deployment_safety()
 
