@@ -23,7 +23,6 @@ from sqlalchemy.pool import StaticPool
 from app.core.db.session import (
     Base,
     get_read_only_db_session,
-    get_routed_db_session,
     get_writer_db_session,
 )
 from main import app
@@ -124,7 +123,7 @@ async def env():
                 await session.rollback()
                 raise
 
-    for dependency in (get_routed_db_session, get_writer_db_session, get_read_only_db_session):
+    for dependency in (get_writer_db_session, get_read_only_db_session):
         app.dependency_overrides[dependency] = _session
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
