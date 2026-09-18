@@ -476,8 +476,10 @@ core 의 `UserInfoMiddleware` 가 수집하고, home 앱의 `HomeAccessLogSink` 
 sticky 는 세션 내부 정책이라 다음 요청의 read-only 세션까지 지연을 없애지 않습니다.
 
 **read-only 집행**은 라우터가 꺼져 있어도 적용됩니다. 세션 클래스 이벤트(`before_flush`,
-`do_orm_execute`)가 read-only 세션에서 ORM flush 와, 읽기로 판별되지 않는 구문(SELECT 외, `WITH`,
-잠금 조회, multi-statement)을 거부합니다. `session.info` 표시는 보안 경계가 아니므로 운영에서는
+`do_orm_execute`)가 read-only 세션에서 ORM flush 와, 읽기로 판별되지 않는 구문을 거부합니다.
+판별은 괄호 깊이 0 의 단어만 훑습니다 — 읽기 전용 CTE(`WITH ... SELECT`)는 통과하고, 최상위에
+쓰기 키워드가 있는 문장(`WITH ... UPDATE`·`DELETE` 포함)·잠금 조회·multi-statement·따옴표나
+괄호가 맞지 않아 판별할 수 없는 문장은 거부합니다. `session.info` 표시는 보안 경계가 아니므로 운영에서는
 read-only DB 계정·권한을 최종 방어선으로 둡니다. 회귀 가드: `tests/core/test_read_only_guard.py`,
 `tests/core/test_db_router.py`.
 

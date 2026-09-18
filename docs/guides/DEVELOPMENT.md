@@ -322,6 +322,47 @@ Repository(`execute()` 로 rowcount 반환) 순서를 지키고 **View 가 응�
 
 ---
 
+### 6.5 read-only 세션의 Raw SQL 판정을 확장·변경할 때
+
+판정은 **괄호 깊이 0 의 단어**만 봅니다. CTE 정의는 전부 괄호 안에 있으므로, 깊이 0 에 남는
+단어가 곧 최상위 구문입니다. 그래서 `WITH ... SELECT` 는 통과하고 `WITH ... UPDATE/DELETE` 는
+거부됩니다.
+
+| 단계 | 위치 |
+|---|---|
+| 집행 지점 | `app/core/db/router.py` — `_block_read_only_execute`(`do_orm_execute` 이벤트), `_block_read_only_flush`(`before_flush` 이벤트) |
+| 구문 분류 | `app/core/db/router.py::_statement_is_readable` — Core `UpdateBase` 거부, `Select` 허용, `TextClause` 는 아래로 |
+| Raw SQL 판정 | `app/core/db/router.py::_text_is_readable` — 주석 제거 → multi-statement 거부 → 잠금 조회 거부 → 깊이 0 스캔 |
+| 깊이 0 스캔 | `app/core/db/router.py::_depth0_words` — 따옴표·역따옴표 안을 건너뛰고, 스캔이 무너지면 `None` |
+
+| 하고 싶은 것 | 건드릴 곳 |
+|---|---|
+| 새 읽기 구문을 허용 (예: `TABLE`, `VALUES`) | `_READABLE_LEAD` — `words[0]` 의 허용 시작 키워드 집합 |
+| 새 쓰기 구문을 차단 | `_TOP_LEVEL_WRITE` 에 소문자 한 단어 추가 |
+| 잠금 획득 패턴을 추가 | `_LOCKING_READ` 정규식 |
+
+**판정 원칙**
+
+- default-deny 입니다. 확실히 읽기라고 판단되지 않으면 거부합니다.
+- 스캔이 무너지면(따옴표 미종료, 괄호 불일치) 거부로 떨어집니다(fail-closed).
+- 애매하면 막는 쪽이 맞습니다. **잘못 허용하면 DML 이 replica 로 새고, 잘못 막으면 개발자가
+  즉시 알아챕니다.** 비대칭이 한쪽으로만 위험합니다.
+- 거부 메시지는 읽기를 하려던 개발자를 writer 세션으로 떠밀지 않아야 합니다. 읽기가 막혔다면
+  판정을 고칠 일이지 세션을 바꿀 일이 아닙니다.
+
+**바꿀 때 반드시 할 일**
+
+- `tests/core/test_read_only_guard.py` 의 `_READABLE`/`_UNREADABLE` 적대적 케이스 표에 새 케이스를
+  추가합니다(문자열 안의 키워드, `''` 이스케이프, 역따옴표 식별자, 중첩 서브쿼리, 미종료 따옴표,
+  괄호 불일치가 이미 들어 있습니다). ORM 경로(`select(...).cte()`) 회귀도 같은 파일에 있습니다.
+- MySQL 방언 사실은 `tests/integration/test_raw_primitives_mysql.py`(`-m mysql`)에 고정합니다.
+- 근거를 CRP ADR 로 남깁니다 — 그룹은 `docs/crp/groups/orm-raw-repository/design-baseline.md` §3.
+
+**한계.** 이건 파서가 아닙니다. 방언별 신종 구문은 못 잡을 수 있으니, 실제로 오분류가 관측되면
+그때 파서 도입을 재검토합니다(지금 새 의존성을 들이지 않습니다).
+
+---
+
 ## 7. 세션 선택과 주입
 
 ```python

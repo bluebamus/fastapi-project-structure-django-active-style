@@ -603,9 +603,12 @@ Raw update/delete/insert를 사용할 때도 ORM과 같은 트랜잭션 규칙�
   DB 자격증명 또는 transaction read-only 설정을 최종 방어선으로 사용한다.
 - public `is_read_only()`/`assert_writable()`을 한 곳에서 제공하고 ORM/Core/Raw가 공유한다.
 - 선두 키워드만 보는 판별기는 `WITH ... DELETE/UPDATE` 같은 CTE DML을 읽기로 오판할 수 있다.
-  분류할 수 없는 TextClause는 writer로 보내고 read-only session에서는 default-deny한다.
-  지원 Raw SELECT/DML 문법의 허용 범위를 문서화하고 CTE DML, leading comment, multi-statement,
-  `FOR UPDATE`, `CALL`, DDL을 회귀 테스트에 포함한다. SQL parser 없이 지원 범위를 넓히지 않는다.
+  판별기는 선두 단어가 아니라 **괄호 깊이 0의 단어 전체**를 본다. CTE 정의는 모두 괄호 안에 있으므로
+  깊이 0에 남는 단어가 최상위 구문이고, 거기 쓰기 키워드가 있으면 거부한다. 분류할 수 없는
+  TextClause는 writer로 보내고 read-only session에서는 default-deny한다.
+  지원 Raw SELECT/DML 문법의 허용 범위를 문서화하고 CTE DML, CTE SELECT, leading comment,
+  multi-statement, `FOR UPDATE`, `CALL`, DDL을 회귀 테스트에 포함한다.
+  SQL parser 의존성을 새로 들이지 않는다.
 
 ## 10. Dependency 및 트랜잭션 요구사항
 
