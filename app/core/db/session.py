@@ -10,9 +10,9 @@ SQLAlchemy 비동기 엔진과 세션 팩토리를 설정합니다.
     - background_engine: 백그라운드 태스크용 분리 엔진 (pool_size=10, max_overflow=10)
     - AsyncSessionLocal: 메인 세션 팩토리
     - BackgroundSessionLocal: 백그라운드 세션 팩토리
-    - get_routed_db_session(): 세션 제너레이터 (읽기/쓰기 자동 라우팅)
-    - get_read_only_db_session(): 읽기 전용 세션 제너레이터 (쓰기 시도 시 실패)
-    - get_writer_db_session(): 쓰기 세션 제너레이터 (항상 primary)
+    - get_writer_db_session(): 쓰기 세션 제너레이터 (항상 primary) — 기능 코드의 쓰기용
+    - get_read_only_db_session(): 읽기 전용 세션 제너레이터 (쓰기 시도 시 실패) — 기능 코드의 조회용
+    - get_routed_db_session(): 세션 제너레이터 (읽기/쓰기 자동 라우팅) — 승인된 특수 경로 전용
     - get_background_db_session() / background_db_session(): 요청 밖 작업용
     (파일 끝의 get_session 등은 같은 객체를 가리키는 옛 별칭이다)
 
@@ -240,23 +240,18 @@ async def create_db_tables() -> None:
 
 async def get_routed_db_session() -> AsyncGenerator[AsyncSession]:
     """
-    FastAPI 의존성 주입용 세션 제너레이터
+    구문을 보고 엔진을 고르는 세션 제너레이터 — **승인된 특수 경로 전용**
 
-    FastAPI 엔드포인트에서 Depends()로 사용합니다.
-    요청 종료 시 자동으로 세션이 닫힙니다.
-    예외 발생 시 자동 롤백됩니다.
+    기능 코드는 이 의존성을 쓰지 않습니다. 쓰기는 get_writer_db_session(),
+    조회는 get_read_only_db_session() 으로 의도를 미리 밝힙니다
+    (tests/core/test_session_dependency_names.py 가 강제합니다).
+    여기서 엔진을 구문으로 판정하면 쓰기 핸들러의 **첫 SELECT** 가 replica 로
+    나가 복제 지연을 읽을 수 있습니다.
+
+    요청 종료 시 자동으로 세션이 닫히고, 예외 발생 시 자동 롤백됩니다.
 
     Yields:
         AsyncSession: 데이터베이스 세션
-
-    Example:
-        @app.get("/users/{id}")
-        async def get_user(
-            id: str,
-            session: AsyncSession = Depends(get_routed_db_session)
-        ):
-            user = await session.get(User, id)
-            return user
 
     Note:
         - 세션은 요청 범위(request scope)로 관리됩니다
@@ -321,9 +316,10 @@ async def get_writer_db_session() -> AsyncGenerator[AsyncSession]:
         AsyncSession: primary 에 고정된 데이터베이스 세션
 
     Note:
-        get_routed_db_session() 도 쓰기를 감지하면 primary 로 전환되지만, 신규 코드는
-        이 의존성으로 "이 핸들러는 쓰기다"를 명시하고 첫 SELECT 조차 replica 로
-        새지 않도록 합니다. commit 은 하지 않습니다(쓰기 핸들러 본문이 합니다).
+        기능 코드의 쓰기 의존성은 이것 하나입니다. get_routed_db_session() 도 쓰기를
+        감지하면 primary 로 전환되지만 판정은 첫 구문 이후라, 이 의존성으로 "이
+        핸들러는 쓰기다"를 미리 밝혀 첫 SELECT 조차 replica 로 새지 않게 합니다.
+        commit 은 하지 않습니다(쓰기 핸들러 본문이 합니다).
     """
     async with AsyncSessionLocal() as session:
         using_writer(session)

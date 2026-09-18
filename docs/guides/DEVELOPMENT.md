@@ -345,8 +345,9 @@ async def get_catalog_service_readonly(
 | 복제 지연을 허용할 수 없는 조회 | `get_writer_db_session` | writer 고정 조회, commit 없음 |
 
 - GET/POST 라는 이름이 아니라 **유스케이스**로 고릅니다.
-- 기존 앱 중 catalog 만 쓰기에 `get_writer_db_session` 을 쓰고, blog·reply·sns·user·auth 의 쓰기
-  Dependency 는 동적 라우팅 `get_routed_db_session` 입니다(초기 구조). 새 기능은 writer 를 씁니다.
+- 기능의 세션 Dependency 는 이 둘뿐입니다. 쓰기는 전부 `get_writer_db_session`, 조회는 전부
+  `get_read_only_db_session` 입니다. 동적 라우팅은 기능 코드에서 쓰지 않습니다
+  (`tests/core/test_session_dependency_names.py` 가 강제합니다).
 - 조회에 쓰기 세션을 재사용하지 않습니다. writer 가 자동 commit 하지는 않지만 read-only 보호와
   replica 선택을 잃습니다. **Raw 라는 이유로 쓰기 세션을 쓰지 않습니다** — Raw 는 접근 방식이지
   권한이 아닙니다.

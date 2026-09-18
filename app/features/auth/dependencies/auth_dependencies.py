@@ -5,7 +5,7 @@ from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db.session import get_read_only_db_session, get_routed_db_session
+from app.core.db.session import get_read_only_db_session, get_writer_db_session
 from app.features.auth.exceptions import InvalidTokenException
 from app.features.auth.services.auth_service import AuthService
 from app.features.user.models.models import User
@@ -16,7 +16,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
 async def get_auth_service(
-    session: AsyncSession = Depends(get_routed_db_session),
+    session: AsyncSession = Depends(get_writer_db_session),
 ) -> AuthService:
     """AuthService 를 구성해 제공한다(쓰기용 — 커밋은 핸들러가 한다).
 
