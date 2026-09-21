@@ -10,11 +10,22 @@ DB 예외의 ``str()`` 에는 실행된 SQL 과 **바인딩된 값**이 그대�
 DEBUG 는 staging/production 에서 기동이 거부된다(config.validate_deployment_safety).
 """
 
+import asyncio
 import logging
 
 import pytest
+import pytest_asyncio
+from sqlalchemy import event, text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 
-from app.core.db.session import get_background_db_session, get_routed_db_session
+from app.core.db import session as db_session_module
+from app.core.db.session import (
+    get_background_db_session,
+    get_read_only_db_session,
+    get_routed_db_session,
+    get_writer_db_session,
+)
 
 # 실제 DB 예외가 물고 오는 모양. SENTINEL 은 "바인딩된 값" 자리에 있다.
 SENTINEL = "victim-binding-sentinel@example.com"
@@ -89,3 +100,60 @@ async def test_no_debug_record_above_debug_level(caplog, factory):
     await _rollback(factory)
 
     assert not [r for r in caplog.records if r.levelno == logging.DEBUG]
+
+
+# ------------------------------------------------ writer·read-only 세션의 정리
+# 이 둘은 로깅 부수효과가 없어 명시적인 try/except rollback 을 두지 않는다.
+# ``AsyncSession.__aexit__`` 가 ``close()`` 를 부르고, ``close()`` 는 활성 트랜잭션에
+# ROLLBACK 을 이미 보낸다. 명시 rollback 을 덧붙여도 ROLLBACK 총 횟수는 같고,
+# ``except Exception`` 은 ``asyncio.CancelledError``(BaseException 상속 — 클라이언트
+# 연결 끊김)를 놓치는 반면 ``__aexit__`` 는 놓치지 않는다.
+#
+# 그래서 "무엇이 정리하는가" 가 아니라 **결과**를 고정한다: 예외 경로에서 엔진에
+# ROLLBACK 이 정확히 한 번 나간다. 정리를 빠뜨리면 0회가 되어 이 테스트가 깨진다.
+
+
+@pytest_asyncio.fixture
+async def rollbacks(monkeypatch):
+    """세션 팩토리를 in-memory SQLite 로 갈아끼우고 엔진 ROLLBACK 을 센다."""
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    counted: list[str] = []
+    event.listen(engine.sync_engine, "rollback", lambda connection: counted.append("rollback"))
+    monkeypatch.setattr(
+        db_session_module,
+        "AsyncSessionLocal",
+        async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False, autoflush=False),
+    )
+
+    yield counted
+
+    await engine.dispose()
+
+
+@pytest.mark.parametrize(
+    "factory", [get_writer_db_session, get_read_only_db_session], ids=["writer", "read-only"]
+)
+@pytest.mark.parametrize(
+    "error",
+    [RuntimeError, asyncio.CancelledError],
+    ids=["exception", "cancelled"],
+)
+async def test_request_session_rolls_back_once_on_the_error_path(rollbacks, factory, error):
+    """예외로 끝난 요청의 세션은 ROLLBACK 한 번으로 정리된다 — 0회도 2회도 아니다.
+
+    ``CancelledError`` 를 함께 보는 이유: 클라이언트가 응답 전에 끊으면 이 경로로
+    들어오는데, ``except Exception`` 으로는 잡히지 않는다.
+    """
+    agen = factory()
+    session = await agen.asend(None)
+    # 실제로 커넥션을 잡아 트랜잭션을 연다. 열지 않으면 ROLLBACK 자체가 무의미하다.
+    await session.execute(text("SELECT 1"))
+
+    with pytest.raises(error):
+        await agen.athrow(error("요청 처리 중 실패"))
+
+    assert rollbacks == ["rollback"], f"ROLLBACK 이 {len(rollbacks)}회 나갔다."
