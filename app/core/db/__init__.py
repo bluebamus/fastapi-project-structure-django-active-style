@@ -19,6 +19,7 @@ from app.core.db.router import (
     using_writer,
 )
 from app.core.db.session import (
+    READINESS_TIMEOUT_SECONDS,
     AsyncSessionLocal,
     BackgroundSessionLocal,
     Base,
@@ -37,6 +38,7 @@ from app.core.db.session import (
     get_session,
     get_write_session,
     get_writer_db_session,
+    ping_writer_db,
     read_engines,
     writer_engine,
 )
@@ -66,5 +68,7 @@ __all__ = [
     "get_read_only_db_session",
     "get_routed_db_session",
     "get_writer_db_session",
+    "ping_writer_db",
+    "READINESS_TIMEOUT_SECONDS",
     "dispose_engine",
 ]

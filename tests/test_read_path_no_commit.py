@@ -49,9 +49,8 @@ _WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 # 조회인데도 writer 세션이 반드시 필요한 라우트가 생기면 여기에 이유와 함께 적는다
 # (예: 복제 지연을 허용할 수 없는 read-after-write 조회).
-_WRITER_SESSION_BY_DESIGN: dict[str, str] = {
-    "readiness_check": "primary 가 죽으면 쓰기를 못 받는다 — /ready 는 writer 로 왕복해야 뜻이 있다",
-}
+# `/ready` 는 세션이 아니라 ping_writer_db() 로 엔진 커넥션을 직접 쓰므로 여기 없다.
+_WRITER_SESSION_BY_DESIGN: dict[str, str] = {}
 
 # 쓰기 메서드지만 실제로 DB에 쓰지 않는 라우트. 커밋할 것이 없다.
 _WRITE_METHOD_BUT_READ_ONLY: dict[str, str] = {
