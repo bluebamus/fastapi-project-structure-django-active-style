@@ -303,14 +303,11 @@ async def get_read_only_db_session() -> AsyncGenerator[AsyncSession]:
           이벤트(``before_flush``·``do_orm_execute``, app/core/db/router.py)가 집행합니다.
           라우터가 꺼져 있으면 읽기도 단일(writer) 엔진으로 나갈 뿐입니다.
         - 복제 지연을 허용할 수 없는 읽기라면 get_writer_db_session() 을 쓰세요.
+        - 정리·롤백은 ``async with`` 가 맡습니다 (get_writer_db_session() Note 참고).
     """
     async with AsyncSessionLocal() as session:
         mark_read_only(session)
-        try:
-            yield session
-        except Exception:
-            await session.rollback()
-            raise
+        yield session
 
 
 async def get_writer_db_session() -> AsyncGenerator[AsyncSession]:
@@ -324,6 +321,13 @@ async def get_writer_db_session() -> AsyncGenerator[AsyncSession]:
         AsyncSession: primary 에 고정된 데이터베이스 세션
 
     Note:
+        예외 경로에 ``except Exception: rollback`` 을 두지 않습니다.
+        ``AsyncSession.__aexit__`` 의 ``close()`` 가 활성 트랜잭션에 ROLLBACK 을 이미
+        보내므로 덧붙여도 ROLLBACK 횟수는 같고, ``except Exception`` 은
+        ``asyncio.CancelledError``(클라이언트가 응답 전에 끊은 경우)를 놓치는 반면
+        ``__aexit__`` 는 놓치지 않습니다. 로깅 부수효과가 있는
+        get_routed_db_session()·get_background_db_session() 은 except 블록이 필요합니다.
+
         기능 코드의 쓰기 의존성은 이것 하나입니다. get_routed_db_session() 도 쓰기를
         감지하면 primary 로 전환되지만 판정은 첫 구문 이후라, 이 의존성으로 "이
         핸들러는 쓰기다"를 미리 밝혀 첫 SELECT 조차 replica 로 새지 않게 합니다.
@@ -331,11 +335,7 @@ async def get_writer_db_session() -> AsyncGenerator[AsyncSession]:
     """
     async with AsyncSessionLocal() as session:
         using_writer(session)
-        try:
-            yield session
-        except Exception:
-            await session.rollback()
-            raise
+        yield session
 
 
 async def get_background_db_session() -> AsyncGenerator[AsyncSession]:
