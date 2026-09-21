@@ -10,20 +10,17 @@ lifespan·Admin 활성화 분기).
 앱 규약과 한계는 ``app/core/registry.py`` 와 README 참고.
 """
 
-import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from scalar_fastapi import get_scalar_api_reference
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.core.db.session import engine, get_writer_db_session
+from app.core.db.session import engine, ping_writer_db
 from app.core.exception import AppException, ErrorResponse, ValidationException
 from app.core.middlewares.cors_middleware import CustomCORSMiddleware
 from app.core.middlewares.user_info_middleware import setup_user_info_middleware
@@ -207,7 +204,7 @@ class HealthResponse(BaseModel):
 
 # readiness 는 별도 스키마를 두지 않고 HealthResponse 계약을 재사용한다.
 # 실패는 프로젝트 표준 오류 응답(ErrorResponse)으로 내려간다.
-_READY_DB_TIMEOUT_SECONDS = 2
+# DB 왕복과 timeout 은 app/core/db/session.py 의 ping_writer_db() 가 소유한다.
 
 
 def _add_health_and_docs(app: FastAPI) -> None:
@@ -242,20 +239,18 @@ def _add_health_and_docs(app: FastAPI) -> None:
         operation_id="getReadiness",
         responses={503: {"model": ErrorResponse, "description": "의존 자원이 준비되지 않음"}},
     )
-    async def readiness_check(
-        db_session: AsyncSession = Depends(get_writer_db_session),
-    ) -> HealthResponse | JSONResponse:
+    async def readiness_check() -> HealthResponse | JSONResponse:
         """writer 로 `SELECT 1` 왕복 1회를 돌려 준비 상태를 확인한다.
 
         writer 를 쓰는 이유는 replica 가 살아 있어도 primary 가 죽으면 쓰기 트래픽을
-        받을 수 없기 때문이다. 응답 지연이 무한정 늘어지지 않도록 timeout 을 건다.
+        받을 수 없기 때문이다. 왕복과 timeout 은 ping_writer_db() 가 맡는다 — 같은
+        점검을 여기서 한 번 더 적으면 대상 엔진·상한이 두 곳으로 갈라진다.
 
         실패해도 예외를 그대로 올리지 않고 503 으로 낮춘다. 오류 응답에는 예외
         메시지·DSN·SQL 을 담지 않으며(C-5) 로그에도 예외 타입만 남긴다.
         """
         try:
-            async with asyncio.timeout(_READY_DB_TIMEOUT_SECONDS):
-                await db_session.execute(text("SELECT 1"))
+            await ping_writer_db()
         except Exception as exc:
             logger.warning("[Readiness] DB 점검 실패: %s", type(exc).__name__)
             return JSONResponse(
