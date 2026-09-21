@@ -1137,6 +1137,9 @@ def validate_deployment_safety() -> None:
         - ``DEBUG=true``      : 상세 오류·문서 노출
         - ``ADMIN=true``      : 자격증명 없는 /admin 공개
         - placeholder secret  : ``is_placeholder_secret`` 가 참인 서명·세션 키
+        - placeholder 비밀번호  : ``MYSQL_PASSWORD``(빈 값 포함) · ``REDIS_PASSWORD`` ·
+          ``SMTP_PASSWORD``. 뒤 둘은 빈 값이 정당한 구성(인증 없는 사설망 Redis,
+          메일 미사용)이라 **값이 있을 때만** 본다.
         - 와일드카드 CORS     : ``CORS_ALLOW_ORIGINS`` 에 ``*``
         - SQL echo           : ``LOG_SQL_ECHO_ENABLED=true`` (파라미터가 로그에 남는다)
         - DEBUG 로그 레벨      : ``LOG_LEVEL=DEBUG`` (롤백 상세에 SQL·바인딩 값이 남는다)
@@ -1164,9 +1167,20 @@ def validate_deployment_safety() -> None:
         ("ACCESS_TOKEN_SECRET_KEY", jwt_settings.ACCESS_TOKEN_SECRET_KEY),
         ("REFRESH_TOKEN_SECRET_KEY", jwt_settings.REFRESH_TOKEN_SECRET_KEY),
         ("SESSION_SECRET_KEY", session_settings.SESSION_SECRET_KEY),
+        # 빈 MySQL 비밀번호는 무인증 DB 계정이다 — placeholder 와 같은 무게로 막는다.
+        ("MYSQL_PASSWORD", db_settings.MYSQL_PASSWORD),
     ):
         if is_placeholder_secret(value):
             # 값 자체는 절대 메시지에 담지 않는다 (C-5).
+            problems.append(f"{name} 이 기본 placeholder 입니다. 실제 키로 교체하세요.")
+
+    # 이 둘은 비어 있는 것이 정상 구성일 수 있다(인증 없는 사설망 Redis, 메일 미사용).
+    # 빈 값을 위반으로 보면 멀쩡한 배포가 막히므로, **설정된 값이 예시일 때만** 잡는다.
+    for name, optional in (
+        ("REDIS_PASSWORD", redis_settings.REDIS_PASSWORD),
+        ("SMTP_PASSWORD", smtp_settings.SMTP_PASSWORD),
+    ):
+        if optional and is_placeholder_secret(optional):
             problems.append(f"{name} 이 기본 placeholder 입니다. 실제 키로 교체하세요.")
 
     if jwt_settings.ACCESS_TOKEN_SECRET_KEY == jwt_settings.REFRESH_TOKEN_SECRET_KEY:
