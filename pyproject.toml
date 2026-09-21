@@ -77,6 +77,12 @@ python_classes = ["Test*"]
 # asyncio 모드 설정
 asyncio_mode = "auto"
 
+# async 픽스처의 이벤트 루프 범위. 미지정이면 pytest-asyncio 가
+# PytestDeprecationWarning 을 내지만 아래 filterwarnings 가 그것을 삼킨다.
+# 값은 pytest-asyncio 가 예고한 향후 기본값이라, 지금 명시해 두면 버전이
+# 올라갈 때 픽스처 루프 범위가 조용히 바뀌는 것을 막는다.
+asyncio_default_fixture_loop_scope = "function"
+
 # 기본 실행 옵션
 addopts = [
     "-v",                    # verbose 출력
