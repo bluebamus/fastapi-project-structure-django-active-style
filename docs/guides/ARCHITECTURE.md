@@ -451,8 +451,10 @@ core 의 `UserInfoMiddleware` 가 수집하고, home 앱의 `HomeAccessLogSink` 
 | `get_background_db_session` | async generator | background 풀 (요청 밖, generator 형태) |
 | `background_db_session()` | async context manager | 요청 밖 트랜잭션의 권장 형태 |
 
-- 모든 generator 는 `async with` 로 세션을 열고, 전달된 예외면 `rollback()` 후 재전파하며, 끝나면
-  닫습니다. **성공 시 자동 commit 하지 않습니다.**
+- 모든 generator 는 `async with` 로 세션을 열고 끝나면 닫습니다. 예외로 빠져나가도 `close()` 가
+  활성 트랜잭션을 ROLLBACK 한 뒤 예외가 그대로 올라갑니다 — 명시적으로 예외를 잡는 것은 로그를
+  남기는 `get_routed_db_session`·`get_background_db_session` 둘뿐입니다.
+  **성공 시 자동 commit 하지 않습니다.**
 - FastAPI `Depends` 는 요청 안에서만 해석됩니다. 요청 밖에서는 `async with background_db_session()
   as session:` 으로 열고 Service 를 직접 조립합니다. Repository 는 세션이 어디서 왔는지 모릅니다.
 - `session.py` 끝의 옛 별칭은 같은 객체를 가리키는 호환용입니다. 문서와 신규 코드는 정식 이름만
