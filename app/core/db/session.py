@@ -38,10 +38,12 @@ SQLAlchemy 비동기 엔진과 세션 팩토리를 설정합니다.
         await session.commit()
 """
 
+import asyncio
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -221,8 +223,6 @@ async def create_db_tables() -> None:
         RuntimeError: ``Base.metadata`` 가 비어 있을 때. 0개 테이블을 조용히
             "생성 완료" 로 넘기지 않는다.
     """
-    import asyncio
-
     if not Base.metadata.tables:
         raise RuntimeError(
             "Base.metadata 가 비어 있어 테이블을 생성할 수 없습니다. "
@@ -303,14 +303,11 @@ async def get_read_only_db_session() -> AsyncGenerator[AsyncSession]:
           이벤트(``before_flush``·``do_orm_execute``, app/core/db/router.py)가 집행합니다.
           라우터가 꺼져 있으면 읽기도 단일(writer) 엔진으로 나갈 뿐입니다.
         - 복제 지연을 허용할 수 없는 읽기라면 get_writer_db_session() 을 쓰세요.
+        - 정리·롤백은 ``async with`` 가 맡습니다 (get_writer_db_session() Note 참고).
     """
     async with AsyncSessionLocal() as session:
         mark_read_only(session)
-        try:
-            yield session
-        except Exception:
-            await session.rollback()
-            raise
+        yield session
 
 
 async def get_writer_db_session() -> AsyncGenerator[AsyncSession]:
@@ -324,6 +321,13 @@ async def get_writer_db_session() -> AsyncGenerator[AsyncSession]:
         AsyncSession: primary 에 고정된 데이터베이스 세션
 
     Note:
+        예외 경로에 ``except Exception: rollback`` 을 두지 않습니다.
+        ``AsyncSession.__aexit__`` 의 ``close()`` 가 활성 트랜잭션에 ROLLBACK 을 이미
+        보내므로 덧붙여도 ROLLBACK 횟수는 같고, ``except Exception`` 은
+        ``asyncio.CancelledError``(클라이언트가 응답 전에 끊은 경우)를 놓치는 반면
+        ``__aexit__`` 는 놓치지 않습니다. 로깅 부수효과가 있는
+        get_routed_db_session()·get_background_db_session() 은 except 블록이 필요합니다.
+
         기능 코드의 쓰기 의존성은 이것 하나입니다. get_routed_db_session() 도 쓰기를
         감지하면 primary 로 전환되지만 판정은 첫 구문 이후라, 이 의존성으로 "이
         핸들러는 쓰기다"를 미리 밝혀 첫 SELECT 조차 replica 로 새지 않게 합니다.
@@ -331,11 +335,7 @@ async def get_writer_db_session() -> AsyncGenerator[AsyncSession]:
     """
     async with AsyncSessionLocal() as session:
         using_writer(session)
-        try:
-            yield session
-        except Exception:
-            await session.rollback()
-            raise
+        yield session
 
 
 async def get_background_db_session() -> AsyncGenerator[AsyncSession]:
@@ -393,6 +393,31 @@ get_read_session = get_read_only_db_session
 get_write_session = get_writer_db_session
 get_background_session = get_background_db_session
 background_session = background_db_session
+
+
+# readiness 점검이 writer 응답을 기다리는 상한. 헬스체크는 빨리 답하는 것이 목적이라
+# 요청 타임아웃보다 훨씬 짧게 둔다 — 여기서 늘어지면 오케스트레이터가 판정을 못 한다.
+READINESS_TIMEOUT_SECONDS = 2.0
+
+
+async def ping_writer_db(timeout: float = READINESS_TIMEOUT_SECONDS) -> None:
+    """writer DB 에 ``SELECT 1`` 을 실행한다 (readiness 용).
+
+    replica 가 아니라 **writer** 를 보는 이유는, 쓰기가 불가능한 인스턴스로
+    트래픽이 들어오는 것이 준비 실패의 실질적 의미이기 때문이다.
+
+    세션이 아니라 엔진 커넥션을 직접 쓴다. 헬스체크에 ORM 세션·라우팅 판정을
+    태울 이유가 없고, 세션을 끼우면 "어느 엔진을 보는가" 가 라우터 설정에 따라
+    달라진다.
+
+    Raises:
+        TimeoutError: ``timeout`` 안에 응답하지 못한 경우.
+        Exception: 연결·쿼리 실패 시 드라이버 예외를 그대로 올린다. 호출자가
+            사용자 응답에 내용을 싣지 않도록 주의해야 한다(DSN·자격증명 노출).
+    """
+    async with asyncio.timeout(timeout):
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT 1"))
 
 
 async def dispose_engine() -> None:
