@@ -26,8 +26,10 @@ def _install(
     secrets=None,
     sql_echo=False,
     log_level=None,
+    passwords=None,
 ):
     secrets = secrets or {}
+    passwords = passwords or {}
     monkeypatch.setattr(config_module, "app_settings", _Stub(ENV=env, DEBUG=debug, ADMIN=admin))
     monkeypatch.setattr(
         config_module, "cors_settings", _Stub(CORS_ALLOW_ORIGINS=origins or ["https://example.com"])
@@ -49,6 +51,21 @@ def _install(
         config_module,
         "log_settings",
         _Stub(LOG_SQL_ECHO_ENABLED=sql_echo, LOG_LEVEL=log_level),
+    )
+    monkeypatch.setattr(
+        config_module,
+        "db_settings",
+        _Stub(MYSQL_PASSWORD=passwords.get("mysql", "real-mysql-password")),
+    )
+    monkeypatch.setattr(
+        config_module,
+        "redis_settings",
+        _Stub(REDIS_PASSWORD=passwords.get("redis", None)),
+    )
+    monkeypatch.setattr(
+        config_module,
+        "smtp_settings",
+        _Stub(SMTP_PASSWORD=passwords.get("smtp", "")),
     )
 
 
@@ -282,3 +299,92 @@ def test_placeholder_secrets_are_not_checked_outside_deployment(monkeypatch, env
         secrets={"access": "", "refresh": "", "session": "your-session-change-this"},
     )
     config_module.validate_deployment_safety()
+
+
+# -------------------------------------------------------------- 비밀번호 3종
+# 서명 키만 보고 MYSQL·REDIS·SMTP 비밀번호를 놓치면, `.env.example` 을 그대로 복사한
+# 배포가 예시 비밀번호로 기동한다. 같은 판정 함수(is_placeholder_secret)로 함께 막는다.
+#
+# 빈 문자열의 의미는 설정마다 다르다:
+#   - MYSQL_PASSWORD : 빈 값 = 비밀번호 없는 DB 계정. 운영에서 그 자체로 사고라 **위반**.
+#   - REDIS_PASSWORD : 빈 값/None = 인증 없는 사설망 Redis. 코드가 지원하는 정상 구성이라 허용.
+#   - SMTP_PASSWORD  : 빈 값 = 메일 미사용. 메일 안 쓰는 배포를 막을 이유가 없어 허용.
+
+
+@pytest.mark.parametrize("env", ["staging", "production"])
+@pytest.mark.parametrize(
+    ("key", "name"),
+    [("mysql", "MYSQL_PASSWORD"), ("redis", "REDIS_PASSWORD"), ("smtp", "SMTP_PASSWORD")],
+)
+def test_placeholder_password_is_rejected(monkeypatch, env, key, name):
+    _install(monkeypatch, env=env, passwords={key: "your-password-change-this"})
+
+    with pytest.raises(RuntimeError, match=name):
+        config_module.validate_deployment_safety()
+
+
+def test_empty_mysql_password_is_rejected(monkeypatch):
+    """빈 MySQL 비밀번호 = 무인증 DB 계정. 운영에서 허용할 구성이 아니다."""
+    _install(monkeypatch, env="production", passwords={"mysql": ""})
+
+    with pytest.raises(RuntimeError, match="MYSQL_PASSWORD"):
+        config_module.validate_deployment_safety()
+
+
+@pytest.mark.parametrize("value", [None, ""])
+def test_empty_redis_password_passes(monkeypatch, value):
+    """인증 없는 사설망 Redis 는 정상 구성이다 — REDIS_URL 이 그 경로를 직접 지원한다."""
+    _install(monkeypatch, env="production", passwords={"redis": value})
+
+    config_module.validate_deployment_safety()
+
+
+def test_empty_smtp_password_passes(monkeypatch):
+    """메일을 쓰지 않는 배포를 SMTP 비밀번호가 비었다는 이유로 막지 않는다."""
+    _install(monkeypatch, env="production", passwords={"smtp": ""})
+
+    config_module.validate_deployment_safety()
+
+
+@pytest.mark.parametrize("env", ["development", "test"])
+def test_placeholder_passwords_are_not_checked_outside_deployment(monkeypatch, env):
+    _install(
+        monkeypatch,
+        env=env,
+        passwords={"mysql": "", "redis": "your-redis-password", "smtp": "change-this"},
+    )
+
+    config_module.validate_deployment_safety()
+
+
+def test_password_error_message_does_not_leak_values(monkeypatch):
+    """오류 메시지에 비밀번호 값 자체를 담지 않는다 (C-5)."""
+    _install(monkeypatch, env="production", passwords={"mysql": "change-this-db-p4ssw0rd"})
+
+    with pytest.raises(RuntimeError) as excinfo:
+        config_module.validate_deployment_safety()
+
+    assert "change-this-db-p4ssw0rd" not in str(excinfo.value)
+
+
+def test_env_example_passwords_are_rejected_without_leaking_values(monkeypatch):
+    """`.env.example` 을 그대로 복사해 운영에 올리면 비밀번호도 거부된다.
+
+    REDIS_PASSWORD 는 예시가 비어 있고 그게 정당한 구성이라 여기서 빠진다.
+    """
+    from pathlib import Path
+
+    from dotenv import dotenv_values
+
+    example = dotenv_values(Path(config_module.__file__).parent / ".env.example")
+    values = {"mysql": example["MYSQL_PASSWORD"], "smtp": example["SMTP_PASSWORD"]}
+    _install(monkeypatch, env="production", passwords=values)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        config_module.validate_deployment_safety()
+
+    message = str(excinfo.value)
+    for name in ("MYSQL_PASSWORD", "SMTP_PASSWORD"):
+        assert f"{name} 이 기본 placeholder" in message
+    for value in values.values():
+        assert value not in message
