@@ -78,7 +78,7 @@ python_classes = ["Test*"]
 asyncio_mode = "auto"
 
 # async 픽스처의 이벤트 루프 범위. 미지정이면 pytest-asyncio 가
-# PytestDeprecationWarning 을 내지만 아래 filterwarnings 가 그것을 삼킨다.
+# PytestDeprecationWarning 을 낸다.
 # 값은 pytest-asyncio 가 예고한 향후 기본값이라, 지금 명시해 두면 버전이
 # 올라갈 때 픽스처 루프 범위가 조용히 바뀌는 것을 막는다.
 asyncio_default_fixture_loop_scope = "function"
@@ -111,9 +111,18 @@ env = [
 ]
 
 # 필터 경고
+# deprecation 은 에러로 올린다. 블랭킷 ignore 는 앞으로 올 폐기 예고를 전부
+# 게이트에서 안 보이게 만들고, 실제로 pytest-asyncio 의 경고를 삼키고 있었다.
+# 예외를 추가할 때는 반드시 이유를 같이 적는다 — 이유 없는 ignore 는 금지.
+#
+# UserWarning 은 건드리지 않는다. starlette 의 StarletteDeprecationWarning 이
+# UserWarning 을 상속하므로, error::UserWarning 을 켜면 서드파티 경고 하나가
+# 빌드 전체를 인질로 잡는다. 현재 fastapi/testclient.py 의
+# "Using `httpx` with `starlette.testclient` is deprecated" 경고는 ignore 하지
+# 않고 보이는 채로 둔다 (httpx2 전환은 별건).
 filterwarnings = [
-    "ignore::DeprecationWarning",
-    "ignore::PendingDeprecationWarning",
+    "error::DeprecationWarning",
+    "error::PendingDeprecationWarning",
 ]
 
 
