@@ -292,6 +292,30 @@ def test_clean_summary_passes():
     assert judge_pytest_summary("575 passed in 52.03s", allow_deselected=False) == []
 
 
+# pytest 는 파이프로 캡처해도 요약에 색상 코드를 섞는다. 평문 요약만 넣고 시험하면
+# 이 판정이 실제 게이트에서 **아무것도 못 잡는데도** 테스트는 초록이다 — 실제로
+# 그 상태였다. 그래서 진짜 출력 모양(ANSI 포함)으로 시험한다.
+_COLORED_SKIP = "\x1b[33m=========== \x1b[32m609 passed\x1b[0m, \x1b[33m\x1b[1m3 skipped\x1b[0m\x1b[33m in 36s\x1b[0m"
+_COLORED_DESELECTED = "\x1b[32m788 passed\x1b[0m, \x1b[1m32 deselected\x1b[0m in 41s"
+_COLORED_CLEAN = "\x1b[32m=========== \x1b[32m612 passed\x1b[0m\x1b[32m in 32s\x1b[0m"
+
+
+def test_colored_summary_still_catches_skips():
+    """색상 코드가 섞여도 잡아야 한다 — `\\b` 는 `[1m3` 에서 성립하지 않는다."""
+    assert judge_pytest_summary(_COLORED_SKIP, allow_deselected=True)
+
+
+def test_colored_deselection_follows_the_same_rule():
+    assert judge_pytest_summary(_COLORED_DESELECTED, allow_deselected=False)
+    assert judge_pytest_summary(_COLORED_DESELECTED, allow_deselected=True) == []
+
+
+def test_colored_clean_summary_is_not_a_false_positive():
+    """색상을 걷어내는 것이 반대로 오탐을 만들어서도 안 된다."""
+    assert judge_pytest_summary(_COLORED_CLEAN, allow_deselected=False) == []
+    assert judge_pytest_summary("\x1b[1m0 skipped\x1b[0m", allow_deselected=False) == []
+
+
 def test_zero_counts_are_not_flagged():
     """`0 skipped` 는 문제가 아니다 — 숫자를 보지 않으면 여기서 오탐이 난다."""
     assert judge_pytest_summary("575 passed, 0 skipped", allow_deselected=False) == []

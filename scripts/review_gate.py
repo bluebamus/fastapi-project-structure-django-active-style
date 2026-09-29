@@ -224,6 +224,11 @@ def check_doc_env_vars(
 
 _BAD_OUTCOMES = ("skipped", "xfailed", "xpassed")
 
+#: pytest 는 파이프로 캡처해도 요약에 ANSI 색상 코드를 섞는다(실측 확인). 걷어내지
+#: 않으면 요약이 `\x1b[1m3 skipped` 가 되고, `3` 앞 글자가 `m`(단어 문자)이라 아래
+#: `\b` 가 성립하지 않는다 — **판정이 아무것도 못 잡으면서 게이트는 초록**이 된다.
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
 
 def judge_pytest_summary(log: str, *, allow_deselected: bool) -> list[str]:
     """전체 suite 는 조용한 SKIP 을 허용하지 않는다.
@@ -232,11 +237,12 @@ def judge_pytest_summary(log: str, *, allow_deselected: bool) -> list[str]:
     marker 필터가 만드는 정상 결과라 marker 실행에서만 허용하고, 전체 suite 에서는
     거부한다 — 전체를 돌린다면서 일부를 골라내면 그 결과는 전체가 아니다.
     """
+    plain = _ANSI.sub("", log)
     outcomes = _BAD_OUTCOMES if allow_deselected else (*_BAD_OUTCOMES, "deselected")
     return [
         f"pytest 요약에 '{outcome}' 가 있습니다"
         for outcome in outcomes
-        if re.search(rf"\b[1-9][0-9]* {outcome}\b", log)
+        if re.search(rf"\b[1-9][0-9]* {outcome}\b", plain)
     ]
 
 
