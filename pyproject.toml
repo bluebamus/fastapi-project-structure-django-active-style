@@ -14,11 +14,15 @@ dependencies = [
     "pydantic (>=2.10.6,<3.0.0)",
     "pydantic-settings (>=2.8.1,<3.0.0)",
     "aiomysql (>=0.3.0,<0.4.0)",
-    "uvicorn[standard] (>=0.34.0,<0.35.0)",
+    "uvicorn[standard] (>=0.54.0,<0.55.0)",
     "user-agents (>=2.2.0,<3.0.0)",
     "scalar-fastapi (>=1.0.0,<2.0.0)",
     "sqladmin (>=0.20.0,<1.0.0)",
-    "redis (>=5.0.0,<6.0.0)",
+    # 상한을 `<6.5` 로 적지 않는다 — 그건 `kombu[redis]` 의 제약이고, 베끼면
+    # kombu 가 범위를 바꿀 때 여기가 같이 안 움직여 충돌한다.
+    # 우리가 선언하는 것은 "redis-py 6.x API 로 동작한다" 이고, 실제 해석 천장은
+    # kombu 가 정한다(현재 6.4.0).
+    "redis (>=6.0.0,<7.0.0)",
     "python-json-logger (>=2.0.0,<3.0.0)",
     "python-dotenv (>=1.0.0,<2.0.0)",
     "tzdata>=2026.2",
