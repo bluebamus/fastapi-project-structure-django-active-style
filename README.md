@@ -279,7 +279,10 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 - `DEBUG=true` · `ADMIN=true`
 - placeholder 인 access/refresh/session 키(앞뒤 공백 제거·소문자화 후 `change-this` 를 포함하거나 `your-` 로 시작하거나 빈 값 — `config.is_placeholder_secret`),
   또는 access 와 refresh 키가 같음. `.env.example` 의 키 예시는 일부러 이 규칙에 걸린다
-- `CORS_ALLOW_ORIGINS` 의 `*` · `LOG_SQL_ECHO_ENABLED=true`
+- placeholder 인 `MYSQL_PASSWORD`(**빈 값 포함** — 무인증 DB 계정). `REDIS_PASSWORD`·`SMTP_PASSWORD`
+  는 빈 값이 정당한 구성이라 값이 있을 때만 검사한다
+- `CORS_ALLOW_ORIGINS` 의 `*` · `LOG_SQL_ECHO_ENABLED=true` · `LOG_LEVEL=DEBUG`(롤백 상세에 SQL
+  본문과 바인딩된 값이 남는다)
 
 **사람이 확인할 것.**
 

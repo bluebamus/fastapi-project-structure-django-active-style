@@ -309,7 +309,8 @@ def _repo_files() -> list[str]:
 # 로 기록한다. 이력은 당시의 사실이라 고쳐 쓰지 않으므로(C-3) 여기서 면제한다 —
 # 살아 있는 문서가 이 경로들을 다시 가리키기 시작하면 그건 이 목록이 아니라 리뷰가 잡을 일이다.
 DOC_ALLOWED_MISSING_PATHS = {
-    "app/core/resources.py",
+    # `app/core/resources.py` 는 runtime-lifecycle ADR-001 로 실제 생성됐다 — 주석의 규칙대로
+    # 목록에서 뺀다(2026-09-30). 다시 사라지면 게이트가 잡는 편이 맞다.
     "app/core/bootstrap.py",  # F-210 — create_app() 시대 잔재, 문서만 남아 있었다
     "docs/concepts/README.md",  # F-210 — 삭제된 폴더
     "docs/review/improvement-plan-2026-08-10.md",  # F-213 — 애초에 없던 인용

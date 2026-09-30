@@ -64,7 +64,7 @@
 - INV-12: 공통 Base 는 단일 컬럼 PK 만 지원하며 기본 이름은 `id` 다. PK 는 Repository 계층을 지나며 **타입이 변환되지 않는다**. 다른 이름은 `pk_attr`, 복합 PK 는 기능 Repository 로 분리한다. (검사: `tests/core/test_pk_generic.py`)
 - INV-13: 공통 컬럼(`id`/`created_at`/`updated_at`)은 mixin 에서 온다. 모델이 같은 컬럼을 복사 정의하지 않는다. (검사: `tests/core/test_models_base_mixins.py`)
 - INV-14: 모델 리팩터링은 스키마를 바꾸지 않는다. (검사: `tests/core/test_schema_snapshot.py` 골든 대조 + 기존 `tests/core/test_migration_chain.py::test_migrated_schema_matches_models`)
-- INV-11: read-only 세션에서 Raw SQL 은 default-deny 로 판별한다 — SELECT 로 시작하고 잠금을 잡지 않는 단일 문장만 허용한다. (검사: `tests/core/test_read_only_guard.py` 의 문장 매트릭스)
+- INV-11: read-only 세션에서 Raw SQL 은 default-deny 로 판별한다 — **괄호 깊이 0 스캔**(`_depth0_words`)으로 최상위 구문을 보고, `SELECT` 또는 읽기 전용 CTE(`WITH ... SELECT`)로 시작하며 최상위에 쓰기 키워드가 없고 잠금을 잡지 않는 단일 문장만 허용한다. 스캔이 무너지면(따옴표 미종료·괄호 불일치) 거부한다(fail-closed). (검사: `tests/core/test_read_only_guard.py` 의 문장 매트릭스) *(2026-09-18 ADR-007 로 판정 방법 교체 — v0.1 문구는 "SELECT 로 시작하는 단일 문장" 이었다)*
 
 ### 2-4. 비목표
 - `main.py` 의 기능별 명시 `include_router()` / 중앙 router·Admin 목록
@@ -93,3 +93,7 @@
 - v0.1 (2026-08-18): 최초 작성. Phase 0 기준선 측정값 반영.
 - v0.2 (2026-08-20): 재검수. 미체크로 남아 있던 인수 기준 2건을 근거와 함께 닫고,
   불변식 범위 문구를 실제 집합(INV-1~21)에 맞췄다. 인수 기준 자체는 바꾸지 않았다.
+- v0.3 (2026-09-30): INV-11 의 **정의 문구**를 현재 집행 코드에 맞췄다 — ADR-007(2026-09-18)이
+  판정을 괄호 깊이 0 스캔으로 바꾸면서 읽기 전용 CTE 가 허용되고 fail-closed 가 추가됐는데,
+  v0.1 문구("SELECT 로 시작하는 단일 문장")가 그대로 남아 있었다. 계약의 강도는 바뀌지 않았고
+  §3 인수 기준도 그대로다.
