@@ -495,6 +495,11 @@ uv run alembic heads          # head 는 하나여야 한다
 - 모델을 정의하는 테스트는 공유 `Base.metadata` 를 오염시키지 않도록 테스트 전용 `DeclarativeBase`
   를 씁니다(`tests/core/test_pk_generic.py`).
 - skip 된 MySQL 테스트는 성공이 아닙니다. CI MySQL job 과 `tests` 게이트는 skip 0 을 요구합니다.
+- `DeprecationWarning`·`PendingDeprecationWarning` 은 `pyproject.toml` 의 `filterwarnings` 가
+  **에러로 올립니다**(예외 목록은 비어 있습니다). 폐기 예고가 뜨면 억제하지 말고 원인을 고치고,
+  그래도 `ignore` 를 남겨야 하면 이유를 주석으로 함께 적습니다. `UserWarning` 은 올리지 않습니다 —
+  starlette 의 `StarletteDeprecationWarning` 이 이를 상속해, 켜면 서드파티 경고 하나가 빌드
+  전체를 막습니다.
 
 ```bash
 uv run python -m pytest app/features/<name>/tests

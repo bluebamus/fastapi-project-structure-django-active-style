@@ -279,8 +279,13 @@ ASGI lifespan 진입
   `is_placeholder_secret()` 가 판정한다: 앞뒤 공백 제거·소문자화 후 `change-this` 를 포함하거나 `your-` 로 시작하거나 빈 값.
   옛 예시 파일의 `your-...-change-this` 형식도 여기에 걸린다
 - access/refresh 서명 키가 같음
+- placeholder 인 `MYSQL_PASSWORD` — 같은 `is_placeholder_secret()` 판정이고, **빈 값도 위반**이다
+  (무인증 DB 계정). `REDIS_PASSWORD`·`SMTP_PASSWORD` 는 빈 값이 정당한 구성(인증 없는 사설망
+  Redis, 메일 미사용)이라 **값이 있을 때만** 본다
 - `CORS_ALLOW_ORIGINS` 에 `*`
 - `LOG_SQL_ECHO_ENABLED=true`
+- `LOG_LEVEL=DEBUG` — 롤백 상세(SQL 본문·바인딩 값)는 DEBUG 레코드로만 나갑니다(§8.2).
+  `DEBUG` 와 달리 `LOG_LEVEL` 은 단독으로도 유효 레벨을 DEBUG 로 올립니다
 
 `development`/`test` 는 편의 기본값(`DEBUG=true`, `ADMIN=true`)을 그대로 둡니다. 회귀 가드:
 `tests/core/test_deployment_safety.py`, 설정과 `.env.example` 의 동기화는
@@ -472,7 +477,10 @@ core 의 `UserInfoMiddleware` 가 수집하고, home 앱의 `HomeAccessLogSink` 
 2. 그 밖의 SELECT → reader (라운드로빈). 한 세션이 고른 reader 는 세션 끝까지 유지(pin)
 3. `DB_READ_STICKY_AFTER_WRITE=true`(기본) 면 쓰기 뒤 같은 세션의 SELECT → writer
 4. reader 가 없으면 writer
-5. `SELECT ... FOR UPDATE/SHARE` 같은 잠금 조회, 판별 불가 Raw SQL → writer
+5. 그 밖의 모든 것(잠금 조회 `SELECT ... FOR UPDATE/SHARE`, `text()` Raw SQL)은 **1~3 규칙만**
+   따릅니다 — 라우터는 ORM flush 와 Core `UpdateBase` 만 쓰기로 보므로 잠금 조회도 reader 로
+   나갈 수 있습니다. 잠금이 필요하면 `get_writer_db_session` 을 쓰거나 `using_writer(session)`
+   으로 직접 고정합니다(§8.2, 개발 가이드 §7)
 
 복제 지연을 허용할 수 없는 읽기는 writer 세션을 쓰거나 `using_writer(session)` 으로 고정합니다.
 sticky 는 세션 내부 정책이라 다음 요청의 read-only 세션까지 지연을 없애지 않습니다.

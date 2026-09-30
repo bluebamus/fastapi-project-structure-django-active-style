@@ -32,8 +32,10 @@ Django 의 ``DATABASE_ROUTERS`` 와 같은 역할을 SQLAlchemy 에서 수행한
     await session.execute(select(Post))         # → writer
 
 Note:
-    라우터를 끄면(``DB_ROUTER_ENABLED=false``) 이 모듈은 쓰이지 않고
-    세션은 단일 엔진에 직접 바인딩된다(기존 동작 그대로).
+    라우터를 끄면(``DB_ROUTER_ENABLED=false``) **엔진 선택만** 쓰이지 않는다 —
+    세션은 단일 엔진에 직접 바인딩된다(기존 동작 그대로). 이 모듈 아래쪽의
+    read-only 집행(``before_flush``·``do_orm_execute`` 이벤트)은 ``Session``
+    클래스에 붙어 있어 설정과 무관하게 항상 동작한다.
 """
 
 from __future__ import annotations
