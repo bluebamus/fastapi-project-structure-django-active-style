@@ -6,10 +6,11 @@
 
 | 영역 | 경로 | 종류 | 비고 |
 |---|---|---|---|
-| 학습 가이드 | `docs/guides/orm-raw-workflow.md` | 문서(신규) | ADR-001 — 살아 있는 가이드 |
-| 문서 진입점 | `docs/README.md` | 문서(신규) | ADR-003 — 폴더 성격 구분 |
+| 학습 가이드 | `docs/guides/DEVELOPMENT.md` | 문서 | ADR-001 — 살아 있는 가이드 (2026-09-17 ADR-007 로 `orm-raw-workflow.md` 에서 개명) |
+| 구조 레퍼런스 | `docs/guides/ARCHITECTURE.md` | 문서 | 런타임·구조의 소유 문서(ADR-006) |
+| HTML 안내서 | `docs/guides/server-lifecycle-guide.html`, `docs/guides/feature-development-guide.html` | 문서 | ADR-007 로 복원 — 흐름 도식 |
+| 문서 진입점 | `README.md` 「문서 안내」 절 | 문서 | ADR-006 — 문서 목록은 여기 하나뿐(`docs/README.md` 는 삭제) |
 | 최상위 안내 | `README.md` | 문서 | 제목·목차·ORM/Raw 섹션 |
-| 버전 가이드 | `docs/project-guide/v1.0.0/08-data-runtime-workflow-*.md` | 문서 | 시대 뒤처진 문단 현행화 |
 | 프로젝트 메타 | `pyproject.toml` | 설정 | 패키지명 |
 | 생성기 안내 | `scripts/new_app.py` | 소스 | 출력 문구만(로직 불변) |
 | 회귀 테스트 | `tests/test_docs_learnability.py` | 테스트(신규) | ADR-002 |
@@ -20,7 +21,7 @@
 ## 2. 계약
 
 ### 2-1. 지원 구성
-- 학습자 진입 경로 3종: 저장소 `README.md` · `docs/README.md` · 생성기 출력
+- 학습자 진입 경로: 저장소 `README.md`(「문서 안내」 절이 유일한 문서 목록) · 생성기 출력
 - 두 예제 기능이 각 방식의 참조 구현: `catalog`(ORM) · `reports`(Raw)
 
 ### 2-2. 위협 모델
@@ -34,7 +35,7 @@
 
 | ID | 불변식 | 검사 방법 |
 |---|---|---|
-| INV-1 | 학습 진입점 3종이 존재하고 `README` → 가이드 도달 경로가 있다. | 경로·문자열 단언 |
+| INV-1 | 학습 진입점(README · ARCHITECTURE · DEVELOPMENT · HTML 안내서 2종)이 존재하고 `README` → 가이드 도달 경로가 있다. | 경로·문자열 단언 (`test_learner_entry_points_exist`) |
 | INV-2 | README 제목이 이 저장소를 식별한다(이전 기준선 이름 잔재 없음). | 첫 줄 검사 |
 | INV-3 | README 가 ORM/Raw **선택 기준**을 제시한다(두 Base·두 예제 언급). | 키워드 단언 |
 | INV-4 | 가이드가 "기본값은 ORM" 과 핵심 규칙 5종을 다룬다. | 파라미터화 단언 |
@@ -55,7 +56,9 @@
 - [x] `pytest` 전량 통과 **701 passed**(677 → +21 Round 1 → +3 Round 2), skip/xfail/deselected 0
 - [x] `scripts/review_gate.py` 6그룹 전부 통과
 - [x] INV-1~INV-9 각각에 실행 테스트 연결
-- [x] (Round 2) 버전 가이드의 갱신 블록 링크가 실재 — 정정이 사라지는 경로를 막는다
+- [x] 문서의 상대 링크가 전부 실재 — 정정이 사라지는 경로를 막는다
+      (Round 2 는 버전 가이드의 갱신 블록 링크만 봤고, ADR-006 이 버전 가이드를 삭제하면서
+      검사를 README·`docs/` 전체(crp 제외) 상대 링크로 넓혔다 — `test_all_docs_relative_links_resolve`)
 - [x] 라우트 22 paths / 37 operations · alembic `d4e6f8b12c34` 불변
 - [x] 애플리케이션 동작 코드 **diff 0**(C-1 기계 검증) — 변경은 문서·테스트·생성기 출력·메타만
 - [x] fail-on-revert 확인 — 제목·링크를 되돌리면 2건 실패
@@ -65,3 +68,8 @@
 - v0.1 (2026-08-20): 최초 작성 및 Round 1 완료 반영.
 - v0.2 (2026-08-20): Round 2(F-206·F-207) 반영 — 인수 기준의 테스트 수를 701 로 갱신하고
   갱신 블록 링크 검사를 항목으로 추가했다.
+- v0.3 (2026-10-02): §1 인벤토리·§2-1·INV-1 의 **현재 상태 서술**을 ADR-006·ADR-007 이후의
+  실제 문서 배치에 맞췄다 — `orm-raw-workflow.md` → `DEVELOPMENT.md` 개명, `docs/README.md`
+  삭제(문서 목록은 README 「문서 안내」 절 하나), HTML 안내서 2종 복원, 삭제된
+  `docs/project-guide/v1.0.0/` 행 제거. §3 의 갱신 블록 링크 항목도 현재 검사(문서 전체 상대
+  링크)로 바꿨다. 계약의 강도와 인수 기준 자체는 바뀌지 않았다.

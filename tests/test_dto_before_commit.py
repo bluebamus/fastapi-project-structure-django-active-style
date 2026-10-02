@@ -35,7 +35,8 @@ class _Case:
     model: str  # "모듈:클래스"
     collection: str
     create: dict[str, Any]
-    update: dict[str, Any]
+    #: 수정 엔드포인트가 없는 기능은 ``None`` — 생성 쪽만 검사한다.
+    update: dict[str, Any] | None
 
 
 _CASES = {
@@ -70,6 +71,16 @@ _CASES = {
         "/api/v1/user/users",
         {"username": "hong", "email": "hong@example.com"},
         {"email": "changed@example.com"},
+    ),
+    # auth 는 PATCH 가 없어 생성만 본다. CRUD 앱이 아니라고 빼 두었다가 **유일하게 순서를
+    # 어긴 핸들러**가 됐다(2026-10-02 문서 검수) — 쓰기 핸들러면 CRUD 여부와 무관하다.
+    "auth": _Case(
+        "app.features.auth.api.routers.v1.auth",
+        "AuthUserResponse",
+        "app.features.user.models.models:User",
+        "/api/v1/auth/register",
+        {"username": "hong", "email": "hong@example.com", "password": "s3cret-pass"},
+        None,
     ),
     # 기준 순서를 이미 지키는 예제 — 검사가 올바른 것을 통과시키는지의 대조군.
     "catalog": _Case(
@@ -147,10 +158,11 @@ async def test_create_does_not_commit_when_dto_validation_fails(env, name, monke
     assert count == 0, f"{name}: 500 을 돌려줬는데 행이 저장돼 있다"
 
 
-@pytest.mark.parametrize("name", sorted(_CASES))
+@pytest.mark.parametrize("name", sorted(n for n, c in _CASES.items() if c.update))
 async def test_update_does_not_commit_when_dto_validation_fails(env, name, monkeypatch):
     client, maker, calls = env
     case = _CASES[name]
+    assert case.update is not None  # parametrize 가 걸러 준다 — 타입 체커용
     created = await client.post(case.collection, json=case.create)
     assert created.status_code == 201, created.text
     item_id = created.json()["id"]

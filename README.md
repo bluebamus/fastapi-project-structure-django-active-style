@@ -250,7 +250,7 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | `ADMIN` | `true` | `/admin` 마운트. **인증 없음** (DEBUG 와 독립) |
 | `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_PASSWORD` | `localhost` / `6379` / `0` / 없음 | startup `ping()` 대상, Celery broker |
 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | `localhost` / `3306` / `root` / `""` / `fastapi_db` | primary(writer) DB |
-| `DB_ROUTER_ENABLED` / `DB_REPLICATION_ENABLED` / `MYSQL_REPLICA_HOSTS` | `false` / `false` / `[]` | 읽기/쓰기 분리 (선택) |
+| `DB_ROUTER_ENABLED` / `DB_REPLICATION_ENABLED` / `MYSQL_REPLICA_HOSTS` | `false` / `false` / `[]` | replica 라우팅 (선택). read-only 세션의 쓰기 차단은 이 설정과 **무관하게** 항상 동작한다 |
 | `ACCESS_TOKEN_SECRET_KEY` / `REFRESH_TOKEN_SECRET_KEY` / `SESSION_SECRET_KEY` | `change-this-...` | 서명·세션 키. 배포 전 서로 다른 값으로 교체 — 생성: `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"` |
 | `CORS_ALLOW_ORIGINS` | `["*"]` | JSON 배열로 지정 |
 | `TRUST_PROXY_HEADERS` | `false` | 리버스 프록시 뒤에서만 `true` — 접속 로그 IP 에 X-Forwarded-For 사용 |
@@ -383,7 +383,7 @@ Celery 태스크는 기능 폴더가 아니라 `app/celery/tasks.py` 에 둡니�
 | staging/production 에서 `안전하지 않은 설정으로 기동할 수 없습니다` | 배포 게이트 | 메시지의 설정을 모두 고친다 ([운영 배포](#운영-배포)) |
 | `/docs` 가 404 | `DEBUG=false` | `DEBUG=true` (MySQL 필요) |
 | 기능 API 만 500, `/ready` 503 | 앱은 떴지만 DB 가 없다 | MySQL 준비 |
-| 새 기능이 마운트되지 않음 | 디렉터리명이 식별자가 아니거나 `_` 로 시작, `__init__.py` 없음, 라우터 변수명이 `<name>_router` 가 아님 | [ARCHITECTURE §2](docs/guides/ARCHITECTURE.md). 파일 **안의** import 오류라면 조용히 넘어가지 않고 기동이 실패한다 |
+| 새 기능이 마운트되지 않음 | 디렉터리명이 식별자가 아니거나 `_` 로 시작, `__init__.py` 없음, 라우터 모듈 경로가 `api/routers/router.py` 가 아님(변수명이 틀린 경우는 아래 `AppContractError` 행) | [ARCHITECTURE §2](docs/guides/ARCHITECTURE.md). 파일 **안의** import 오류라면 조용히 넘어가지 않고 기동이 실패한다 |
 | startup 에서 `AppContractError` | `router.py`/`admin.py` 의 export 가 규약과 다르거나 두 앱이 같은 객체를 내보냄 | 오류 메시지의 앱과 export 를 고친다 |
 | 기동 INFO 로그가 안 보임 | `LOG_LEVEL`/`LOG_CONSOLE_LEVEL` 명시값이 우선 | [ARCHITECTURE §5](docs/guides/ARCHITECTURE.md) |
 

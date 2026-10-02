@@ -10,10 +10,10 @@
 | R-102 | 로그 유실 0 을 보장하지 않는다. bounded queue 가 가득 차면 드롭한다. | LOW | charter 2-2 "방어하지 않는다". 무한 queue 는 블로킹을 메모리 증가로 바꿀 뿐이다. 드롭은 카운터로 노출해 **조용하지 않게** 만든다. | 2026-08-19 | 드롭 카운터가 운영에서 실제로 유의미하게 증가하면 상한·백프레셔 정책을 재설계한다. |
 | R-103 | 프로세스 강제 종료(SIGKILL)·전원 차단 시의 정리는 다루지 않는다. | LOW | charter 2-2. OS 가 소켓·파일 핸들을 회수한다. 애플리케이션이 방어할 수 있는 범위가 아니다. | 2026-08-19 | (없음 — 구조적으로 방어 불가) |
 | R-104 | 다중 worker(gunicorn 등)에서 같은 파일에 쓰는 경합은 다루지 않는다. 파일 로깅은 프로세스별이다. | LOW | charter 2-2. 다중 프로세스 로그 병합은 수집기(수집 에이전트)의 역할이다. | 2026-08-19 | 단일 파일 병합 요구가 charter 2-1 에 추가되면. |
+| R-105 | 개발용 startup DDL(`DEBUG=true` 일 때의 `create_db_tables()`)은 **유지한다** — 2026-08-20 사용자 결정. 계획서 §8 의 "단일 worker 제한" 은 코드로 강제하지 않는다. 남는 위험은 ① 다중 worker 기동 시 concurrent DDL ② Alembic 전환 후 새 모델이 마이그레이션 없이 생성되어 이력과 실제 DB 가 갈라지는 것, 둘 다 **문서로만 방어한다**. | LOW | 초기 개발에서 매 모델 변경마다 revision 을 만드는 비용이 크고, 그 단계에는 잃으면 안 되는 데이터가 없다. 잠금(파일 락·advisory lock)은 방언 문제와 크래시 잔여 락을 새로 들여오는데 막으려는 대상이 개발 편의 경로다. 전환 정책을 README §4-1 과 호출 지점 주석 **양쪽**에 두고, 양쪽의 존재를 테스트로 고정했다(`test_schema_management_policy_is_documented_in_both_places`). 처음부터 Alembic 을 쓰는 경로는 코드 변경 없이 열려 있다 — `create_all` 이 checkfirst 라 선적용 시 no-op 이 된다. | 2026-08-20 | 개발에서 실제로 concurrent DDL 충돌이 관측되거나, 다중 worker 가 지원 구성(charter 2-1)에 추가되면 ledger 로 승격한다. 그때의 해법은 잠금이 아니라 startup DDL 제거 + Alembic 일원화다. |
 
 <!--
 규칙:
 - 여기 있는 항목을 다음 라운드에서 새 finding 으로 다시 올리지 않는다.
 - 재평가 조건이 참이 되면 ledger 로 승격한다(그때 비로소 "결함").
 -->
-| R-105 | 개발용 startup DDL(`DEBUG=true` 일 때의 `create_db_tables()`)은 **유지한다** — 2026-08-20 사용자 결정. 계획서 §8 의 "단일 worker 제한" 은 코드로 강제하지 않는다. 남는 위험은 ① 다중 worker 기동 시 concurrent DDL ② Alembic 전환 후 새 모델이 마이그레이션 없이 생성되어 이력과 실제 DB 가 갈라지는 것, 둘 다 **문서로만 방어한다**. | LOW | 초기 개발에서 매 모델 변경마다 revision 을 만드는 비용이 크고, 그 단계에는 잃으면 안 되는 데이터가 없다. 잠금(파일 락·advisory lock)은 방언 문제와 크래시 잔여 락을 새로 들여오는데 막으려는 대상이 개발 편의 경로다. 전환 정책을 README §4-1 과 호출 지점 주석 **양쪽**에 두고, 양쪽의 존재를 테스트로 고정했다(`test_schema_management_policy_is_documented_in_both_places`). 처음부터 Alembic 을 쓰는 경로는 코드 변경 없이 열려 있다 — `create_all` 이 checkfirst 라 선적용 시 no-op 이 된다. | 2026-08-20 | 개발에서 실제로 concurrent DDL 충돌이 관측되거나, 다중 worker 가 지원 구성(charter 2-1)에 추가되면 ledger 로 승격한다. 그때의 해법은 잠금이 아니라 startup DDL 제거 + Alembic 일원화다. |

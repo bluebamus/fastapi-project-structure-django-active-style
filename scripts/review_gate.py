@@ -323,9 +323,10 @@ DOC_ALLOWED_MISSING_PATHS = {
     # 개발 안내서가 "새 기능을 만든다면" 의 가상 예시로 쓰는 경로다.
     "dependencies/inventory_dependencies.py",
 }
-DOC_ALLOWED_MISSING_ENV = {
-    "LOG_SQL_ECHO_ENABLED",  # F-018 이 예고하는 설정(Phase 1-R2)
-}
+# 위 경로 면제와 같은 규칙이다 — 설정이 생기면 여기서 지운다. 지금은 비어 있다:
+# `LOG_SQL_ECHO_ENABLED` 는 F-018 이 예고한 뒤 실제로 만들어졌는데(`config.py:584`)
+# 면제만 남아 있었다. 죽은 면제는 검사가 보는 범위를 조용히 줄인다.
+DOC_ALLOWED_MISSING_ENV: set[str] = set()
 
 # 앱이 정의하지 않지만 문서가 정당하게 언급하는 외부 환경변수. 인터프리터·도구·CI 가
 # 소유하며, 설정 계층에 없다고 해서 오타가 아니다.

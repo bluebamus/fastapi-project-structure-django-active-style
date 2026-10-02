@@ -420,7 +420,9 @@ core 의 `UserInfoMiddleware` 가 수집하고, home 앱의 `HomeAccessLogSink` 
 헤더를 믿고, 기본(false)은 직접 연결 주소를 씁니다. 리버스 프록시 뒤에서만 켜고, 프록시가 외부에서
 온 전달 헤더를 지우도록 구성합니다. JWT 인증은 `request.state.user_id` 를 설정하지 않으므로
 `user_id` 는 보통 비어 있습니다. `user_access_logs` 는 `ip_address`·`created_at`·`device_type`·
-`os_name`·`browser_name`·`session_id`·`user_id` 에 인덱스가 있습니다.
+`os_name`·`browser_name`·`session_id`·`user_id`·`country` 에 인덱스가 있습니다 — `country`·
+`country_code`·`city` 컬럼은 선언과 인덱스만 있고 미들웨어가 값을 채우지 않습니다(위 표에 없는
+이유).
 
 비핵심 로그라서 API 가용성을 로그 완전성보다 우선한 설계입니다. 무손실 감사 로그가 필요하면
 내구 큐·재처리·중복 제거를 따로 설계해야 합니다. 개인정보 쪽 한계는 §10.3 을 봅니다.
