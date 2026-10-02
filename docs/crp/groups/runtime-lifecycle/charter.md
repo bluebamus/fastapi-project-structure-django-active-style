@@ -1,7 +1,7 @@
 # Charter — Runtime/Lifecycle  (Charter v0.1 / 2026-08-19)
 
 > 검수의 **닫힌 정의**. 여기 적힌 것이 범위와 합격 기준의 전부다.
-> **상위 기준:** `design-baseline.md` 의 Active 요구사항(REQ-001~009)·불가침 제약(C-1~C-6)과
+> **상위 기준:** `design-baseline.md` 의 Active 요구사항(REQ-001~014)·불가침 제약(C-1~C-6)과
 > 모순될 수 없다(모순 시 design-baseline 우선).
 
 ## 1. 인벤토리 (Scope Inventory)
@@ -59,7 +59,7 @@
 | INV-3 | drain 은 admission 을 닫은 뒤 수행되며, 종료 후 추적 집합이 **비어 있다**. | drain 중 spawn 거부 + `active == 0` 단언 |
 | INV-4 | 완료된 백그라운드 태스크의 예외는 **소비**된다("never retrieved" 경고 0). | 예외를 던지는 태스크 후 경고 캡처 0 단언 |
 | INV-5 | 파일 로깅 handler 는 root 에 직접 붙지 않는다 — `QueueHandler` 를 경유한다. | dictConfig 구조 단언 |
-| INV-6 | 로깅 bootstrap 은 `python main.py` 와 `uvicorn main:app` 양쪽에서 **1회**만 일어난다. | 자식 프로세스 2종에서 listener 수 단언 |
+| INV-6 | 로깅 bootstrap 은 `python main.py` 와 `uvicorn main:app` 양쪽에서 **1회**만 일어난다. | `configure_logging()` 멱등 단언(`tests/utils/test_logs.py`) + uvicorn 설정이 root 를 재정의하지 않음 단언(`tests/utils/test_queue_logging.py`) |
 | INV-7 | SQL/driver 로거의 DEBUG·INFO 는 차단되고 WARNING 이상은 통과한다. | 필터 단위 테스트(레벨별) |
 | INV-8 | `LOG_SQL_ECHO_ENABLED=true` + staging/production 조합은 **기동 실패**한다. | 배포 안전성 검증 테스트 |
 | INV-9 | `discover()` 만 실행하면 metadata 와 장기 자원 수가 변하지 않는다(부작용 0). | 등록된 sink 수 before/after 단언 |
@@ -87,3 +87,7 @@
 ## 4. 변경 이력
 - v0.1 (2026-08-19): 최초 작성. 기준선 621 tests / commit `50cf194` 반영.
 - v0.2 (2026-08-19): 2-1 에 Celery prefork 확정(REQ-009)과 Windows `--pool=solo` 안내 반영.
+- v0.3 (2026-10-02): 상위 기준의 REQ 범위를 design-baseline 의 실제 집합(REQ-001~014)에 맞추고,
+  INV-6 의 **검사 방법** 칸을 실재하는 테스트로 바꿨다 — "자식 프로세스 2종에서 listener 수
+  단언" 은 구현된 적이 없고, 실제 집행은 `configure_logging()` 멱등 단언과 uvicorn 설정이
+  root 를 재정의하지 않는지 보는 단언 둘이다. 불변식 자체와 인수 기준은 바뀌지 않았다.

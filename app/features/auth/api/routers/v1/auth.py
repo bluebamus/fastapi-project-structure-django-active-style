@@ -49,8 +49,11 @@ async def register(
     service: AuthService = Depends(get_auth_service),
 ) -> AuthUserResponse:
     user = await service.register(payload)
+    # DTO 검증이 commit **앞**이다 — 뒤에 두면 검증이 터졌을 때 사용자는 500 을 받는데
+    # 행은 이미 저장돼 있다. `tests/test_dto_before_commit.py` 가 이 순서를 고정한다.
+    response = AuthUserResponse.model_validate(user)
     await service.commit()
-    return AuthUserResponse.model_validate(user)
+    return response
 
 
 @router.post(

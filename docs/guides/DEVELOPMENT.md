@@ -411,8 +411,11 @@ async def get_catalog_service_readonly(
   수 있습니다([FastAPI 설명](https://fastapi.tiangolo.com/tutorial/dependencies/dependencies-with-yield/#early-exit-and-scope)).
   핸들러에서 commit 하면 실패가 응답 코드에 반영됩니다. 구조 증거: `tests/test_read_path_no_commit.py`,
   `app/features/blog/tests/test_transaction_boundary.py`.
-- 예외로 빠져나가면 세션 Dependency 가 `rollback()` 후 재전파하고, 글로벌 핸들러가 `ErrorResponse` 를
-  만듭니다. 이미 commit 한 뒤의 실패는 rollback 이 되돌리지 못합니다.
+- 예외로 빠져나가면 세션 Dependency 의 `async with` 가 닫히며 활성 트랜잭션을 ROLLBACK 하고, 예외는
+  그대로 올라가 글로벌 핸들러가 `ErrorResponse` 를 만듭니다. 기능용 세션 Dependency 에는 명시적인
+  `except Exception: rollback` 이 없습니다 — `close()` 가 이미 ROLLBACK 을 보내고, `except Exception`
+  은 `CancelledError` 를 놓칩니다([ARCHITECTURE §8.2](./ARCHITECTURE.md)). 이미 commit 한 뒤의 실패는
+  rollback 이 되돌리지 못합니다.
 - `BaseService.commit()` 은 `session.commit()` 을 그대로 await 합니다. Repository 의 예외 변환은
   commit 단계 오류까지 포함하지 않으므로, 새 오류 계약은 commit 실패도 테스트합니다. 응답에는 SQL·
   bind 값·DSN·secret 을 넣지 않습니다.
