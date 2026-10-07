@@ -39,7 +39,8 @@
 
 ### 2-2. 위협 모델
 - 방어한다: Raw SQL 인젝션(바인딩 강제), read-only 세션의 DML, 로그·오류의 secret/SQL/DSN 노출,
-  staging/production 의 안전하지 않은 DEBUG·placeholder secret·무인증 Admin·와일드카드 CORS.
+  staging/production 의 안전하지 않은 DEBUG·확인 없는 무인증 Admin·와일드카드 CORS, 그리고 test 외 모든 ENV 의
+  placeholder secret·짧은 키·`.env` 없는 기동(ADR-013).
 - 방어하지 않는다: 애플리케이션 레벨 권한 모델(RBAC), 네트워크 경계, DB 서버 자체 보안,
   parser 없이 판별 불가능한 CTE 내부 DML(→ residual-risk R-001).
 
@@ -88,6 +89,7 @@
 - [x] 질의 수준(design-baseline §0 = 보통)에 맞춘 P/D 질문 깊이 준수
       (핵심 갈림길만 질의 — Celery 실행 모델은 사용자 결정을 받아 REQ-009 로 확정,
       나머지는 기본값 + 고지로 처리. run-log 각 라운드에 기록)
+- [x] (ADR-013) 설정 검사 — `.env` 출처, 예시 비밀값·32자 미만 키(test 외 모든 ENV), 배포 환경 `ADMIN=true` 의 `ADMIN_ALLOW_UNAUTHENTICATED` 확인 → `tests/core/test_deployment_safety.py`(91건, import 시점 실패와 기동 WARNING 은 자식 프로세스로 확인)
 
 ## 4. 변경 이력
 - v0.1 (2026-08-18): 최초 작성. Phase 0 기준선 측정값 반영.
@@ -97,3 +99,5 @@
   판정을 괄호 깊이 0 스캔으로 바꾸면서 읽기 전용 CTE 가 허용되고 fail-closed 가 추가됐는데,
   v0.1 문구("SELECT 로 시작하는 단일 문장")가 그대로 남아 있었다. 계약의 강도는 바뀌지 않았고
   §3 인수 기준도 그대로다.
+- v0.4 (2026-10-07): §2-2 위협 모델과 §3 에 설정 검사(ADR-013)를 반영했다 — 배포 환경의 무인증 Admin 은
+  거부에서 확인 요구로 바뀌었고, 비밀값 검사는 test 외 모든 ENV 로 넓어졌다.

@@ -202,7 +202,7 @@ Django 호환 계층도 Django 기반도 아닙니다. Django 의 앱 단위 응
 
 ```text
 main:app import
-  ├─ config.py import        설정 객체 생성·검증, validate_deployment_safety()
+  ├─ config.py import        설정 객체 생성·검증, validate_env_source() → validate_deployment_safety()
   ├─ app/core/db/session.py   엔진·세션 팩토리 생성 (아직 접속하지 않음)
   ├─ AppRegistry              discover → install_hooks → import_models
   ├─ FastAPI(...)             문서 URL(openapi_url 은 DEBUG 일 때만), lifespan
@@ -246,7 +246,7 @@ ASGI lifespan 진입
 | 전역 인스턴스 | 쓰는 곳 |
 |---|---|
 | `timezone_settings` | 로그 시각, 모델 시간 기본값, Celery timezone |
-| `app_settings` | 앱 메타데이터, `DEBUG`/`ENV`/`ADMIN`, 직접 실행 host/port |
+| `app_settings` | 앱 메타데이터, `DEBUG`/`ENV`/`ADMIN`/`ADMIN_ALLOW_UNAUTHENTICATED`, 직접 실행 host/port |
 | `db_settings` | 엔진 URL·라우팅·풀, Alembic URL(`ALEMBIC_URL`), `describe_routing()`(DSN 마스킹) |
 | `cors_settings` | `CustomCORSMiddleware.configure_cors()` |
 | `log_settings` | `build_dictconfig()` |
@@ -267,21 +267,31 @@ ASGI lifespan 진입
 | `DatabaseSettings._validate_routing()` | 복제 활성인데 라우터가 꺼짐 / replica 목록이 빔 / 잘못된 replica host 표기 |
 | `CORSSettings._reject_wildcard_with_credentials()` | 와일드카드 Origin + credentials |
 | `SMTPSettings._reject_tls_with_ssl()` | `SMTP_TLS` 와 `SMTP_SSL` 동시 활성 |
+| `validate_env_source()` | `.env` 가 없으면 필수 값이 환경 변수로 와야 함(아래) |
 | `validate_deployment_safety()` | 아래 배포 게이트 |
 
-**배포 안전 게이트.** `config.py` import 마지막에 `validate_deployment_safety()` 가 실행됩니다.
-`ENV` 가 `staging`/`production` 이면 다음을 **한 번에 모아** `RuntimeError` 로 기동을 막습니다
-(메시지에는 설정 이름만, 값은 담지 않습니다).
+**설정 검사.** `config.py` import 마지막에 두 검사가 차례로 실행되고, 위반은 `RuntimeError` 로 기동을
+막습니다(메시지에는 설정 이름만, 값은 담지 않습니다). `ENV=test` 는 둘 다 건너뜁니다(pytest 가 지정).
 
-- `DEBUG=true`
-- `ADMIN=true` — 프록시에서 `/admin` 을 막아도 이 검사는 통과하지 못합니다
+1. `validate_env_source()` — **출처.** `.env` 가 없으면 `REQUIRED_WITHOUT_ENV_FILE`(`ENV`·비밀 키 3종·
+   `MYSQL_HOST/USER/PASSWORD/DATABASE`)이 환경 변수로 모두 있어야 합니다. 컨테이너 주입은 통과합니다.
+2. `validate_deployment_safety()` — **내용.** 위반을 **한 번에 모아** 알립니다.
+
+test 외 **모든 ENV**(개발 환경 포함 — 기본값·예시 값 그대로는 `.env` 를 채우라는 신호):
+
 - placeholder 인 `ACCESS_TOKEN_SECRET_KEY`·`REFRESH_TOKEN_SECRET_KEY`·`SESSION_SECRET_KEY` —
   `is_placeholder_secret()` 가 판정한다: 앞뒤 공백 제거·소문자화 후 `change-this` 를 포함하거나 `your-` 로 시작하거나 빈 값.
-  옛 예시 파일의 `your-...-change-this` 형식도 여기에 걸린다
+  옛 예시 파일의 `your-...-change-this` 형식도 여기에 걸린다. 32자 미만도 위반
 - access/refresh 서명 키가 같음
 - placeholder 인 `MYSQL_PASSWORD` — 같은 `is_placeholder_secret()` 판정이고, **빈 값도 위반**이다
   (무인증 DB 계정). `REDIS_PASSWORD`·`SMTP_PASSWORD` 는 빈 값이 정당한 구성(인증 없는 사설망
   Redis, 메일 미사용)이라 **값이 있을 때만** 본다
+
+staging/production 만:
+
+- `DEBUG=true`
+- `ADMIN=true` 인데 `ADMIN_ALLOW_UNAUTHENTICATED=true` 가 없음 — 무인증 `/admin` 은 배포 환경에서도 쓸 수
+  있지만 알고 켰다는 확인이 있어야 하고, 그때 `main.py` 가 매 기동 WARNING 을 남깁니다
 - `CORS_ALLOW_ORIGINS` 에 `*`
 - `LOG_SQL_ECHO_ENABLED=true`
 - `LOG_LEVEL=DEBUG` — 롤백 상세(SQL 본문·바인딩 값)는 DEBUG 레코드로만 나갑니다(§8.2).
@@ -548,13 +558,14 @@ Repository 의 DB 오류 변환도 드라이버 원문을 응답에 싣지 않�
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | 30 |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | 7 |
 | `JWT_ALGORITHM` | HS256 |
-| `ACCESS_TOKEN_SECRET_KEY` / `REFRESH_TOKEN_SECRET_KEY` | `change-this-...` (placeholder — staging/production 에서는 게이트가 거부, §4) |
+| `ACCESS_TOKEN_SECRET_KEY` / `REFRESH_TOKEN_SECRET_KEY` | `change-this-...` (placeholder — test 외 모든 ENV 에서 설정 검사가 거부, §4) |
 
 ### 10.2 SQLAdmin
 
 - `/admin` 에는 **인증이 없습니다.** 인증 백엔드는 붙이지 않기로 확정한 영구 비목표입니다.
-  `ADMIN` 기본값 `true` 는 개발 편의를 위한 의도된 선택이고, staging/production 은 배포 게이트가
-  `ADMIN=true` 를 거부합니다.
+  `ADMIN` 기본값 `true` 는 개발 편의를 위한 의도된 선택입니다. staging/production 은
+  `ADMIN_ALLOW_UNAUTHENTICATED=true` 확인 없이 `ADMIN=true` 로 기동하지 않고, 확인이 있으면 인증 없이
+  열린 채 매 기동 WARNING 을 남깁니다. 인증은 로그인 고도화에서 붙입니다.
 - `development`/`test` 에서 켜 두면 도달 가능한 누구나 사용자·게시글·댓글·SNS·상품·주문·접속로그를
   조회·수정·삭제하고 CSV 로 내보낼 수 있습니다. 로컬 밖에 노출되는 개발 서버라면 `ADMIN=false`,
   `SERVER_HOST=127.0.0.1`, 프록시 차단을 함께 씁니다(`SERVER_HOST` 기본값은 `0.0.0.0`).

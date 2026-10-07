@@ -1,10 +1,17 @@
-"""staging/production 배포 안전성 fail-fast (ledger F-006).
+"""설정 검사 fail-fast (ledger F-006 → 2026-10-07 확장).
 
-이 프로젝트는 SQLAdmin 에 인증 백엔드를 붙이지 않기로 확정했다(영구 비목표,
-결정 2026-08-12). 따라서 방어선은 "인증을 붙인다" 가 아니라 **무인증 /admin 이
-운영·스테이징에서 기동하지 못하게 막는다** 이다. DEBUG, placeholder secret,
-와일드카드 CORS 도 같은 게이트에서 함께 거부한다.
+- 비밀값(placeholder·짧은 키·같은 JWT 키·예시 비밀번호)은 test 를 뺀 **모든 ENV** 에서 거부한다.
+  기본값·예시 값 그대로는 개발 환경에서도 `.env` 를 채우라는 신호다.
+- staging/production 은 추가로 DEBUG·와일드카드 CORS·SQL echo·LOG_LEVEL=DEBUG 를 거부한다.
+- SQLAdmin 에는 인증 백엔드를 붙이지 않는다(영구 비목표, 결정 2026-08-12). 무인증 /admin 은
+  배포 환경에서도 쓸 수 있지만 `ADMIN_ALLOW_UNAUTHENTICATED=true` 확인이 있어야 기동한다.
+- `.env` 가 없으면 필수 값이 환경 변수로 와야 한다(`validate_env_source`).
 """
+
+import os
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -22,6 +29,7 @@ def _install(
     env,
     debug=False,
     admin=False,
+    admin_ack=False,
     origins=None,
     secrets=None,
     sql_echo=False,
@@ -30,7 +38,11 @@ def _install(
 ):
     secrets = secrets or {}
     passwords = passwords or {}
-    monkeypatch.setattr(config_module, "app_settings", _Stub(ENV=env, DEBUG=debug, ADMIN=admin))
+    monkeypatch.setattr(
+        config_module,
+        "app_settings",
+        _Stub(ENV=env, DEBUG=debug, ADMIN=admin, ADMIN_ALLOW_UNAUTHENTICATED=admin_ack),
+    )
     monkeypatch.setattr(
         config_module, "cors_settings", _Stub(CORS_ALLOW_ORIGINS=origins or ["https://example.com"])
     )
@@ -38,14 +50,17 @@ def _install(
         config_module,
         "jwt_settings",
         _Stub(
-            ACCESS_TOKEN_SECRET_KEY=secrets.get("access", "real-access-key"),
-            REFRESH_TOKEN_SECRET_KEY=secrets.get("refresh", "real-refresh-key"),
+            # 기본값은 32자 이상(SECRET_KEY_MIN_LENGTH) — 길이 검사가 다른 판정을 가리지 않게.
+            ACCESS_TOKEN_SECRET_KEY=secrets.get("access", "real-access-key-k9Qz0vL3mX7pR2tY5wB8n"),
+            REFRESH_TOKEN_SECRET_KEY=secrets.get(
+                "refresh", "real-refresh-key-Xr2Tq8Wm4Np6Lk0Jh3Gf"
+            ),
         ),
     )
     monkeypatch.setattr(
         config_module,
         "session_settings",
-        _Stub(SESSION_SECRET_KEY=secrets.get("session", "real-session-key")),
+        _Stub(SESSION_SECRET_KEY=secrets.get("session", "real-session-key-Pz7Ol5Ik3Uj1Yh9Tg7Rf")),
     )
     monkeypatch.setattr(
         config_module,
@@ -71,17 +86,24 @@ def _install(
 
 @pytest.mark.parametrize("env", ["development", "test"])
 def test_non_production_env_is_untouched(monkeypatch, env):
-    """개발·테스트 환경은 ADMIN=true, DEBUG=true 여도 막지 않는다(의도된 기본값)."""
+    """개발·테스트 환경은 ADMIN=true, DEBUG=true, CORS '*' 여도 막지 않는다(의도된 기본값)."""
     _install(monkeypatch, env=env, debug=True, admin=True, origins=["*"])
     config_module.validate_deployment_safety()  # 예외가 없어야 한다
 
 
 @pytest.mark.parametrize("env", ["staging", "production"])
-def test_admin_true_is_rejected(monkeypatch, env):
-    """무인증 /admin 이 열린 채로는 staging/production 기동을 허용하지 않는다."""
+def test_admin_true_without_ack_is_rejected(monkeypatch, env):
+    """기본값 ADMIN=true 를 그대로 들고 온 배포는 기동하지 않는다 — 해결책 둘을 함께 알린다."""
     _install(monkeypatch, env=env, admin=True)
-    with pytest.raises(RuntimeError, match="ADMIN"):
+    with pytest.raises(RuntimeError, match="ADMIN_ALLOW_UNAUTHENTICATED"):
         config_module.validate_deployment_safety()
+
+
+@pytest.mark.parametrize("env", ["staging", "production"])
+def test_admin_true_with_ack_passes(monkeypatch, env):
+    """인증 없는 /admin 을 알고 켠 배포는 기동한다(매 기동 WARNING 은 main.py 가 남긴다)."""
+    _install(monkeypatch, env=env, admin=True, admin_ack=True)
+    config_module.validate_deployment_safety()
 
 
 @pytest.mark.parametrize("env", ["staging", "production"])
@@ -113,7 +135,10 @@ def test_distinct_jwt_keys_pass(monkeypatch):
     _install(
         monkeypatch,
         env="production",
-        secrets={"access": "key-a", "refresh": "key-b"},
+        secrets={
+            "access": "key-a-k9Qz0vL3mX7pR2tY5wB8nC1dF4gH",
+            "refresh": "key-b-Xr2Tq8Wm4Np6Lk0Jh3Gf5Ds7Az9",
+        },
     )
     config_module.validate_deployment_safety()
 
@@ -291,14 +316,30 @@ def test_distinct_strong_secrets_pass(monkeypatch):
     config_module.validate_deployment_safety()
 
 
-@pytest.mark.parametrize("env", ["development", "test"])
-def test_placeholder_secrets_are_not_checked_outside_deployment(monkeypatch, env):
+def test_placeholder_secrets_are_not_checked_in_test_env(monkeypatch):
     _install(
         monkeypatch,
-        env=env,
+        env="test",
         secrets={"access": "", "refresh": "", "session": "your-session-change-this"},
     )
     config_module.validate_deployment_safety()
+
+
+@pytest.mark.parametrize("key", ["access", "refresh", "session"])
+def test_placeholder_secret_is_rejected_in_development(monkeypatch, key):
+    """기본값·예시 값 그대로는 개발 환경에서도 기동하지 않는다 — `.env` 를 채우라는 신호."""
+    _install(monkeypatch, env="development", secrets={key: "change-this-whatever"})
+    with pytest.raises(RuntimeError, match="SECRET_KEY"):
+        config_module.validate_deployment_safety()
+
+
+@pytest.mark.parametrize("env", ["development", "staging", "production"])
+def test_short_secret_is_rejected(monkeypatch, env):
+    short = "k9Qz0vL3mX7pR2tY5wB8nC1dF4g"  # 27자
+    _install(monkeypatch, env=env, secrets={"session": short})
+    with pytest.raises(RuntimeError, match="SESSION_SECRET_KEY") as excinfo:
+        config_module.validate_deployment_safety()
+    assert short not in str(excinfo.value)
 
 
 # -------------------------------------------------------------- 비밀번호 3종
@@ -346,15 +387,29 @@ def test_empty_smtp_password_passes(monkeypatch):
     config_module.validate_deployment_safety()
 
 
-@pytest.mark.parametrize("env", ["development", "test"])
-def test_placeholder_passwords_are_not_checked_outside_deployment(monkeypatch, env):
+def test_placeholder_passwords_are_not_checked_in_test_env(monkeypatch):
     _install(
         monkeypatch,
-        env=env,
+        env="test",
         passwords={"mysql": "", "redis": "your-redis-password", "smtp": "change-this"},
     )
 
     config_module.validate_deployment_safety()
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "name"),
+    [
+        ("mysql", "", "MYSQL_PASSWORD"),
+        ("mysql", "change-this-mysql-password", "MYSQL_PASSWORD"),
+        ("smtp", "your-smtp-password", "SMTP_PASSWORD"),
+    ],
+)
+def test_placeholder_password_is_rejected_in_development(monkeypatch, key, value, name):
+    _install(monkeypatch, env="development", passwords={key: value})
+
+    with pytest.raises(RuntimeError, match=name):
+        config_module.validate_deployment_safety()
 
 
 def test_password_error_message_does_not_leak_values(monkeypatch):
@@ -388,3 +443,112 @@ def test_env_example_passwords_are_rejected_without_leaking_values(monkeypatch):
         assert f"{name} 이 기본 placeholder" in message
     for value in values.values():
         assert value not in message
+
+
+# -------------------------------------------------------------- 설정의 출처
+# `.env` 가 없으면 필수 값이 환경 변수로 와야 한다. 컨테이너처럼 파일 없이 주입하는 배포는 통과.
+
+PROJECT_ROOT = Path(config_module.__file__).resolve().parent
+FULL_ENVIRON = {
+    "ENV": "production",
+    "ACCESS_TOKEN_SECRET_KEY": "k9Qz0vL3mX7pR2tY5wB8nC1dF4gH6jK0aS3eU7iO9lZ",
+    "REFRESH_TOKEN_SECRET_KEY": "Xr2Tq8Wm4Np6Lk0Jh3Gf5Ds7Az9Sx1Cv4Bn6Mm8Qw2Er",
+    "SESSION_SECRET_KEY": "Pz7Ol5Ik3Uj1Yh9Tg7Rf5Ed3Ws1Qa8Zx6Cv4Bn2Mm0Lk",
+    "MYSQL_HOST": "db",
+    "MYSQL_USER": "app",
+    "MYSQL_PASSWORD": "Gt4Hn8Qz2Lp6Xw0Rb3Vy",
+    "MYSQL_DATABASE": "app",
+}
+
+
+def test_missing_env_file_without_environ_is_rejected(tmp_path):
+    with pytest.raises(RuntimeError) as excinfo:
+        config_module.validate_env_source("development", tmp_path / ".env", {})
+    message = str(excinfo.value)
+    assert ".env" in message
+    for name in config_module.REQUIRED_WITHOUT_ENV_FILE:
+        assert name in message
+
+
+def test_missing_env_file_names_only_what_is_missing(tmp_path):
+    environ = {k: v for k, v in FULL_ENVIRON.items() if k != "MYSQL_PASSWORD"}
+    with pytest.raises(RuntimeError) as excinfo:
+        config_module.validate_env_source("production", tmp_path / ".env", environ)
+    message = str(excinfo.value)
+    assert "MYSQL_PASSWORD" in message
+    assert "MYSQL_HOST" not in message
+    for value in environ.values():
+        assert value not in message
+
+
+def test_injected_environ_without_env_file_passes(tmp_path):
+    config_module.validate_env_source("production", tmp_path / ".env", FULL_ENVIRON)
+
+
+def test_existing_env_file_passes(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("ENV=development\n", encoding="utf-8")
+    config_module.validate_env_source("development", env_file, {})
+
+
+def test_test_env_skips_source_check(tmp_path):
+    config_module.validate_env_source("test", tmp_path / ".env", {})
+
+
+def _run(code: str, env: dict[str, str], cwd: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=cwd,
+        env={**env, "PYTHONIOENCODING": "utf-8"},
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=120,
+        check=False,
+    )
+
+
+def test_import_fails_without_env_file_and_environ(tmp_path):
+    """검사는 import 시점에 실제로 돈다 — `.env` 없는 작업 디렉터리, 필수 값 없음."""
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in config_module.REQUIRED_WITHOUT_ENV_FILE and k != "PYTHONPATH"
+    }
+    env["PYTHONPATH"] = str(PROJECT_ROOT)
+    result = _run("import config", env, tmp_path)
+    assert result.returncode != 0
+    assert ".env 파일이 없고" in result.stderr
+
+
+def _deployed_env(**overrides: str) -> dict[str, str]:
+    return {
+        **os.environ,
+        **FULL_ENVIRON,
+        "DEBUG": "false",
+        "LOG_LEVEL": "INFO",
+        "LOG_SQL_ECHO_ENABLED": "false",
+        "CORS_ALLOW_ORIGINS": '["https://example.com"]',
+        "REDIS_PASSWORD": "",
+        "SMTP_PASSWORD": "",
+        **overrides,
+    }
+
+
+def test_import_fails_in_production_with_admin_default():
+    result = _run("import config", _deployed_env(ADMIN="true"), PROJECT_ROOT)
+    assert result.returncode != 0
+    assert "ADMIN_ALLOW_UNAUTHENTICATED" in result.stderr
+
+
+def test_deployed_admin_with_ack_logs_warning_on_startup():
+    """확인 플래그로 연 /admin 은 기동마다 WARNING 을 남긴다 — 운영 로그에서 놓치지 않게."""
+    result = _run(
+        "import main",
+        _deployed_env(ADMIN="true", ADMIN_ALLOW_UNAUTHENTICATED="true"),
+        PROJECT_ROOT,
+    )
+    assert result.returncode == 0, result.stderr[-2000:]
+    output = result.stdout + result.stderr
+    assert "WARNING" in output
+    assert "SQLAdmin 이 인증 없이 열려 있습니다" in output
