@@ -42,7 +42,7 @@ fastapi-project-structure-django-active-style/
 ├── scripts/                # new_app.py(앱 생성기) · review_gate.py(로컬·CI 공용 게이트)
 ├── tests/                  # 횡단 테스트: core/ · integration/(MySQL) · scripts/ · utils/ · test_*.py
 ├── docs/                   # guides/(현행) · specs/(고정 기준선) · crp/(검수 이력)
-└── logs/ media/ static/ poc/   # 런타임·예약 디렉터리 (.gitkeep 만 추적)
+└── logs/ media/ static/ poc/   # 런타임·예약 디렉터리 (추적하지 않음, logs/ 는 기동 시 자동 생성)
 ```
 
 기능 테스트는 `app/features/<name>/tests/`, 여러 기능이나 `core` 계약을 보는 테스트는 최상위
