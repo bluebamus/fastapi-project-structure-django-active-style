@@ -107,11 +107,22 @@ docs/              guides(현행) · specs(고정 기준선) · crp(검수 이�
 ```bash
 uv sync
 cp .env.example .env        # PowerShell: Copy-Item -LiteralPath .env.example -Destination .env
+uv run python -c "import secrets; print(secrets.token_urlsafe(48))"   # 키마다 한 번씩, 세 번 실행
 ```
 
-`.env` 가 없어도 기본값으로 뜨지만 Redis·MySQL 주소가 기본값(localhost)이어야 합니다. 프로세스
-환경변수가 `.env` 보다 우선하고, `.env.example` 은 자동으로 읽히지 않습니다. 이미 `.env` 가 있다면
-덮어쓰지 말고 필요한 항목만 확인합니다.
+`.env` 에서 아래를 바꿉니다. 바꾸지 않으면 **개발 환경에서도 기동하지 않습니다**(설정 검사). 오류
+메시지에 고칠 설정 이름이 나오므로 그대로 따라 고치면 됩니다.
+
+| 설정 | 할 일 |
+|---|---|
+| `ACCESS_TOKEN_SECRET_KEY`·`REFRESH_TOKEN_SECRET_KEY`·`SESSION_SECRET_KEY` | 위 명령으로 만든 값을 **서로 다르게** 넣는다(32자 이상) |
+| `MYSQL_PASSWORD` | 3단계에서 띄울 MySQL 의 비밀번호와 같은 값. 비워 두거나 예시 값이면 거부 |
+| `SMTP_PASSWORD` | 메일을 안 쓰면 **비운다**. 예시 값을 남겨 두면 거부 |
+
+`.env` 가 없으면 기동하지 않습니다. 파일 없이 환경 변수로 주입하는 경우(컨테이너)는 `ENV`·비밀 키 3종·
+`MYSQL_HOST/USER/PASSWORD/DATABASE` 가 모두 있어야 합니다. 프로세스 환경변수가 `.env` 보다 우선하고,
+`.env.example` 은 자동으로 읽히지 않습니다. 이미 `.env` 가 있다면 덮어쓰지 말고 필요한 항목만 확인합니다.
+테스트(`ENV=test`, pytest 가 지정)는 이 검사를 하지 않습니다.
 
 ### 2. Redis 만으로 HTTP 배선 확인
 
@@ -145,14 +156,14 @@ DB 없이 구조만 볼 때는 `ADMIN=false`, `ACCESS_LOG_ENABLED=false` 도 함
 
 ```bash
 docker run -d --name fastapi-mysql -p 3306:3306 \
-  -e MYSQL_ALLOW_EMPTY_PASSWORD=yes \
+  -e MYSQL_ROOT_PASSWORD='<.env 의 MYSQL_PASSWORD 와 같은 값>' \
   -e MYSQL_DATABASE=fastapi_db \
   mysql:8
 uv run uvicorn main:app --reload --port 8000
 ```
 
-기본 설정(`MYSQL_HOST=localhost`, 사용자 `root`, 빈 비밀번호, `fastapi_db`)에 맞춘 **로컬 전용**
-예시입니다. 직접 만든 MySQL 이라면 `CREATE DATABASE fastapi_db CHARACTER SET utf8mb4 COLLATE
+기본 설정(`MYSQL_HOST=localhost`, 사용자 `root`, `fastapi_db`)에 맞춘 **로컬 전용** 예시입니다. 빈
+비밀번호는 개발 환경에서도 설정 검사가 거부하므로 비밀번호를 지정합니다. 직접 만든 MySQL 이라면 `CREATE DATABASE fastapi_db CHARACTER SET utf8mb4 COLLATE
 utf8mb4_unicode_ci;` 로 데이터베이스를 먼저 만듭니다(자동 생성은 테이블만 만듭니다).
 `python main.py` 로 실행하면 `SERVER_HOST`·`SERVER_PORT`(기본 `0.0.0.0:8000`)와 `DEBUG` 에 따른 reload 를
 씁니다.
@@ -248,6 +259,7 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | `DEBUG` | `true` | 개발 모드 — 아래 표 |
 | `ENV` | `development` | `development`/`test`/`staging`/`production`. 로그 구성과 배포 게이트가 따른다 |
 | `ADMIN` | `true` | `/admin` 마운트. **인증 없음** (DEBUG 와 독립) |
+| `ADMIN_ALLOW_UNAUTHENTICATED` | `false` | staging/production 에서 인증 없는 `/admin` 을 의도적으로 연다는 확인. 켜면 매 기동 WARNING |
 | `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_PASSWORD` | `localhost` / `6379` / `0` / 없음 | startup `ping()` 대상, Celery broker |
 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | `localhost` / `3306` / `root` / `""` / `fastapi_db` | primary(writer) DB |
 | `DB_ROUTER_ENABLED` / `DB_REPLICATION_ENABLED` / `MYSQL_REPLICA_HOSTS` | `false` / `false` / `[]` | replica 라우팅 (선택). read-only 세션의 쓰기 차단은 이 설정과 **무관하게** 항상 동작한다 |
@@ -273,22 +285,22 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 
 ## 운영 배포
 
-**앱이 막는 것.** `ENV=staging` 또는 `ENV=production` 이면 `config.py` 의 `validate_deployment_safety()` 가
-다음 중 하나라도 있으면 **기동을 거부**하고 위반을 한 번에 보여 줍니다.
+**앱이 막는 것.** `config.py` import 마지막의 설정 검사가 아래에 해당하면 **기동을 거부**하고 위반을
+한 번에 보여 줍니다(메시지에는 설정 이름만). `ENV=test` 는 검사하지 않습니다.
 
-- `DEBUG=true` · `ADMIN=true`
-- placeholder 인 access/refresh/session 키(앞뒤 공백 제거·소문자화 후 `change-this` 를 포함하거나 `your-` 로 시작하거나 빈 값 — `config.is_placeholder_secret`),
-  또는 access 와 refresh 키가 같음. `.env.example` 의 키 예시는 일부러 이 규칙에 걸린다
-- placeholder 인 `MYSQL_PASSWORD`(**빈 값 포함** — 무인증 DB 계정). `REDIS_PASSWORD`·`SMTP_PASSWORD`
-  는 빈 값이 정당한 구성이라 값이 있을 때만 검사한다
-- `CORS_ALLOW_ORIGINS` 의 `*` · `LOG_SQL_ECHO_ENABLED=true` · `LOG_LEVEL=DEBUG`(롤백 상세에 SQL
-  본문과 바인딩된 값이 남는다)
+| 검사 | 적용 ENV |
+|---|---|
+| `.env` 가 없고 `ENV`·비밀 키 3종·`MYSQL_HOST/USER/PASSWORD/DATABASE` 가 환경 변수로도 없음(`validate_env_source`) | test 외 전부 |
+| placeholder 인 access/refresh/session 키(앞뒤 공백 제거·소문자화 후 `change-this` 를 포함하거나 `your-` 로 시작하거나 빈 값 — `config.is_placeholder_secret`), 32자 미만, access 와 refresh 가 같음. `.env.example` 의 키 예시는 일부러 이 규칙에 걸린다 | test 외 전부 |
+| placeholder 인 `MYSQL_PASSWORD`(**빈 값 포함** — 무인증 DB 계정). `REDIS_PASSWORD`·`SMTP_PASSWORD` 는 빈 값이 정당한 구성이라 값이 있을 때만 검사한다 | test 외 전부 |
+| `DEBUG=true` · `CORS_ALLOW_ORIGINS` 의 `*` · `LOG_SQL_ECHO_ENABLED=true` · `LOG_LEVEL=DEBUG`(롤백 상세에 SQL 본문과 바인딩된 값이 남는다) | staging·production |
+| `ADMIN=true` 인데 `ADMIN_ALLOW_UNAUTHENTICATED=true` 확인이 없음 | staging·production |
 
 **사람이 확인할 것.**
 
 | # | 확인 | 이유 |
 |---|---|---|
-| 1 | `ENV` 를 실제 환경 값으로 넘겼는가 | 기본값 `development` 에서는 위 게이트가 돌지 않는다 |
+| 1 | `ENV` 를 실제 환경 값으로 넘겼는가 | 기본값 `development` 에서는 위 표의 staging·production 검사가 돌지 않는다. `.env` 없이 환경 변수로 주입하는 배포는 `ENV` 가 없으면 기동 거부 |
 | 2 | 트래픽 전환 전에 `alembic upgrade head` 를 적용했는가 | 서버 기동은 migration 을 하지 않는다 |
 | 3 | 외부 노출이 필요 없으면 `SERVER_HOST=127.0.0.1` 인가, 프록시·방화벽에서 `/admin` 을 막았는가 | 기본 바인딩은 `0.0.0.0` 이다 |
 | 4 | 프록시 뒤라면 `TRUST_PROXY_HEADERS=true` 이고 프록시가 외부 전달 헤더를 지우는가 | 아니면 접속 로그 IP 가 위조되거나 프록시 IP 로 찍힌다 |
@@ -298,7 +310,9 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 **`/admin` 에는 인증이 없습니다.** 인증 백엔드는 붙이지 않기로 확정했고(영구 비목표), 기본값 `true` 는
 로컬에서 바로 DB 를 들여다보기 위한 의도된 선택입니다. 켜져 있으면 도달 가능한 누구나 데이터를
 조회·수정·삭제하고 CSV 로 내보낼 수 있습니다(비밀번호 해시만 제외). 개발 서버를 네트워크에 노출할
-때는 `ADMIN=false` 를 둡니다. 보안 경계와 현재 한계 전체는 [ARCHITECTURE §10](docs/guides/ARCHITECTURE.md)
+때는 `ADMIN=false` 를 둡니다. 배포 환경에서도 인증 없이 쓸 수 있지만, `ADMIN_ALLOW_UNAUTHENTICATED=true`
+로 **알고 켰다는 확인**을 줘야 기동하고 매 기동 WARNING 이 남습니다 — 그때는 프록시·VPN 으로 `/admin`
+접근을 제한합니다. 보안 경계와 현재 한계 전체는 [ARCHITECTURE §10](docs/guides/ARCHITECTURE.md)
 에 있습니다.
 
 ---
@@ -378,6 +392,9 @@ Celery 태스크는 기능 폴더가 아니라 `app/celery/tasks.py` 에 둡니�
 
 | 증상 | 원인 | 조치 |
 |---|---|---|
+| `.env 파일이 없고, 필수 설정이 …` | `.env` 가 없다 | 빠른 시작 1단계. 컨테이너라면 메시지에 나온 환경 변수를 주입 |
+| `ENV=development 에서 안전하지 않은 설정으로 기동할 수 없습니다` | `.env` 의 비밀 키·비밀번호가 예시 값·빈 값·32자 미만 | 빠른 시작 1단계 표대로 고친다 |
+| `ENV=production … ADMIN=true` | 배포 환경에서 `ADMIN=true`(기본값) | 쓰지 않으면 `ADMIN=false`, 의도라면 `ADMIN_ALLOW_UNAUTHENTICATED=true` |
 | startup 에서 `Redis 연결 실패` | Redis 미기동, 주소·포트·비밀번호 오류 | `REDIS_*` 와 서버 확인. `DEBUG=false` 로 우회되지 않는다 |
 | startup 에서 `Can't connect to MySQL server` | `DEBUG=true` 기본값이 테이블 생성을 시도 | MySQL 을 띄우거나 `DEBUG=false` |
 | staging/production 에서 `안전하지 않은 설정으로 기동할 수 없습니다` | 배포 게이트 | 메시지의 설정을 모두 고친다 ([운영 배포](#운영-배포)) |

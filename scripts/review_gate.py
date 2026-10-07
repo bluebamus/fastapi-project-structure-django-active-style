@@ -340,7 +340,7 @@ EXTERNAL_ENV = {
     "GITHUB_TOKEN",
     "MYSQL_TEST_PORT",
     "ALEMBIC_DATABASE_URL",
-    "MYSQL_ALLOW_EMPTY_PASSWORD",  # mysql 컨테이너 이미지의 변수(README 빠른 시작 docker 예시)
+    "MYSQL_ROOT_PASSWORD",  # mysql 컨테이너 이미지의 변수(README 빠른 시작 docker 예시)
 }
 
 
