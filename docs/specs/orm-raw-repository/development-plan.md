@@ -30,7 +30,7 @@ Repository → `AsyncSession`이며, SQL은 Repository만 소유하고 쓰기 Vi
 | 앱 기준선 | auth/blog/home/reply/sns/user 6개 | catalog/reports 자동 추가 |
 | 라우트 기준선 | `/health` 포함 18개 경로 골든 인벤토리 | 기존 경로 보존 후 신규 경로 추가 |
 | Admin 기준선 | 모델 5개와 ModelView 5개 | 신규 모델별 `admin.py`와 `admin_views` 추가 |
-| 테스트 기준선 | commit `76aed3c...`, Python 3.14, lock hash 고정 시 전체 271 tests | artifact와 함께 보존하고 신규 테스트 누적 |
+| 테스트 기준선 | commit `ed7e107...`, Python 3.14, lock hash 고정 시 전체 271 tests | artifact와 함께 보존하고 신규 테스트 누적 |
 | ORM PK | `CRUDBase._get()`이 `str(id)` 강제 변환 | PK generic 도입과 함께 제거 |
 | read-only | router 활성 시 DML 차단, `DB_ROUTER_ENABLED=false`에서는 미보장 | 설정과 무관한 DML 차단 구현 |
 | Raw 결과 | 공통 one/scalar/rowcount 계약 없음 | 결과 의미를 명시적으로 고정 |
@@ -43,7 +43,7 @@ init hook 멱등성, 중앙 파일 무변경, 라우터 마운트, metadata, Adm
 
 ### 2.1 참조 구현 실증 검수 반영
 
-2026-08-18 기준 고도화 구현(commit `db49e9c8d7106b026e2797f7356a0e1d1189056f`)과
+2026-08-18 기준 고도화 구현(commit `511fa86e438109be32d66145862e466c64498417`)과
 결함 원장·373개 테스트를 코드부터 다시 대조했다. 첫 환경에서는 367 passed/6 MySQL skipped였고,
 MySQL 8.4가 실제 준비된 재검수 환경에서는 전체 373 passed 및 `pytest -m mysql` 6 passed를
 재현했다. 그러므로 “373 collected”와 “MySQL까지 검증 완료”를 같은 의미로 사용하지 않고

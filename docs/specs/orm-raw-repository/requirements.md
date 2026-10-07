@@ -133,7 +133,7 @@ API용 Redis client, cache, session 저장소와 readiness 연계는 이번 작�
 
 ### 4.8 참조 구현 재검수 추가 결정
 
-2026-08-18에 참조 구현 commit `db49e9c8d7106b026e2797f7356a0e1d1189056f`를 코드와
+2026-08-18에 참조 구현 commit `511fa86e438109be32d66145862e466c64498417`를 코드와
 CI 설정부터 다시 검수했다. 로컬에서 MySQL 8.4가 실제 실행 가능한 상태에서는 전체 373건과
 `pytest -m mysql`의 선택된 6건이 모두 통과했다. 그러나 참조 구현의
 `.github/workflows/ci.yml`은 MySQL service나 Compose 기동 단계가 없으므로 깨끗한 GitHub runner에서는
@@ -1149,7 +1149,7 @@ alembic heads
 - ORM Base 공개 메서드와 사용처
 - 현재 OpenAPI schema
 - 현재 Alembic head 및 metadata/schema 비교
-- 기준선 commit `76aed3c1aea2d3f1754f650ba631c8d853562cec`, Python `3.14`, `uv.lock`
+- 기준선 commit `ed7e107ac61c01fe8c0a437d99143fc90ac097e6`, Python `3.14`, `uv.lock`
   SHA-256 `D1BC64A8FC30F2A9C8662FFD038ECEC2E7A548F5934C07D095A39635F0C9D7B8`과
   실행 일시/CI artifact를 기록한다. 271은 감소 감시선이지 유일한 성공 조건이 아니다.
 

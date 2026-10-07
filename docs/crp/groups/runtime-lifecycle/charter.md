@@ -22,7 +22,7 @@
 | 설계·계획 | `docs/specs/orm-raw-repository/development-plan.md` §8 | 문서 | 이 그룹의 사양 원본 |
 
 - 기준선 수집 테스트 수: **621** (`pytest --collect-only -q`, 2026-08-19)
-- 기준선 commit: `50cf194` · 라우트 인벤토리 **22 paths / 37 operations**(불변)
+- 기준선 commit: `36be979` · 라우트 인벤토리 **22 paths / 37 operations**(불변)
 - alembic head: `d4e6f8b12c34`(불변 — 이 그룹은 스키마를 건드리지 않는다)
 
 ## 2. 계약 (Contract)
@@ -85,7 +85,7 @@
 - [x] residual-risk 재평가 조건 기록 완료 (R-101~R-104)
 
 ## 4. 변경 이력
-- v0.1 (2026-08-19): 최초 작성. 기준선 621 tests / commit `50cf194` 반영.
+- v0.1 (2026-08-19): 최초 작성. 기준선 621 tests / commit `36be979` 반영.
 - v0.2 (2026-08-19): 2-1 에 Celery prefork 확정(REQ-009)과 Windows `--pool=solo` 안내 반영.
 - v0.3 (2026-10-02): 상위 기준의 REQ 범위를 design-baseline 의 실제 집합(REQ-001~014)에 맞추고,
   INV-6 의 **검사 방법** 칸을 실재하는 테스트로 바꿨다 — "자식 프로세스 2종에서 listener 수
