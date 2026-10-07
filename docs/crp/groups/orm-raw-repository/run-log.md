@@ -2,12 +2,12 @@
 
 ## 라운드 기록
 
-### Round 0 — 2026-08-18 (base SHA: `76aed3c1aea2d3f1754f650ba631c8d853562cec`)
+### Round 0 — 2026-08-18 (base SHA: `ed7e107ac61c01fe8c0a437d99143fc90ac097e6`)
 - **트리거:** 사용자 요청 REQ-002 — "docs/orm-raw-repository/ 설계·개발계획서를 참고로 작업 진행".
 - **검수 범위:** Phase 0 기준선 전수 측정 (코드 변경 없음).
 - **GATE 통과:** 0 ☑ 1 □ 2 □ 3 □ 4 □ 5 □
 - **측정 결과 (artifact: `baseline/`):**
-  - `env.txt` — commit `76aed3c`, branch `main`, Python 3.14.4, `uv.lock` sha256 `d1bc64a8…c9d7b8`,
+  - `env.txt` — commit `ed7e107`, branch `main`, Python 3.14.4, `uv.lock` sha256 `d1bc64a8…c9d7b8`,
     `pyproject.toml` sha256 `f4eb895b…22022022`, `alembic heads` = `b2f1a9c0d3e4 (head)` 단일
   - `pytest.txt` — **271 passed** (skip/xfail/deselected 0)
   - `survey.txt` — OpenAPI **18 paths / 30 operations**, 정규화 sha256
@@ -31,7 +31,7 @@
   F-004(모듈 경로형 스키마명 2건)와 F-005(tags 불일치)는 계획서에 개수·대상이 명시돼 있지 않았고
   이번 측정에서 처음 구체적으로 특정했다.
 
-### Round 1 — 2026-08-18 (base SHA: `2804f6c`) — Phase 1 Runtime/lifecycle hardening
+### Round 1 — 2026-08-18 (base SHA: `4c8f958`) — Phase 1 Runtime/lifecycle hardening
 - **트리거:** REQ-002 승인 — Phase 1 전체 착수(사용자 확인 완료).
 - **검수 범위:** runtime/lifecycle 경계 (main.py · db/session.py · registry 경계 · logging · config).
 - **GATE 통과:** 0 ☑ 1 ☑ 2 □ 3 □ 4 □ 5 □
@@ -57,7 +57,7 @@
 - **수렴 판정:** `NOT CONVERGED` (Open Fix 4건: F-002, F-003, F-004, F-005, F-007 중 Phase 2~9 대상)
 - **잔여 위험 변화:** R-007 **해소**(구조적 redaction 도입). R-008 신규 등록(Celery 종료 대상 없음).
 
-### Round 2 — 2026-08-18 (base SHA: `b6d1aa2`) — Phase 2 read-only 안전성
+### Round 2 — 2026-08-18 (base SHA: `7898794`) — Phase 2 read-only 안전성
 - **트리거:** 사용자 요청 "Phase 2 진행해줘".
 - **검수 범위:** read-only 계약 경계 (`db/router.py`, `db/session.py`) + Dependency 명명 전면 전환.
 - **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 □ 4 □ 5 □
@@ -91,7 +91,7 @@
   대가를 명시). R-009 신규 — `session.info` 는 보안 경계가 아니며 운영은 read-only credential 을
   최종 방어선으로 둔다.
 
-### Round 3 — 2026-08-19 (base SHA: `cbb147f`) — Phase 1-R 잔여 정리
+### Round 3 — 2026-08-19 (base SHA: `bdfa84e`) — Phase 1-R 잔여 정리
 - **트리거:** 사용자 요청 "남은 작업 정리" → 정리 중 **Phase 1 완료 보고가 부정확했음을 발견**.
   Phase 1 은 계획서 §10 의 요약 줄만 보고 수행했고, 상세 사양인 **§8** 의 항목들이 남아 있었다.
   사용자가 권장안(잔여 상위 5건 선처리 → Phase 3)을 승인해 이 라운드를 열었다.
@@ -114,7 +114,7 @@
   라우트 인벤토리 19 paths / 31 operations 불변
 - **수렴 판정:** `NOT CONVERGED` (Open Fix 9건: F-002·F-004·F-005·F-007 + 이월 F-016~F-020)
 
-### Round 4 — 2026-08-19 (base SHA: `f270945`) — Phase 3 ORM 모델/Base
+### Round 4 — 2026-08-19 (base SHA: `d046771`) — Phase 3 ORM 모델/Base
 - **트리거:** 승인된 권장안의 두 번째 단계.
 - **검수 범위:** 공통 모델 계층(`models_base.py`, 5개 기능 모델)과 Repository PK 계약.
 - **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 ☑(Phase 3 한정) 4 □ 5 □
@@ -145,7 +145,7 @@
   라우트 인벤토리 19 paths / 31 operations 불변
 - **수렴 판정:** `NOT CONVERGED` (Open Fix 8건: F-004·F-005·F-007 + 이월 F-016~F-020)
 
-### Round 5 — 2026-08-19 (base SHA: `d6ca983`) — Phase 4 ORM Repository
+### Round 5 — 2026-08-19 (base SHA: `cac44f1`) — Phase 4 ORM Repository
 - **트리거:** 사용자 승인 후 Phase 4 착수.
 - **검수 범위:** `CRUDBase` / `BaseRepository` 전 표면과 그 호출부.
 - **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 ☑(Phase 4 한정) 4 □ 5 □
@@ -170,7 +170,7 @@
   라우트 인벤토리 19 paths / 31 operations 불변
 - **수렴 판정:** `NOT CONVERGED` (Open Fix **8건**: F-004·F-005·F-007 + 이월 F-016~F-020)
 
-### Round 6 — 2026-08-19 (base SHA: `823fa59`) — Phase 5 MySQL 테스트 인프라
+### Round 6 — 2026-08-19 (base SHA: `a1d1dff`) — Phase 5 MySQL 테스트 인프라
 - **트리거:** 사용자 제안 — "WSL 에 직접 컨테이너를 구축 후 진행하면 되지 않나".
 - **판단 정정:** 직전 라운드에서 나는 Windows 셸의 PATH 에 docker 가 없다는 이유로
   "로컬 검증 불가" 라고 결론내고 Phase 7 선행을 권했다. **성급했다.** WSL 안에는
@@ -202,7 +202,7 @@
   라우트 인벤토리 19 paths / 31 operations 불변
 - **수렴 판정:** `NOT CONVERGED` (Open Fix 7건: F-004·F-005 + 이월 F-016~F-020)
 
-### Round 7 — 2026-08-19 (base SHA: `99b6bdc`) — Phase 6 Raw Base
+### Round 7 — 2026-08-19 (base SHA: `0436fe5`) — Phase 6 Raw Base
 - **트리거:** Phase 5 완료 후 사용자 승인.
 - **검수 범위:** Raw SQL 데이터 접근 계층 신설(ORM 과 독립).
 - **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 ☑(Phase 6 한정) 4 □ 5 □
@@ -236,7 +236,7 @@
   라우트 인벤토리 19 paths / 31 operations 불변
 - **수렴 판정:** `NOT CONVERGED` (Open Fix 7건: F-004·F-005 + 이월 F-016~F-020)
 
-### Round 8 — 2026-08-19 (base SHA: `364ac4e`) — Phase 7 catalog (ORM 예제)
+### Round 8 — 2026-08-19 (base SHA: `986e31a`) — Phase 7 catalog (ORM 예제)
 - **트리거:** Phase 6 완료 후 사용자 승인.
 - **검수 범위:** 신규 기능 catalog 전 계층 + 자동배선 경계.
 - **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 ☑(Phase 7 한정) 4 □ 5 □
@@ -268,7 +268,7 @@
   MySQL 통합에서 신규 revision 의 head → base → head 왕복과 모델 대조까지 통과
 - **수렴 판정:** `NOT CONVERGED` (Open Fix 8건: F-004·F-005·F-027 + 이월 F-016~F-020)
 
-### Round 9 — 2026-08-19 (base SHA: `40cf36a`) — Phase 8 reports (Raw 예제)
+### Round 9 — 2026-08-19 (base SHA: `932ea00`) — Phase 8 reports (Raw 예제)
 - **트리거:** Phase 7 완료 후 사용자 승인.
 - **검수 범위:** 신규 기능 reports 전 계층 + Raw 계약의 실전 적용.
 - **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 ☑(Phase 8 한정) 4 □ 5 □
@@ -302,7 +302,7 @@
   `alembic heads` 단일(`d4e6f8b12c34`) · 인벤토리 22 paths / 37 operations, operation ID 37 고유
 - **수렴 판정:** `NOT CONVERGED` (Open Fix 8건: F-004·F-005·F-027 + 이월 F-016~F-020)
 
-### Round 10 — 2026-08-19 (base SHA: `5639b16`) — Phase 9 문서/OpenAPI/최종 게이트
+### Round 10 — 2026-08-19 (base SHA: `d81f374`) — Phase 9 문서/OpenAPI/최종 게이트
 - **트리거:** Phase 8 완료 후 사용자 승인.
 - **검수 범위:** 공개 문서 계약, 공급망, 검증 스크립트, 그룹 수렴 판정.
 - **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 ☑ 4 ☑ 5 ☑(ORM/Raw delivery 한정 — 아래 판정 참고)
@@ -348,7 +348,7 @@
   F-016~F-020 으로, 계획서 §8 이 **독립 작업(Runtime/lifecycle)** 으로 분리한 Phase 1-R2
   트랙이다. 이 그룹의 계약(ORM/Raw 데이터 접근·예제·문서·게이트)에는 Open Fix 가 없다.
 
-### Round 11 — 2026-08-19 (base SHA: `50cf194`) — 이월 결함 해소(연쇄)
+### Round 11 — 2026-08-19 (base SHA: `36be979`) — 이월 결함 해소(연쇄)
 
 - **트리거:** 별도 작업 그룹 `docs/crp/groups/runtime-lifecycle/` 의 Round 1 완료.
 - **검수 범위:** 이 그룹의 이월 결함 F-016~F-020 상태 전환만. 코드는 그 그룹이 변경했다.
@@ -359,12 +359,12 @@
   즉 이 그룹의 산출물은 그대로다.
 - **수렴 판정:** `CONVERGED` — delivery 범위뿐 아니라 **이월분까지 포함해** Open Fix 0.
 
-### Round 12 — 2026-08-20 (base SHA: `092b394`) — 재검수(문서 정합성만)
+### Round 12 — 2026-08-20 (base SHA: `d39cb11`) — 재검수(문서 정합성만)
 
 - **트리거:** 사용자 재검토 요청. 전체 게이트·수치 재측정.
 - **재측정:** review_gate 6그룹 통과 · **698 passed**(skip/xfail/deselected 0) ·
   22 paths / 37 operations · alembic head `d4e6f8b12c34` · 작업 트리 clean ·
-  `main` == `origin/main` == `092b394`. 전부 기록과 일치.
+  `main` == `origin/main` == `d39cb11`. 전부 기록과 일치.
 - **발견:** charter §3 인수 기준 2건이 **미체크로 남아 있었다** — Round 11 의 `CONVERGED`
   선언과 표면상 모순. 내용을 대조하니 둘 다 *실질은 충족*이었고 체크만 누락된 것이었다.
   - "불변식 구조 증거" 항목은 v0.1 당시 **INV-1~9** 기준 문구였는데 이후 불변식이 21개로
@@ -380,7 +380,7 @@
 - **변경:** `charter.md` 만 수정(v0.2). 코드·테스트·설정 diff 0.
 - **수렴 판정:** `CONVERGED` 유지 (Open Fix 0). 이번 라운드는 신규 결함 0, 문서 정합성 정정 1.
 
-### Round 13 — 2026-08-20 (base SHA: `8e9eaf9`) — R-014 해소(공급망 갱신)
+### Round 13 — 2026-08-20 (base SHA: `6ba890f`) — R-014 해소(공급망 갱신)
 
 - **트리거:** 잔여 리스크 R-014 의 승계 조건 도달. GitHub 이 Node 20 대상 Action 을
   강제 실행으로 처리 중이라, 방치하면 우리가 아니라 **외부 시계**가 CI 를 끊는다.
@@ -415,7 +415,7 @@
   cache`). 캐시는 속도용이고 판정에 영향이 없어 결함으로 올리지 않는다.
 - **수렴 판정:** `CONVERGED` 유지 (Open Fix 0).
 
-### Round 14 — 2026-08-20 (base SHA: `35ee32a`) — 근거의 정확성(F-036)
+### Round 14 — 2026-08-20 (base SHA: `03434f1`) — 근거의 정확성(F-036)
 
 - **트리거:** 사용자 질의 — "read 는 WITH 가 필요 없고, create·delete 도 필요 없고
   오직 update 관련해서만 필요한 것 아닌가."
@@ -449,7 +449,7 @@
   `ProgrammingError` 임을 단언하고, 가드가 셋 다(읽기 CTE 포함) 막는지를 단언한다.
 - **fail-on-revert:** 가드를 `("select", "with")` 로 느슨하게 하자 3건 실패 → 복원 후 통과.
 - **부수 정정:** R-012 의 "테스트 4개 파일" 은 실측 3개였다. 4번째였던 `test_rate_limit.py` 는
-  slowapi 제거(`76aed3c`)로 사라졌고 `.pyc` 만 남아 있었다. 레지스트리를 정정했다.
+  slowapi 제거(`ed7e107`)로 사라졌고 `.pyc` 만 남아 있었다. 레지스트리를 정정했다.
 - **게이트 결과:** review_gate 6그룹 · 전체 **705 passed**(702 + 3, skip 0) ·
   라우트 22/37 불변 · alembic `d4e6f8b12c34` 불변
 - **수렴 판정:** `CONVERGED` 유지 (Open Fix 0).

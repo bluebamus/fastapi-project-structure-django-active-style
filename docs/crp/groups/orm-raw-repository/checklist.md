@@ -11,7 +11,7 @@
 - [x] residual-risk 착수 — R-001 ~ R-007 등록
 - [x] run-log Round 0 기록 + 수렴 판정(NOT CONVERGED)
 - [x] **STOP: Phase 1 착수 승인** — 사용자 승인 완료(전체 진행)
-- [x] Phase 0 커밋 `2804f6c`
+- [x] Phase 0 커밋 `4c8f958`
 
 ## Round 1 — 2026-08-18 (Phase 1: Runtime/lifecycle hardening) — 완료
 - [x] (ledger F-001) `create_db_tables()` 재-discovery 제거 + 빈 metadata 거부 — `tests/core/test_create_db_tables.py`
