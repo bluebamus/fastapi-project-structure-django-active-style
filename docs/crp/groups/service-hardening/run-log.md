@@ -42,9 +42,23 @@
 - **수렴 판정:** `NOT CONVERGED` (Open Fix 11: F-008(F2 부분)·F-014~F-023 — 다음 단계)
 - **잔여 위험 변화:** R-205(OpenAPI 의 Update null 표기), R-206(Raw 경로 DB 오류 미변환) 등록.
 
+### Round 3 — 2026-10-12 (base SHA: `f81b3a0`) — 단계 C
+- **트리거:** REQ-001 단계 C(리뷰 우선 조치 6 — 테스트 하네스).
+- **검수 범위:** 세션 Dependency 를 override 하는 모든 테스트(`app/features/*/tests/`, `tests/`), `tests/integration/conftest.py` 하네스, `docs/guides/DEVELOPMENT.md` 테스트 절.
+- **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 ☑ 4 □ 5 □
+- **신규 finding(심각도별):** CRIT 0 · HIGH 0 · MED 0 · LOW 0 (Round 0 의 F-014·F-015 를 닫았다)
+- **Fix:** F-014 · F-015 → **Fixed**
+- **설계 구체화:** 헬퍼는 `tests/session_overrides.py` 한 모듈·한 함수다(conftest 픽스처가 아니라 import 하는 함수 — 기능 테스트의 엔진·훅이 제각각이라 픽스처 하나로 묶으면 매개변수가 픽스처 체인으로 숨는다). 기존 commit/rollback 집계는 세션을 직접 yield 하던 제너레이터 대신 `on_open` 훅으로 옮겼다. reports 는 일부러 writer 를 남기는 의도를 `writer=False` 로 유지했다. `tests/core/test_session_rollback_logging.py` 는 override 가 아니라 실제 Dependency 의 롤백 로깅을 시험하므로 바꾸지 않았다. C3 은 이 저장소에 해당 항목이 없다.
+- **fail-on-revert:** 헬퍼의 `mark_read_only` 를 빼면 `test_read_only_override_rejects_a_write_from_a_get_route` 실패, catalog 엔드포인트 테스트를 수정 전 내용으로 되돌리면 `test_session_overrides_are_defined_only_in_the_helper` 실패(2 실패). 복원 후 전부 통과. MySQL 스모크는 로컬 실행 금지라 수집만 확인했고, 본문은 별도 in-memory SQLite 대입 실행으로 API 오용이 없음을 확인했다(collation 단언 1건은 MySQL 전용이라 제외).
+- **동작이 바뀐 기존 테스트:** 10개 파일의 override 가 이제 운영과 같은 표시를 건다. 전환 후에도 기존 테스트가 전부 통과했다 — 조회 경로에서 몰래 쓰는 핸들러는 없었다. `tests/test_dto_before_commit.py` 의 `except Exception: rollback` 은 `async with` 의 close 가 같은 일을 하므로 뺐다.
+- **검사 수치:** `pytest -m "not mysql"` 910 passed / 37 deselected / skip 0(905 → +5), `-m mysql --collect-only` 37 수집(32 → +5), ruff check·format 클린, mypy 193 files 0 issues(Round 1 과 같은 순수 Python 빌드 우회), review_gate `structure`·`supply`·`docs` 통과.
+- **수렴 판정:** `NOT CONVERGED` (Open Fix 9: F-008(F2 부분)·F-016~F-023 — 다음 단계)
+- **잔여 위험 변화:** 없음.
+
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
 | 0 | 0 | 1 | 14 | 8 | 23 | NOT CONVERGED |
 | 1 | 0 | 0 | 0 | 0 | 0 (Fixed 5) | NOT CONVERGED |
 | 2 | 0 | 0 | 0 | 0 | 0 (Fixed 7, 부분 1) | NOT CONVERGED |
+| 3 | 0 | 0 | 0 | 0 | 0 (Fixed 2) | NOT CONVERGED |

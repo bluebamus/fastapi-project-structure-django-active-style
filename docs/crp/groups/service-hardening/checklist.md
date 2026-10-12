@@ -26,9 +26,12 @@
 - [x] 문서 — `.env.example`·README 환경표/배포 체크·ARCHITECTURE §4·§7.1·§9·§10.3·DEVELOPMENT §5.1·§5.3·§6·가이드 HTML 2종·Home 태그 설명
 - [x] 각 Fix fail-on-revert 확인, GATE 3 그린(905 passed / 32 deselected / skip 0), run-log 기록
 
-## Round 3 — 단계 C (테스트 하네스)
-- [ ] (F-014) 공용 override 헬퍼로 전 엔드포인트 테스트 전환 + read-only flush 거부 회귀
-- [ ] (F-015) MySQL ORM 스모크(`mysql` 마커, 로컬은 수집만 확인)
+## Round 3 — 2026-10-12 단계 C (테스트 하네스) — 완료
+- [x] (F-014) 공용 override 헬퍼로 전 엔드포인트 테스트 전환 + read-only flush 거부 회귀 + 단일 정의 지점 계약 테스트
+- [x] (F-015) MySQL ORM 스모크(`mysql` 마커, 로컬은 수집만 확인)
+- [x] C3(설정 reload·import 시점 패치 순서 의존) — 이 저장소에는 `importlib.reload` 를 쓰는 테스트가 없어 해당 없음
+- [x] 문서 — `docs/guides/DEVELOPMENT.md` §테스트의 override 안내(비어 있는 conftest 를 가리키던 문장 정정)
+- [x] fail-on-revert 확인, GATE 3 그린(910 passed / 37 deselected / skip 0), run-log 기록
 
 ## Round 4 — 단계 D (UTC 저장)
 - [ ] (F-016) `UTCDateTime`·Alembic 리비전·리포트 영업일 집계·Celery `enable_utc`
