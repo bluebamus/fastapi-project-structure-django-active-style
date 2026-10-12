@@ -34,6 +34,7 @@ from app.features.reports.repositories.sales_report_repository import SalesRepor
 from app.features.reports.schemas.report_schema import DailySalesItem
 from app.features.reports.services.report_service import ReportService
 from main import app
+from tests.session_overrides import session_overrides
 
 _ROWS = [
     {"sales_date": date(2026, 8, 1), "order_count": 2, "gross_amount": Decimal("30.00")},
@@ -70,11 +71,7 @@ async def client(stub_daily_sales):
         await conn.run_sync(Base.metadata.create_all)
     maker = async_sessionmaker(engine, expire_on_commit=False)
 
-    async def _override():
-        async with maker() as session:
-            yield session
-
-    app.dependency_overrides[get_read_only_db_session] = _override
+    app.dependency_overrides.update(session_overrides(maker, writer=False))
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c

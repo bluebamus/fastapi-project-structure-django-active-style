@@ -495,7 +495,11 @@ uv run alembic heads          # head 는 하나여야 한다
 
 - 기능 테스트는 `app/features/<name>/tests/`, 횡단 테스트는 `tests/` 에 `test_*.py` 로 둡니다.
 - 엔드포인트 단위 테스트는 `app.dependency_overrides` 로 세션·Service 를 바꾸고, 테스트가 끝나면
-  복원합니다. 기존 `conftest.py` 패턴(예: `app/features/blog/tests/conftest.py`)을 따릅니다.
+  복원합니다. 세션 Dependency 는 직접 yield 하지 말고
+  `app.dependency_overrides.update(session_overrides(maker))`(`tests/session_overrides.py`)로
+  바꿉니다 — read-only override 에 `mark_read_only()`, writer override 에 `using_writer()` 가 걸려
+  조회 핸들러의 몰래 쓰기가 테스트에서도 실패합니다. commit 집계처럼 세션을 감쌀 때는 `on_open=`
+  훅을 씁니다. 다른 곳의 직접 override 는 `tests/core/test_session_overrides.py` 가 막습니다.
 - lifespan 을 검증할 때는 `TestClient` 컨텍스트나 `app.router.lifespan_context` 로 실제로 진입합니다.
   `ASGITransport` 요청만으로 startup 이 실행됐다고 보지 않습니다.
 - 모델을 정의하는 테스트는 공유 `Base.metadata` 를 오염시키지 않도록 테스트 전용 `DeclarativeBase`

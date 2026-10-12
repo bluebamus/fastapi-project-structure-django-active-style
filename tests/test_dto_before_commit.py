@@ -20,12 +20,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from app.core.db.session import (
-    Base,
-    get_read_only_db_session,
-    get_writer_db_session,
-)
+from app.core.db.session import Base
 from main import app
+from tests.session_overrides import session_overrides
 
 
 @dataclass(frozen=True)
@@ -119,23 +116,17 @@ async def env():
     maker = async_sessionmaker(engine, expire_on_commit=False)
     calls = {"commit": 0}
 
-    async def _session():
-        async with maker() as session:
-            original_commit = session.commit
+    def _count_commits(session: Any) -> None:
+        original_commit = session.commit
 
-            async def _counting_commit(*args: Any, **kwargs: Any) -> None:
-                calls["commit"] += 1
-                await original_commit(*args, **kwargs)
+        async def _counting_commit(*args: Any, **kwargs: Any) -> None:
+            calls["commit"] += 1
+            await original_commit(*args, **kwargs)
 
-            session.commit = _counting_commit  # type: ignore[method-assign]
-            try:
-                yield session
-            except Exception:
-                await session.rollback()
-                raise
+        session.commit = _counting_commit
 
-    for dependency in (get_writer_db_session, get_read_only_db_session):
-        app.dependency_overrides[dependency] = _session
+    # 예외 경로의 롤백은 `async with maker()` 의 close 가 맡는다(get_writer_db_session 과 같다).
+    app.dependency_overrides.update(session_overrides(maker, on_open=_count_commits))
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client, maker, calls
