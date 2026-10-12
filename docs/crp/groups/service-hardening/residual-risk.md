@@ -10,6 +10,8 @@
 | R-202 | 고정 창 rate limit 은 창 경계에서 최대 2배까지 통과시킨다. | LOW | ADR-013. 단순성을 택했다. 목적은 대량 시도 억제이지 정밀 계량이 아니다. | 2026-10-12 | 경계 몰림 공격이 관측되면 슬라이딩 창(정렬 집합)으로 바꾼다. |
 | R-203 | SQLAdmin 은 인증 없이 열린다(배포는 확인 플래그 필요). | MED | ADR-017 · orm-raw-repository C-8. | 2026-10-12 | Admin 인증 요구가 design-baseline 에 추가되면. |
 | R-204 | 2026-10-07 리뷰 중 이 그룹 단계에 들지 않은 항목 — 미처리 예외 트레이스백의 SQL·바인드 값(리뷰 R-05), `.env` 가 있을 때 `ENV` 누락(R-08), 커넥션 풀 크기 하드코딩(R-12), CRP 안의 스키마 골든(R-15), 고정 버전 갱신 자동화(R-16), 그 밖의 Low·Info 정리 항목. | MED | REQ-001 의 단계 A~F2 범위 밖. 사용자 지시 "요청 범위 밖의 정리를 하지 않는다". | 2026-10-12 | 사용자가 다음 요청으로 범위에 넣으면 이 그룹 또는 새 그룹의 ledger 로 승격. |
+| R-205 | OpenAPI 의 Update 스키마는 NOT NULL 필드도 `anyOf: [..., null]` 로 보인다 — 서버는 그 null 을 422 로 거부한다(`PatchSchema`). | LOW | 단계 B 는 런타임 거부만 범위다(ADR-005). 필드 타입을 바꾸면 OpenAPI 계약이 바뀌어 클라이언트 생성기가 영향을 받는다. | 2026-10-12 | OpenAPI 로 클라이언트를 생성해 null 전송 버그가 관측되면 `json_schema_extra` 로 null 을 빼거나 필드 타입을 좁힌다. |
+| R-206 | Raw SQL 경로(`RawRepositoryBase`)의 DB 오류는 `DBErrorTranslator` 를 거치지 않고 전역 500 핸들러로 간다. | LOW | REQ-001 B 의 변환 대상은 ORM `BaseRepository` 의 create·update(·delete)다. 현재 Raw 예제는 조회뿐이다. | 2026-10-12 | Raw 쓰기 경로가 생기면 `_observed` 에서 같은 변환기를 쓴다. |
 
 <!--
 규칙:

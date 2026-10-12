@@ -24,7 +24,7 @@ from typing import Any, Generic
 
 from sqlalchemy import exists as sql_exists
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import (
     defer,
@@ -36,12 +36,12 @@ from sqlalchemy.orm import (
 from sqlalchemy.sql import Select
 
 from app.core.exception import (
-    DatabaseException,
-    DuplicateException,
+    AppException,
     NotFoundException,
     ValidationException,
 )
 from app.core.repositories.crud_base import CRUDBase, ModelType, PrimaryKeyType
+from app.core.repositories.db_error_translator import DBErrorTranslator
 from app.utils.logs import get_logger
 
 logger = get_logger("repository")
@@ -184,6 +184,11 @@ class BaseRepository(CRUDBase[ModelType, PrimaryKeyType], Generic[ModelType, Pri
             type(error).__name__,
         )
 
+    def _db_error(self, operation: str, error: SQLAlchemyError) -> AppException:
+        """DB 오류를 기록하고 코드별 애플리케이션 예외로 바꾼다(변환 규칙: DBErrorTranslator)."""
+        self._log_db_error(operation, error)
+        return DBErrorTranslator.translate(error, model=self.model.__name__, operation=operation)
+
     async def create(self, data: dict[str, Any]) -> ModelType:
         """
         새로운 레코드를 생성합니다.
@@ -195,8 +200,8 @@ class BaseRepository(CRUDBase[ModelType, PrimaryKeyType], Generic[ModelType, Pri
             생성된 모델 인스턴스
 
         Raises:
-            DuplicateException: 중복 데이터가 존재하는 경우
-            DatabaseException: 데이터베이스 오류가 발생한 경우
+            AppException: DB 오류 — DBErrorTranslator 가 코드별로 변환(중복 409·필수 값 422·
+                참조 없음 422·참조 중 409·그 외 500)
 
         Example:
             user = await repo.create({"name": "John", "email": "john@example.com"})
@@ -210,18 +215,8 @@ class BaseRepository(CRUDBase[ModelType, PrimaryKeyType], Generic[ModelType, Pri
         try:
             instance = self.model(**payload)
             return await self._add(instance)  # CRUDBase 메서드 활용
-        except IntegrityError as e:
-            self._log_db_error("CREATE", e)
-            raise DuplicateException(
-                message="이미 존재하는 데이터입니다.",
-                detail={"model": self.model.__name__},
-            ) from e
         except SQLAlchemyError as e:
-            self._log_db_error("CREATE", e)
-            raise DatabaseException(
-                message="데이터 생성 중 오류가 발생했습니다.",
-                detail={"model": self.model.__name__},
-            ) from e
+            raise self._db_error("CREATE", e) from e
 
     # ========================================================================
     # READ - 기본 조회
@@ -352,8 +347,8 @@ class BaseRepository(CRUDBase[ModelType, PrimaryKeyType], Generic[ModelType, Pri
             업데이트된 모델 인스턴스 또는 None
 
         Raises:
-            DuplicateException: 중복 데이터로 인한 제약 조건 위반
-            DatabaseException: 데이터베이스 오류가 발생한 경우
+            AppException: DB 오류 — DBErrorTranslator 가 코드별로 변환(중복 409·필수 값 422·
+                참조 없음 422·참조 중 409·그 외 500)
 
         Example:
             user = await repo.update("user-123", {"name": "New Name"})
@@ -388,18 +383,8 @@ class BaseRepository(CRUDBase[ModelType, PrimaryKeyType], Generic[ModelType, Pri
                 setattr(entity, field, value)
             await self._flush()
             return await self._refresh(entity)
-        except IntegrityError as e:
-            self._log_db_error("UPDATE", e)
-            raise DuplicateException(
-                message="업데이트할 데이터가 기존 데이터와 충돌합니다.",
-                detail={"model": self.model.__name__},
-            ) from e
         except SQLAlchemyError as e:
-            self._log_db_error("UPDATE", e)
-            raise DatabaseException(
-                message="데이터 업데이트 중 오류가 발생했습니다.",
-                detail={"model": self.model.__name__},
-            ) from e
+            raise self._db_error("UPDATE", e) from e
 
     # ========================================================================
     # DELETE (삭제)
@@ -416,7 +401,8 @@ class BaseRepository(CRUDBase[ModelType, PrimaryKeyType], Generic[ModelType, Pri
             삭제 성공 여부 (True/False)
 
         Raises:
-            DatabaseException: 데이터베이스 오류가 발생한 경우
+            AppException: DB 오류 — DBErrorTranslator 가 코드별로 변환(중복 409·필수 값 422·
+                참조 없음 422·참조 중 409·그 외 500)
 
         Example:
             if await repo.delete("user-123"):
@@ -430,18 +416,8 @@ class BaseRepository(CRUDBase[ModelType, PrimaryKeyType], Generic[ModelType, Pri
         try:
             await self._delete(entity)
             return True
-        except IntegrityError as e:
-            self._log_db_error("DELETE", e)
-            raise DatabaseException(
-                message="다른 데이터에서 참조 중이어서 삭제할 수 없습니다.",
-                detail={"model": self.model.__name__},
-            ) from e
         except SQLAlchemyError as e:
-            self._log_db_error("DELETE", e)
-            raise DatabaseException(
-                message="데이터 삭제 중 오류가 발생했습니다.",
-                detail={"model": self.model.__name__},
-            ) from e
+            raise self._db_error("DELETE", e) from e
 
     # ========================================================================
     # UPSERT (생성 또는 수정)

@@ -58,7 +58,7 @@
 - INV-3: DSN 은 비밀번호·호스트를 그대로 왕복한다 — `make_url(...).password` 가 원래 값. (검사: `tests/core/test_dsn_urls.py`)
 - INV-4: 잠금 읽기는 쓰기다 — 라우터 on 에서 writer, read-only 세션에서 거부. (검사: `tests/core/test_read_only_guard.py`, `tests/core/test_db_router.py`)
 - INV-5: 범용 목록은 결정적 순서를 갖고 offset 페이지가 겹치지 않는다. (검사: `tests/core/test_list_ordering.py`)
-- INV-6: 클라이언트 IP 는 신뢰 홉 밖의 헤더 값을 채택하지 않는다. (단계 B)
+- INV-6: 클라이언트 IP 는 신뢰 홉 밖의 헤더 값을 채택하지 않는다. (검사: `tests/core/test_client_ip_trust.py`)
 - INV-7: 저장 시각은 UTC aware 로 돌아온다. naive 저장은 거부된다. (단계 D)
 - INV-8: Redis 가 응답하지 않으면 `/ready` 는 503 이다. (단계 E)
 - INV-9: 워커 include 는 registry 가 발견한 앱에서 만들어지고, 기능을 지워도 깨지지 않는다. (단계 E)
@@ -84,3 +84,4 @@
 ## 4. 변경 이력
 - v0.1 (2026-10-12): 최초 작성. 기준선 실측(814 passed / 32 deselected / skip 0).
 - v0.2 (2026-10-12): 단계 A 완료 — INV-1~INV-5 에 검사 경로를 적었다(845 passed / 32 deselected / skip 0).
+- v0.3 (2026-10-12): 단계 B 완료 — INV-6 검사 경로(905 passed / 32 deselected / skip 0). 설정 `TRUST_PROXY_HEADERS` → `TRUSTED_PROXY_HOPS`, `ACCESS_LOG_SENSITIVE_QUERY_KEYS` 추가(ADR-019).

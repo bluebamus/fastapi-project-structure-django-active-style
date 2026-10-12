@@ -171,7 +171,9 @@ summary·description·유일한 `operation_id`·tag, 파라미터·스키마 필
 - 응답 필드는 스키마로 정합니다. `Base.to_dict()` 를 그대로 공개하면 해시·내부 컬럼이 샙니다.
   catalog `ProductResponse` 는 `id/name/price/is_active` 만 공개합니다.
 - PATCH 의 "보내지 않음" 과 "`null` 을 보냄" 은 다릅니다. `exclude_unset=True` 는 앞의 것만 뺍니다.
-  non-nullable 컬럼에 `null` 을 허용할지 스키마에서 정하고 테스트합니다.
+  Update 스키마는 `app.core.schemas.PatchSchema` 를 상속하고, DB 에서 NULL 을 허용하는 필드만
+  `nullable_fields` 에 적습니다 — 그 밖의 필드에 명시적 `null` 이 오면 422 입니다
+  (`tests/core/test_patch_schema.py` 가 모델 nullable 컬럼과의 일치를 검사).
 - 선언되지 않은 FK·relationship 을 추정해 만들지 않습니다. 기능 사이 참조는 값으로 둡니다.
 
 ### 5.2 생성 요청 한 건의 흐름
@@ -206,12 +208,12 @@ async def create_product(
 
 | 메서드 | 동작 |
 |---|---|
-| `create(data)` | flush·refresh 까지, commit 없음. 제약 위반은 `DuplicateException`, 그 밖의 DB 오류는 `DatabaseException` |
+| `create(data)` | flush·refresh 까지, commit 없음. DB 오류는 `DBErrorTranslator` 가 원인별로 변환한다 — 중복 409 `DuplicateException`, 필수 값 누락·참조 대상 없음 422 `ValidationException`, 참조 중 409 `ConflictException`, 그 밖의 DB 오류 500 `DatabaseException` |
 | `get_by_id(pk)` | 없으면 `None` |
 | `get_by_id_or_raise(pk)` | 없으면 `NotFoundException` |
 | `get_all(skip=0, limit=100)` | 페이지 조회 — 기본 정렬 **`created_at DESC, PK DESC`**(모델에 `created_at` 이 없으면 PK 만). 같은 시각의 행도 순서가 정해져 offset 페이지가 겹치지 않는다 |
 | `count(**filters)` / `exists(pk)` | 총 개수(`filter_by`) / 존재 여부 |
-| `update(pk, data)` | 없으면 `None`. **빈 dict 는 no-op** 으로 현재 객체 반환. 모델에 없는 필드·PK 변경은 `ValidationException`, 제약 위반은 `DuplicateException`. flush·refresh 까지 |
+| `update(pk, data)` | 없으면 `None`. **빈 dict 는 no-op** 으로 현재 객체 반환. 모델에 없는 필드·PK 변경은 `ValidationException`, DB 오류는 `create` 와 같은 규칙. flush·refresh 까지 |
 | `delete(pk)` | 삭제 여부(`bool`), commit 없음 |
 
 - 다른 순서가 필요하면 기능 Repository 에 `order_by`(마지막 동률은 PK)를 명시한 메서드를 추가하고,
@@ -248,9 +250,10 @@ class SalesReportRawRepository(RawRepositoryBase):
 ```
 
 흐름: View(`get_daily_sales_report`, read-only 세션) → `ReportService.get_daily_sales()`(시작일이
-종료일보다 뒤면 `InvalidDateRangeException`) → `SalesReportRawRepository.daily_sales()` →
+종료일보다 뒤거나, 날짜가 1970-01-01~9998-12-31 밖이거나, 기간이 366일을 넘으면 422
+`InvalidDateRangeException`) → `SalesReportRawRepository.daily_sales()` →
 `RawRepositoryBase.fetch_all()` → `RowMapping` → `DailySalesItem` DTO. 집계 기준은 `created_at` 이고
-종료일 당일 전체를 포함합니다. 조회 기간의 상한은 없습니다.
+종료일 당일 전체를 포함합니다. 날짜 상한은 SQL 의 `종료일 + 1일` 이 넘치지 않게 하려는 것입니다.
 
 ### 6.1 지켜야 하는 5가지
 

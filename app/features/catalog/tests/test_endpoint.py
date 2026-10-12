@@ -205,3 +205,13 @@ def test_write_handlers_validate_response_before_commit():
         validate_at = source.index("model_validate")
         commit_at = source.index("service.commit()")
         assert validate_at < commit_at, f"{handler.__name__} 이 commit 뒤에 검증합니다."
+
+
+@pytest.mark.parametrize("field", ["name", "price", "is_active"])
+async def test_patch_null_on_not_null_column_returns_422(client, field):
+    """NOT NULL 컬럼의 명시적 null 은 422 다 — 예전에는 무결성 오류가 409 "충돌" 이었다 (F-011)."""
+    created = await _create(client)
+
+    response = await client.patch(f"/api/v1/catalog/products/{created['id']}", json={field: None})
+
+    assert response.status_code == 422

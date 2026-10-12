@@ -232,3 +232,50 @@ def test_openapi_exposes_the_raw_result_schema():
     assert "DailySalesReportResponse" in schemas
     assert "DailySalesItem" in schemas
     assert "RowMapping" not in " ".join(schemas)
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        (date(2026, 1, 1), date(2027, 1, 2)),  # 367일
+        (date(9998, 12, 1), date(9999, 12, 31)),  # end+1일 이 넘치는 날짜
+        (date(1969, 12, 31), date(1970, 1, 1)),
+        (date(1, 1, 1), date(1, 1, 2)),
+    ],
+    ids=["367-days", "overflow-end", "before-1970", "year-1"],
+)
+async def test_service_rejects_out_of_bounds_period(start, end):
+    """과대 스캔·날짜 연산 overflow 는 SQL 까지 가기 전에 422 다 (F-012)."""
+    service = ReportService.__new__(ReportService)
+
+    with pytest.raises(InvalidDateRangeException) as caught:
+        await service.get_daily_sales(start_date=start, end_date=end)
+
+    assert caught.value.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        (date(2024, 1, 1), date(2024, 12, 31)),  # 윤년 366일 — 상한 포함
+        (date(1970, 1, 1), date(1970, 1, 1)),
+        (date(9998, 12, 31), date(9998, 12, 31)),
+    ],
+    ids=["366-days", "min-date", "max-date"],
+)
+async def test_service_accepts_boundary_periods(stub_daily_sales, start, end):
+    service = ReportService(session=None)
+
+    await service.get_daily_sales(start_date=start, end_date=end)
+
+    assert stub_daily_sales == [{"start_date": start, "end_date": end}]
+
+
+async def test_overflowing_end_date_returns_422(client):
+    response = await client.get(
+        "/api/v1/reports/sales/daily",
+        params={"start_date": "9999-12-30", "end_date": "9999-12-31"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error_code"] == "REPORTS_DATE_RANGE_INVALID"
