@@ -870,9 +870,11 @@ class JWTSettings(BaseSettings):
         default="change-this-refresh-token-secret-key",
         description="Refresh Token 서명 키",
     )
-    # Access Token 만료 (분)
+    # Access Token 만료 (분). access 는 만료 전 즉시 폐기 수단이 없으므로 짧게 둔다
+    # (service-hardening ADR-011·R-201 — 폐기는 refresh family 로 한다).
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
-        default=30,
+        default=15,
+        gt=0,
         description="Access Token 만료 시간(분)",
     )
     # Refresh Token 만료 (일)
@@ -880,10 +882,58 @@ class JWTSettings(BaseSettings):
         default=7,
         description="Refresh Token 만료 시간(일)",
     )
-    # JWT 서명 알고리즘
-    JWT_ALGORITHM: str = Field(
+    # JWT 서명 알고리즘. 대칭 키(HS 계열)만 허용한다 — 자유 문자열이면 `none` 이나
+    # 키 형식이 다른 비대칭 알고리즘이 설정 실수로 들어온다(F-021).
+    JWT_ALGORITHM: Literal["HS256", "HS384", "HS512"] = Field(
         default="HS256",
-        description="JWT 서명 알고리즘",
+        description="JWT 서명 알고리즘(HS256/HS384/HS512)",
+    )
+    # 발급자(iss)·대상(aud). 검증 시 둘 다 일치해야 한다 — 다른 서비스가 같은 키로
+    # 서명한 토큰을 이 API 가 받아들이지 않게 한다.
+    JWT_ISSUER: str = Field(
+        default="fastapi-project-structure",
+        min_length=1,
+        description="JWT 발급자(iss) claim",
+    )
+    JWT_AUDIENCE: str = Field(
+        default="fastapi-project-structure-api",
+        min_length=1,
+        description="JWT 대상(aud) claim",
+    )
+    # 서버 간 시계 차이 허용(초). exp·nbf·iat 검증에 적용된다.
+    JWT_LEEWAY_SECONDS: int = Field(
+        default=10,
+        ge=0,
+        description="JWT 시각 검증 허용 오차(초)",
+    )
+
+    # 로그인·가입 rate limit (Redis 고정 창 — service-hardening ADR-013).
+    # 로그인은 "IP + 사용자명" 과 "IP" 두 기준으로 센다. 앞쪽은 한 계정에 대한 추측,
+    # 뒤쪽은 한 IP 가 여러 계정을 훑는 시도(credential stuffing)를 막는다.
+    AUTH_LOGIN_MAX_ATTEMPTS: int = Field(
+        default=5,
+        gt=0,
+        description="창 안에서 IP+사용자명 기준 최대 로그인 시도 수",
+    )
+    AUTH_LOGIN_IP_MAX_ATTEMPTS: int = Field(
+        default=20,
+        gt=0,
+        description="창 안에서 IP 기준 최대 로그인 시도 수",
+    )
+    AUTH_LOGIN_WINDOW_SECONDS: int = Field(
+        default=60,
+        gt=0,
+        description="로그인 rate limit 창 길이(초)",
+    )
+    AUTH_REGISTER_MAX_ATTEMPTS: int = Field(
+        default=5,
+        gt=0,
+        description="창 안에서 IP 기준 최대 가입 시도 수",
+    )
+    AUTH_REGISTER_WINDOW_SECONDS: int = Field(
+        default=3600,
+        gt=0,
+        description="가입 rate limit 창 길이(초)",
     )
 
 

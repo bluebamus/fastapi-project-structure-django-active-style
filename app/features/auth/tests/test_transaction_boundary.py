@@ -7,11 +7,13 @@
 """
 
 import pytest_asyncio
+from fakeredis import FakeAsyncRedis
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.core.db.session import Base
+from app.core.redis import get_redis
 from app.features.user.models.models import User  # noqa: F401  (register table)
 from main import app
 from tests.session_overrides import session_overrides
@@ -44,6 +46,9 @@ async def counting_client():
     # get_current_user 는 get_read_only_db_session 을 쓴다. 같은 훅으로 오버라이드해야
     # 인증 경로의 커밋 횟수를 한 카운터로 셀 수 있다.
     app.dependency_overrides.update(session_overrides(maker, on_open=_count_commits))
+    # 로그인·가입 rate limit 과 refresh 저장소가 Redis 를 쓴다(lifespan 없이 띄우므로 가짜).
+    fake_redis = FakeAsyncRedis()
+    app.dependency_overrides[get_redis] = lambda: fake_redis
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c, counter

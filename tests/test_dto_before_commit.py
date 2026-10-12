@@ -15,12 +15,14 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
+from fakeredis import FakeAsyncRedis
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.core.db.session import Base
+from app.core.redis import get_redis
 from main import app
 from tests.session_overrides import session_overrides
 
@@ -127,6 +129,9 @@ async def env():
 
     # 예외 경로의 롤백은 `async with maker()` 의 close 가 맡는다(get_writer_db_session 과 같다).
     app.dependency_overrides.update(session_overrides(maker, on_open=_count_commits))
+    # 로그인·가입 rate limit 과 refresh 저장소가 Redis 를 쓴다(lifespan 없이 띄우므로 가짜).
+    fake_redis = FakeAsyncRedis()
+    app.dependency_overrides[get_redis] = lambda: fake_redis
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client, maker, calls

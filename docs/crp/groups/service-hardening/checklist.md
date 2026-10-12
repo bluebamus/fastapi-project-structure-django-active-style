@@ -45,9 +45,12 @@
 - [x] 문서 — README(구조·`/ready`·배포 확인 5·API 표·앱 추가·막히는 지점·테스트), ARCHITECTURE §1·§2·§4·§9·§11, DEVELOPMENT §구조·이름·§9·체크리스트, 가이드 HTML 2종, `scripts/new_app.py` 독스트링
 - [x] 각 Fix fail-on-revert 확인, GATE 3 그린(948 passed / 41 deselected / skip 0), run-log 기록
 
-## Round 6 — 단계 F1 (인증 코어)
-- [ ] (F-019·F-020·F-021) `PasswordHasher`·`TokenService`·`RefreshTokenStore`·`RateLimiter`·`AuthService` 주입, 엔드포인트 register/login/refresh/logout/me
-- [ ] 해시 이전·claims 거부·회전·재사용 탐지·429 테스트(fakeredis)
+## Round 6 — 2026-10-12 단계 F1 (인증 코어) — 완료
+- [x] (F-019·F-020·F-021) `PasswordHasher`·`TokenService`·`RefreshTokenStore`·`RateLimiter`·`AuthService` 주입, 엔드포인트 register/login/refresh/logout/me (ADR-022)
+- [x] 해시 이전·claims 거부·회전·재사용 탐지·429 테스트(fakeredis)
+- [x] 문서 — README(특징·스택·구조·API 표·인증 흐름), ARCHITECTURE §1·§4 설정 표·§10.1·§10.3, DEVELOPMENT §9(auth 테스트의 fakeredis), 기능 가이드 HTML(옛 유틸 링크), `.env.example`(JWT·rate limit 키)
+- [x] 라우트 인벤토리에 `/logout` 추가(ADR-018), 커밋 허용 목록 갱신
+- [x] 각 Fix fail-on-revert(변이) 확인, GATE 3 그린(1001 passed / 41 deselected / skip 0), run-log 기록
 
 ## Round 7 — 단계 F2 (인가 · 소유권 · 운영 도구)
 - [ ] (F-022·F-023·F-008) `Principal`·`get_current_principal`·`OwnershipPolicy`·슈퍼유저 경로, 작성자 컬럼 리비전

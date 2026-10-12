@@ -28,7 +28,8 @@ Repository 패턴과 계층 분리를 적용한 FastAPI 프로젝트 골격입�
 - **읽기/쓰기 세션 분리** — 조회는 `get_read_only_db_session`(쓰기 시도 시 예외), 변경은
   `get_writer_db_session`. 선택적으로 replica 라우팅.
 - **ORM 과 Raw SQL** — `BaseRepository`(catalog 예제)와 `RawRepositoryBase`(reports 예제).
-- **JWT 인증** — OAuth2 password flow, access/refresh 토큰, bcrypt.
+- **JWT 인증** — OAuth2 password flow, access/refresh 토큰(refresh 회전·재사용 탐지·로그아웃),
+  Argon2 해시(기존 bcrypt 해시는 로그인 때 이전), 로그인·가입 rate limit.
 - **운영 안전장치** — staging/production 에서 위험한 설정이면 기동 거부, 오류 응답에 내부 정보 비노출,
   접속 로그 비동기 수집, 로그 비밀값 마스킹.
 - **검증 게이트** — 로컬과 CI 가 같은 `scripts/review_gate.py` 로 정적 검사·테스트·공급망·문서를 판정.
@@ -41,10 +42,10 @@ Repository 패턴과 계층 분리를 적용한 FastAPI 프로젝트 골격입�
 | ORM / DB | SQLAlchemy 2.0 async · MySQL(aiomysql) |
 | Validation / Settings | Pydantic v2 · pydantic-settings |
 | Migration | Alembic |
-| Redis | startup 연결 검증(필수) · Celery broker/backend |
+| Redis | startup 연결 검증(필수) · Celery broker/backend · refresh 토큰 저장소 · rate limit |
 | Task Queue | Celery |
 | Admin / API Docs | SQLAdmin · Scalar |
-| Auth | OAuth2 Password + PyJWT + bcrypt |
+| Auth | OAuth2 Password + PyJWT + pwdlib(Argon2) |
 | Tooling | uv · ruff · mypy · bandit · pytest · pip-audit |
 
 ## 구조 한눈에
@@ -55,8 +56,9 @@ config.py          설정 단일 출처 (Pydantic Settings) + 배포 안전 게�
 app/features/      기능 앱 — 디렉터리 존재 = 등록 선언
   auth · blog · catalog(ORM 예제) · home(접속 로그) · reply · reports(Raw 예제) · sns · user
 app/core/          registry · db(세션·라우팅) · Base 모델/Repository/Service · 미들웨어 · 자원 관리
+                   · security(JWT 발급·검증 · refresh 저장소 · rate limit)
 app/celery/        Celery 앱·실행 기반 (태스크는 기능별 tasks.py, registry 가 발견)
-app/utils/         로깅 · JWT/bcrypt · 페이지네이션 · 검증
+app/utils/         로깅 · 페이지네이션 · 검증
 migrations/        Alembic (런타임과 같은 registry 로 모델 수집)
 scripts/           new_app.py(앱 생성기) · review_gate.py(검증 게이트)
 tests/             횡단 테스트 (기능 테스트는 app/features/<name>/tests/)
@@ -340,9 +342,10 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | | GET · PATCH · DELETE | `/api/v1/catalog/products/{product_id}` |
 | 매출 `reports` (Raw 예제) | GET | `/api/v1/reports/sales/daily?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD` |
 | 접속 로그 `home` | GET | `/api/v1/home/access-logs` (목록) · `/recent` · `/by-ip/{ip_address}` · `/by-user/{user_id}` · `/stats` |
-| 인증 `auth` | POST | `/api/v1/auth/register` (JSON, 201 · 사용자명 중복 409) |
-| | POST | `/api/v1/auth/login` (**form-urlencoded**, 200 · 불일치 401) |
-| | POST | `/api/v1/auth/refresh` (JSON `{"refresh_token": ...}`, 200 · 무효 401) |
+| 인증 `auth` | POST | `/api/v1/auth/register` (JSON, 201 · 사용자명 중복 409 · 초과 429) |
+| | POST | `/api/v1/auth/login` (**form-urlencoded**, 200 · 불일치 401 · 초과 429) |
+| | POST | `/api/v1/auth/refresh` (JSON `{"refresh_token": ...}`, 200 · 무효·재사용 401) |
+| | POST | `/api/v1/auth/logout` (JSON `{"refresh_token": ...}`, 204 · 무효 401) |
 | | GET | `/api/v1/auth/me` (Bearer access 토큰) |
 | 공통 | GET | `/health` (liveness) · `/ready` (DB·Redis readiness, 실패 503) |
 
@@ -360,19 +363,32 @@ curl -X POST localhost:8000/api/v1/auth/register \
 
 # 2) 로그인 — OAuth2 password flow 규격이라 form 전송 (curl -d 기본값)
 curl -X POST localhost:8000/api/v1/auth/login -d 'username=alice&password=secret-pw-1234'
-# → {"access_token":"eyJ...","refresh_token":"eyJ...","token_type":"bearer"}
+# → {"access_token":"eyJ...","refresh_token":"eyJ...","token_type":"bearer","expires_in":900}
 
 # 3) 보호 엔드포인트
 curl localhost:8000/api/v1/auth/me -H 'Authorization: Bearer <access_token>'
 
-# 4) 재발급 — access·refresh 를 둘 다 새로 받는다
+# 4) 재발급(회전) — access·refresh 를 둘 다 새로 받는다. 쓴 refresh 는 다시 쓸 수 없다
 curl -X POST localhost:8000/api/v1/auth/refresh \
+  -H 'Content-Type: application/json' -d '{"refresh_token":"<refresh_token>"}'
+
+# 5) 로그아웃 — 그 로그인 세션(family)의 refresh 를 모두 끊는다 (204)
+curl -X POST localhost:8000/api/v1/auth/logout \
   -H 'Content-Type: application/json' -d '{"refresh_token":"<refresh_token>"}'
 ```
 
-access 30분, refresh 7일(`ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS`), HS256 입니다. 토큰 종류가
-섞이면 거부되고, 비활성 사용자는 로그인·재발급에서 막힙니다. 서버 측 토큰 폐기 목록은 없어 유출된
-refresh 토큰은 만료까지 유효합니다.
+access 15분, refresh 7일(`ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS`), 기본 HS256
+(`JWT_ALGORITHM` 은 HS256/HS384/HS512 만)입니다. 토큰에는 `iss`·`aud`·`jti`·`nbf` 가 들어가고 검증 때
+모두 확인합니다. 토큰 종류가 섞이면 거부되고, 비활성 사용자는 로그인·재발급에서 막힙니다.
+
+- **refresh 회전·재사용 탐지** — refresh 토큰은 한 번 쓰면 소비됩니다(Redis). 이미 쓴 토큰이 다시
+  오면 탈취로 보고 그 로그인 세션(family)의 토큰을 모두 폐기합니다 — 정상 사용자도 다시 로그인해야
+  합니다. access 토큰은 폐기 수단이 없어 만료까지 유효하므로 짧게 둡니다.
+- **rate limit** — 로그인은 IP+사용자명 5회/60초·IP 20회/60초, 가입은 IP 5회/시간(`AUTH_*` 설정).
+  초과하면 429 와 `Retry-After` 헤더. 로그인이 성공하면 IP+사용자명 카운터를 지웁니다. 프록시 뒤라면
+  `TRUSTED_PROXY_HOPS` 를 맞추세요 — 0 이면 모든 사용자가 프록시 IP 하나로 함께 막힙니다.
+- **비밀번호** — Argon2(pwdlib)로 저장합니다. 이전 버전의 bcrypt 해시는 로그인에 성공할 때 Argon2 로
+  바꿔 저장합니다(점진 이전).
 
 ---
 

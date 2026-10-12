@@ -1,18 +1,26 @@
-"""Auth 엔드포인트 테스트 — register/login/me/refresh 전체 경로 (in-memory sqlite)."""
+"""Auth 엔드포인트 테스트 — register/login/me/refresh/logout 전체 경로 (in-memory sqlite + fakeredis)."""
 
+import bcrypt
+import pytest
 import pytest_asyncio
+from fakeredis import FakeAsyncRedis
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.core.db.session import Base
-from app.features.user.models.models import User  # noqa: F401  (register table)
+from app.core.exception import InvalidTokenException
+from app.core.redis import get_redis
+from app.features.auth.dependencies.auth_dependencies import get_token_service
+from app.features.user.models.models import User
+from config import jwt_settings
 from main import app
 from tests.session_overrides import session_overrides
 
 
 @pytest_asyncio.fixture
-async def client():
+async def env():
+    """``(client, maker, redis)`` — DB 를 직접 보거나 Redis 상태를 볼 테스트용."""
     engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -25,11 +33,19 @@ async def client():
     # get_current_user 는 get_read_only_db_session 을 쓴다 — 함께 오버라이드하지 않으면
     # 인증 경로가 실제 MySQL 로 새어나간다.
     app.dependency_overrides.update(session_overrides(maker))
+    # 로그인·가입 rate limit 과 refresh 저장소가 Redis 를 쓴다(lifespan 없이 띄우므로 가짜).
+    fake_redis = FakeAsyncRedis()
+    app.dependency_overrides[get_redis] = lambda: fake_redis
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
+        yield c, maker, fake_redis
     app.dependency_overrides.clear()
     await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def client(env):
+    return env[0]
 
 
 async def _register(client, username="alice", password="password123"):
@@ -120,3 +136,170 @@ async def test_refresh_rejects_access_token_401(client):
         "/api/v1/auth/refresh", json={"refresh_token": login.json()["access_token"]}
     )
     assert resp.status_code == 401
+
+
+# --------------------------------------------------------------- 단계 F1 흐름
+
+
+def _bearer(token):
+    return {"Authorization": f"Bearer {token}"}
+
+
+async def _refresh(client, token):
+    return await client.post("/api/v1/auth/refresh", json={"refresh_token": token})
+
+
+async def test_token_response_carries_expires_in(client):
+    await _register(client)
+    body = (await _login(client)).json()
+    assert body["expires_in"] == jwt_settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+
+
+async def test_full_flow_register_login_me_refresh_logout(client):
+    assert (await _register(client)).status_code == 201
+    first = (await _login(client)).json()
+    me = await client.get("/api/v1/auth/me", headers=_bearer(first["access_token"]))
+    assert me.status_code == 200
+
+    rotated = await _refresh(client, first["refresh_token"])
+    assert rotated.status_code == 200
+    second = rotated.json()
+    assert second["refresh_token"] != first["refresh_token"]
+    me = await client.get("/api/v1/auth/me", headers=_bearer(second["access_token"]))
+    assert me.status_code == 200
+
+    logout = await client.post(
+        "/api/v1/auth/logout", json={"refresh_token": second["refresh_token"]}
+    )
+    assert logout.status_code == 204
+    assert (await _refresh(client, second["refresh_token"])).status_code == 401
+
+
+async def test_reused_refresh_token_revokes_the_whole_family(client):
+    """소비된 refresh 가 다시 오면 401 이고, 그 사이 정상 회전으로 받은 토큰도 죽는다."""
+    await _register(client)
+    first = (await _login(client)).json()["refresh_token"]
+    second = (await _refresh(client, first)).json()["refresh_token"]
+
+    reuse = await _refresh(client, first)
+    assert reuse.status_code == 401
+    assert reuse.json()["error_code"] == "AUTH_INVALID_TOKEN"
+    assert (await _refresh(client, second)).status_code == 401
+
+
+async def test_other_login_family_survives_reuse_detection(client):
+    """재사용 탐지는 그 family 만 끊는다 — 다른 기기의 로그인은 그대로다."""
+    await _register(client)
+    device_a = (await _login(client)).json()["refresh_token"]
+    device_b = (await _login(client)).json()["refresh_token"]
+    await _refresh(client, device_a)
+    await _refresh(client, device_a)  # 재사용 → family A 폐기
+    assert (await _refresh(client, device_b)).status_code == 200
+
+
+async def test_logout_is_idempotent(client):
+    await _register(client)
+    token = (await _login(client)).json()["refresh_token"]
+    await _refresh(client, token)  # 이미 소비된 토큰
+    for _ in range(2):
+        resp = await client.post("/api/v1/auth/logout", json={"refresh_token": token})
+        assert resp.status_code == 204
+
+
+async def test_logout_rejects_invalid_token(client):
+    resp = await client.post("/api/v1/auth/logout", json={"refresh_token": "not-a-token"})
+    assert resp.status_code == 401
+
+
+async def test_refresh_fails_for_deactivated_user(env):
+    client, maker, _ = env
+    await _register(client)
+    token = (await _login(client)).json()["refresh_token"]
+    async with maker() as session:
+        await session.execute(User.__table__.update().values(is_active=False))
+        await session.commit()
+    assert (await _refresh(client, token)).status_code == 401
+
+
+async def test_me_rejects_refresh_token(client):
+    """type 혼동 — refresh 토큰을 Bearer 로 쓸 수 없다."""
+    await _register(client)
+    tokens = (await _login(client)).json()
+    resp = await client.get("/api/v1/auth/me", headers=_bearer(tokens["refresh_token"]))
+    assert resp.status_code == 401
+
+
+async def test_login_migrates_legacy_bcrypt_hash(env):
+    """이전 버전의 bcrypt 해시로 로그인하면 성공하고, 저장된 해시가 Argon2 로 바뀐다."""
+    client, maker, _ = env
+    legacy = bcrypt.hashpw(b"password123", bcrypt.gensalt()).decode()
+    async with maker() as session:
+        session.add(User(username="old", email="old@ex.com", hashed_password=legacy))
+        await session.commit()
+
+    assert (await _login(client, username="old")).status_code == 200
+
+    async with maker() as session:
+        stored = (await session.execute(User.__table__.select())).one().hashed_password
+    assert stored.startswith("$argon2")
+    assert (await _login(client, username="old")).status_code == 200
+
+
+async def test_login_is_rate_limited_per_ip_and_username(client):
+    await _register(client)
+    for _ in range(jwt_settings.AUTH_LOGIN_MAX_ATTEMPTS):
+        assert (await _login(client, password="wrong-password")).status_code == 401
+
+    blocked = await _login(client)  # 맞는 비밀번호여도 창 안에서는 막힌다
+    assert blocked.status_code == 429
+    assert blocked.json()["error_code"] == "TOO_MANY_REQUESTS"
+    retry_after = int(blocked.headers["Retry-After"])
+    assert 0 < retry_after <= jwt_settings.AUTH_LOGIN_WINDOW_SECONDS
+    # 다른 사용자명은 IP 기준 한도 전까지 영향받지 않는다.
+    assert (await _login(client, username="someone-else")).status_code == 401
+
+
+async def test_successful_login_resets_the_username_counter(client):
+    await _register(client)
+    for _ in range(jwt_settings.AUTH_LOGIN_MAX_ATTEMPTS - 1):
+        await _login(client, password="wrong-password")
+    assert (await _login(client)).status_code == 200
+    # 초기화되지 않았다면 이 중 두 번째 시도가 한도를 넘어 429 다.
+    for _ in range(jwt_settings.AUTH_LOGIN_MAX_ATTEMPTS):
+        assert (await _login(client, password="wrong-password")).status_code == 401
+
+
+async def test_login_is_rate_limited_per_ip(client, monkeypatch):
+    monkeypatch.setattr(jwt_settings, "AUTH_LOGIN_IP_MAX_ATTEMPTS", 3)
+    for name in ("a1", "a2", "a3"):
+        assert (await _login(client, username=name)).status_code == 401
+    assert (await _login(client, username="a4")).status_code == 429
+
+
+async def test_register_is_rate_limited_per_ip(client):
+    for i in range(jwt_settings.AUTH_REGISTER_MAX_ATTEMPTS):
+        assert (await _register(client, username=f"user{i}")).status_code == 201
+    blocked = await _register(client, username="one-more")
+    assert blocked.status_code == 429
+    assert "Retry-After" in blocked.headers
+
+
+@pytest.mark.parametrize("path", ["/api/v1/auth/refresh", "/api/v1/auth/logout"])
+async def test_refresh_endpoints_reject_access_token(client, path):
+    await _register(client)
+    access = (await _login(client)).json()["access_token"]
+    resp = await client.post(path, json={"refresh_token": access})
+    assert resp.status_code == 401
+
+
+async def test_token_service_is_injected(client):
+    """토큰 검증은 provider 로 주입된다 — override 한 서비스가 실제로 쓰인다."""
+
+    class _RejectAll:
+        def decode(self, token, expected_type):
+            raise InvalidTokenException()
+
+    await _register(client)
+    access = (await _login(client)).json()["access_token"]
+    app.dependency_overrides[get_token_service] = _RejectAll
+    assert (await client.get("/api/v1/auth/me", headers=_bearer(access))).status_code == 401

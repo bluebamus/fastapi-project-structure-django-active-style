@@ -456,6 +456,11 @@ async with background_db_session() as session:     # 별도 풀, 예외 시 roll
 - 공유 Redis 가 필요하면 core provider `get_redis`(`app/core/redis.py`)를 `Depends` 로 받습니다.
   client 가 없으면 503 이고, 테스트는 `app.dependency_overrides[get_redis]` 로 가짜를 넣습니다. Redis
   명령 실패 시의 오류 계약은 쓰는 기능이 정합니다.
+- auth 경로(가입·로그인·재발급·로그아웃)는 refresh 저장소와 rate limit 때문에 Redis 를 씁니다.
+  이 경로를 부르는 엔드포인트 테스트는 `fakeredis.FakeAsyncRedis()` 하나를 만들어
+  `app.dependency_overrides[get_redis] = lambda: fake` 로 넣습니다(예:
+  `app/features/auth/tests/test_endpoint.py`). Redis 를 쓰는 core 클래스는 생성자에 fakeredis 를 넣어
+  실물 그대로 시험합니다(`tests/core/test_refresh_store.py`·`test_rate_limiter.py`).
 
 ---
 

@@ -35,9 +35,10 @@ fastapi-project-structure-django-active-style/
 │   │   ├── models/models_base.py         # Base + UUIDPrimaryKeyMixin · CreatedAtMixin · UpdatedAtMixin
 │   │   ├── repositories/   # repository_base.py·crud_base.py (ORM) / raw_repository_base.py·raw_crud_base.py (Raw)
 │   │   ├── services/services_base.py     # BaseService (commit/rollback 헬퍼)
+│   │   ├── security/       # tokens.py(TokenService) · refresh_store.py(RefreshTokenStore) · rate_limiter.py(RateLimiter)
 │   │   └── middlewares/    # cors · user_info(접속 로그 수집) · background_tasks · access_log_sink
 │   ├── celery/             # Celery 앱: app.py(registry 로 include) · task.py(run_async) · worker_lifecycle.py
-│   └── utils/              # 순수 유틸: logs · authenticator(JWT·bcrypt) · pagination · validators
+│   └── utils/              # 순수 유틸: logs · pagination · validators
 ├── migrations/             # env.py 가 런타임과 같은 AppRegistry 로 모델 수집 / versions/
 ├── scripts/                # new_app.py(앱 생성기) · review_gate.py(로컬·CI 공용 게이트)
 ├── tests/                  # 횡단 테스트: core/ · integration/(MySQL) · scripts/ · utils/ · test_*.py
@@ -260,7 +261,7 @@ ASGI lifespan 진입
 | `log_settings` | `build_dictconfig()` |
 | `middleware_settings` | `UserInfoMiddleware` (활성·제외 규칙·민감 query 키), `ClientIPResolver`(`TRUSTED_PROXY_HOPS`) |
 | `redis_settings` | startup Redis ping client, Celery broker/backend |
-| `jwt_settings` | 토큰 서명·검증·수명 |
+| `jwt_settings` | `TokenService`(서명·검증·수명·iss/aud·leeway), 로그인·가입 rate limit(`AUTH_*`) |
 | `session_settings` | `UserInfoMiddleware` 가 `SESSION_COOKIE_NAME` 쿠키를 session_id 로 읽는다. `SESSION_SECRET_KEY` 는 배포 게이트가 검사한다. 쿠키 세션 구현은 없다 |
 | `api_settings` · `smtp_settings` · `upload_settings` | **선언만 있고 앱 코드가 쓰지 않는다.** |
 
@@ -570,25 +571,52 @@ Repository 의 DB 오류 변환(`DBErrorTranslator` — MySQL 오류 코드·SQL
 
 ## 10. 인증과 보안 경계
 
-### 10.1 JWT (`auth` 앱, `app/utils/authenticator/`)
+### 10.1 JWT (`auth` 앱, `app/core/security/`)
 
-- OAuth2 password flow + JWT access/refresh(PyJWT), bcrypt 해시. 자격증명은 `User.hashed_password`
-  에 있고 `auth` 는 인증 로직만 갖습니다(모델 없는 앱).
-- 토큰에는 종류 클레임(`type`)이 있어 access 자리에 refresh 를(또는 반대로) 넣으면 거부됩니다.
-  access 와 refresh 는 서로 다른 키로 서명합니다.
-- `refresh` 는 access·refresh 를 **둘 다** 새로 발급합니다. 비활성 사용자(`is_active=false`)는
-  로그인과 재발급에서 거부됩니다.
-- `get_current_user` 는 Bearer access 토큰을 검증하고 read-only 세션으로 활성 사용자를 읽습니다.
-  이 객체를 쓰기 세션에서 직접 수정하지 말고, 쓰기 세션으로 다시 조회합니다.
-- **상수 시간 인증:** 사용자가 없거나 해시가 없어도 더미 해시로 bcrypt 검증을 수행해 응답 시간으로
+역할마다 클래스 하나이고, 협력 객체는 생성자로 받습니다. 조립은 auth 의
+`dependencies/auth_dependencies.py` provider 가 합니다.
+
+| 클래스 | 위치 | 역할 | provider |
+|---|---|---|---|
+| `PasswordHasher` | `app/features/auth/services/password_hasher.py` | Argon2 해시, 옛 bcrypt 해시 검증·재해시 | `get_password_hasher`(프로세스 단일) |
+| `TokenService` | `app/core/security/tokens.py` | JWT 발급·검증 — 검증 규칙의 유일한 정의 지점 | `get_token_service` |
+| `RefreshTokenStore` | `app/core/security/refresh_store.py` | refresh jti 기록·소비(`GETDEL`)·family 폐기 | `get_refresh_token_store`(`get_redis`) |
+| `RateLimiter` | `app/core/security/rate_limiter.py` | Redis 고정 창(`INCR` + 첫 hit `EXPIRE NX`, MULTI) | `get_rate_limiter`(`get_redis`) |
+| `AuthService` | `app/features/auth/services/auth_service.py` | register · authenticate · issue_tokens · rotate · logout | `get_auth_service` |
+
+- OAuth2 password flow + JWT access/refresh(PyJWT). 자격증명은 `User.hashed_password` 에 있고
+  `auth` 는 인증 로직만 갖습니다(모델 없는 앱).
+- **claims:** `sub, type, iat, nbf, exp, jti, iss, aud` + access 는 `username`, refresh 는 `fam`(로그인 세션
+  = family id). 검증은 허용 알고리즘 목록(설정 하나)·`audience`·`issuer`·`leeway`·필수 claim 을 모두
+  지정하고, `type` 이 다르면 거부합니다. access 와 refresh 는 서로 다른 키로 서명합니다. 실패 이유와
+  관계없이 `InvalidTokenException`(401 `AUTH_INVALID_TOKEN`, core) 하나로 응답합니다.
+- **refresh 회전·재사용 탐지:** 발급할 때 `auth:rt:{jti}` → `{fam, sub}`(TTL = refresh 만료)와
+  `auth:user:{sub}:fams` 를 기록합니다. `/refresh` 는 jti 를 `GETDEL` 로 소비하고 같은 family 로 새 쌍을
+  발급합니다. 소비된 jti 가 다시 오면 재사용으로 보고 family 를 폐기(`auth:fam:{fam}:revoked`)한 뒤
+  401 — 그 사이 정상 회전으로 받은 토큰도 함께 죽습니다. 사용자가 없거나 비활성이어도 family 를
+  폐기합니다. `/logout` 은 family 를 폐기하고 이미 쓴 토큰이어도 204 입니다. `revoke_user(sub)` 는
+  사용자의 모든 family 를 폐기합니다.
+- **rate limit:** 라우트 의존성 `login_rate_limit`(IP, IP+소문자 사용자명)·`register_rate_limit`(IP)이
+  핸들러 전에 셉니다. 초과는 `TooManyRequestsException`(429, `Retry-After`) — `AppException` 의
+  `headers` 를 전역 핸들러가 응답에 싣습니다. 로그인 성공 시 IP+사용자명 카운터를 지웁니다.
+  IP 는 접속 로그와 같은 `ClientIPResolver`(`TRUSTED_PROXY_HOPS`)로 판정합니다.
+- **해시 이전:** 새 해시는 Argon2(pwdlib). `$2` 로 시작하는 옛 bcrypt 해시는 옛 규칙(UTF-8 72바이트
+  절단)으로 검증하고, 맞으면 Argon2 해시로 바꿔 저장합니다 — `/login` 핸들러가 커밋합니다.
+- `get_current_user` 는 `TokenService` 로 access 토큰을 검증하고 read-only 세션으로 활성 사용자를
+  읽습니다. 이 객체를 쓰기 세션에서 직접 수정하지 말고, 쓰기 세션으로 다시 조회합니다.
+- **상수 시간 인증:** 사용자가 없거나 해시가 없어도 Argon2 더미 해시로 검증을 수행해 응답 시간으로
   사용자명 존재를 알아내기 어렵게 합니다(네트워크 변동까지 없애지는 못합니다).
-- **논블로킹 해싱:** bcrypt 는 `asyncio.to_thread` 로 이벤트 루프 밖에서 돕니다.
+- **논블로킹 해싱:** 해시·검증은 `asyncio.to_thread` 로 이벤트 루프 밖에서 돕니다.
 
 | 설정 | 기본값 |
 |---|---|
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | 30 |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | 15 |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | 7 |
-| `JWT_ALGORITHM` | HS256 |
+| `JWT_ALGORITHM` | HS256 (HS256/HS384/HS512 만 허용) |
+| `JWT_ISSUER` / `JWT_AUDIENCE` | `fastapi-project-structure` / `fastapi-project-structure-api` |
+| `JWT_LEEWAY_SECONDS` | 10 |
+| `AUTH_LOGIN_MAX_ATTEMPTS` / `AUTH_LOGIN_IP_MAX_ATTEMPTS` / `AUTH_LOGIN_WINDOW_SECONDS` | 5 / 20 / 60 |
+| `AUTH_REGISTER_MAX_ATTEMPTS` / `AUTH_REGISTER_WINDOW_SECONDS` | 5 / 3600 |
 | `ACCESS_TOKEN_SECRET_KEY` / `REFRESH_TOKEN_SECRET_KEY` | `change-this-...` (placeholder — test 외 모든 ENV 에서 설정 검사가 거부, §4) |
 
 ### 10.2 SQLAdmin
@@ -610,8 +638,8 @@ Repository 의 DB 오류 변환(`DBErrorTranslator` — MySQL 오류 코드·SQL
 | CRUD 인가 | user·blog·reply·sns·catalog·reports·home 조회 API 에 인증·소유권 검사가 없다. `get_current_user` 를 쓰는 곳은 `/api/v1/auth/me` 뿐이다 |
 | 작성자 | 콘텐츠의 `author` 는 요청 본문의 자유 문자열이다 |
 | 참조 무결성 | `Reply.post_id` 는 FK 없는 문자열 — 게시글 존재 검증·삭제 전파 정책 없음 |
-| 로그인 보호 | rate limit·계정 잠금 없음 |
-| 토큰 폐기 | 서버 측 폐기 목록 없음 — 유출된 refresh 토큰은 만료까지 유효(`REFRESH_TOKEN_EXPIRE_DAYS` 로 수명 조절) |
+| 로그인 보호 | 고정 창 rate limit(창 경계에서 최대 2배 통과). 계정 잠금은 없다 |
+| 토큰 폐기 | refresh 는 family 단위로 폐기된다(재사용 탐지·로그아웃). access 토큰은 만료(기본 15분)까지 유효하다 |
 | 접속 로그 개인정보 | `query_string` 은 민감 키 값만 가리고 나머지와 `referer`·`session_id` 쿠키는 원문 저장한다. 보존 기간·파기 절차·조회 API 접근 통제가 없다 |
 | CORS | 기본 `CORS_ALLOW_ORIGINS=["*"]`, credentials false (staging/production 은 게이트가 `*` 를 거부) |
 

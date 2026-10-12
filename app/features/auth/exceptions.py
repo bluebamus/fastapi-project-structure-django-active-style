@@ -1,6 +1,8 @@
 """Auth 도메인 예외.
 
 core 공통 예외(UnauthorizedException, ConflictException)를 상속해 도메인 에러 코드를 부여한다.
+토큰 검증 실패(``InvalidTokenException``, ``AUTH_INVALID_TOKEN``)는 검증기(`TokenService`)와
+함께 core 에 있다 — 인증 주체 판정이 기능을 import 하지 않게 하기 위해서다.
 """
 
 from enum import StrEnum
@@ -13,7 +15,6 @@ class AuthErrorCode(StrEnum):
 
     INVALID_CREDENTIALS = "AUTH_INVALID_CREDENTIALS"
     USERNAME_DUPLICATE = "AUTH_USERNAME_DUPLICATE"
-    INVALID_TOKEN = "AUTH_INVALID_TOKEN"
 
 
 class InvalidCredentialsException(UnauthorizedException):
@@ -28,10 +29,3 @@ class UsernameAlreadyExistsException(ConflictException):
 
     error_code = AuthErrorCode.USERNAME_DUPLICATE
     message = "이미 존재하는 사용자명입니다."
-
-
-class InvalidTokenException(UnauthorizedException):
-    """유효하지 않은/만료된 토큰."""
-
-    error_code = AuthErrorCode.INVALID_TOKEN
-    message = "유효하지 않은 인증 토큰입니다."
