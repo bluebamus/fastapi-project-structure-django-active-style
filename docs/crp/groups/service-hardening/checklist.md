@@ -33,9 +33,11 @@
 - [x] 문서 — `docs/guides/DEVELOPMENT.md` §테스트의 override 안내(비어 있는 conftest 를 가리키던 문장 정정)
 - [x] fail-on-revert 확인, GATE 3 그린(910 passed / 37 deselected / skip 0), run-log 기록
 
-## Round 4 — 단계 D (UTC 저장)
-- [ ] (F-016) `UTCDateTime`·Alembic 리비전·리포트 영업일 집계·Celery `enable_utc`
-- [ ] TypeDecorator 단위·마이크로초 보존·응답 오프셋 테스트, MySQL 왕복(`mysql` 마커)
+## Round 4 — 2026-10-12 단계 D (UTC 저장) — 완료
+- [x] (F-016) `UTCDateTime`·`TimezoneSettings.utc_now()`·Alembic 렌더 훅·리비전 `e5a7c9d1f3b5`·리포트 영업일 집계·Celery `enable_utc` (ADR-020)
+- [x] TypeDecorator 단위·SQLite 마이크로초 보존·모델 기본값·응답 오프셋·리포트 경계 변환 테스트, MySQL 왕복·자정 경계·리비전 변환(`mysql` 마커, 로컬은 수집만)
+- [x] 문서 — ARCHITECTURE §4.2·§8.4(신규)·§11·§12, DEVELOPMENT §6, 가이드 HTML 2종, README 배포 확인 7, `.env.example` TIME_ZONE 설명, 응답 스키마 설명 "(UTC, 오프셋 포함 ISO 8601)"
+- [x] 각 Fix fail-on-revert 확인, GATE 3 그린(930 passed / 41 deselected / skip 0), run-log 기록
 
 ## Round 5 — 단계 E (Redis 필수 · /ready · Celery 발견)
 - [ ] (F-017) `get_redis` provider, `/ready` DB+Redis 503

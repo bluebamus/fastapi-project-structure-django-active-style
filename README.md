@@ -306,6 +306,7 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | 4 | 프록시 뒤라면 `TRUSTED_PROXY_HOPS` 가 실제 프록시 수와 같은가 | 아니면 접속 로그 IP 가 위조되거나 프록시 IP 로 찍힌다 |
 | 5 | readiness 는 `/ready`, Redis 는 별도로 감시하는가 | `/health` 는 DB·Redis 를 보지 않는다 |
 | 6 | 공개할 CRUD 에 인가를 붙였는가 | 현재 예제 API 에는 인증·소유권 검사가 없다 |
+| 7 | 기존 MySQL 데이터가 있다면 `e5a7c9d1f3b5`(시각 UTC 전환) 적용 전에 그 시각이 Asia/Seoul 벽시계인지 확인했는가 | 리비전이 `+09:00 → UTC` 로 옮긴다. 다른 지역 시각으로 쌓인 DB 는 오프셋을 바꿔 적용해야 한다([ARCHITECTURE §12](docs/guides/ARCHITECTURE.md)) |
 
 **`/admin` 에는 인증이 없습니다.** 인증 백엔드는 붙이지 않기로 확정했고(영구 비목표), 기본값 `true` 는
 로컬에서 바로 DB 를 들여다보기 위한 의도된 선택입니다. 켜져 있으면 도달 가능한 누구나 데이터를

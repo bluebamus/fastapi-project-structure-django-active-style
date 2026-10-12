@@ -79,7 +79,7 @@ class UserAccessLogResponse(BaseModel):
     response_status: int | None = Field(None, description="응답 상태 코드")
     response_time_ms: int | None = Field(None, description="응답 시간 (ms)")
     user_id: str | None = Field(None, description="사용자 ID")
-    created_at: datetime = Field(..., description="생성 시간")
+    created_at: datetime = Field(..., description="생성 시각(UTC, 오프셋 포함 ISO 8601)")
 
 
 class UserAccessLogListResponse(BaseModel):

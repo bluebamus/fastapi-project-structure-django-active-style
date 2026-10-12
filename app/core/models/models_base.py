@@ -23,9 +23,10 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from app.core.models.types import UTCDateTime
 from config import timezone_settings
 
 
@@ -43,8 +44,10 @@ class Base(DeclarativeBase):
         # TYPE_CHECKING 가드라 런타임 매핑에는 영향이 없다.
         id: Mapped[Any]
 
+    # `Mapped[datetime]` 는 모두 UTC 저장 타입이 된다(ADR-007). 모델이 타입을 따로 적지 않아도
+    # naive 거부·UTC 변환·MySQL 마이크로초가 같이 따라온다.
     type_annotation_map = {
-        datetime: DateTime(timezone=True),
+        datetime: UTCDateTime(),
     }
 
     def to_dict(self) -> dict[str, Any]:
@@ -66,11 +69,13 @@ class UUIDPrimaryKeyMixin:
 
 
 class CreatedAtMixin:
-    """생성 시각(`created_at`). 설정된 타임존(기본 Asia/Seoul)을 따른다."""
+    """생성 시각(`created_at`). UTC aware 로 만들고 UTC 로 저장한다(ADR-007).
+
+    응답에서 지역 시각으로 보여 줄 일은 클라이언트가 오프셋을 보고 한다.
+    """
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: timezone_settings.now(),
+        default=lambda: timezone_settings.utc_now(),
         nullable=False,
     )
 
@@ -82,9 +87,8 @@ class UpdatedAtMixin:
     """
 
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: timezone_settings.now(),
-        onupdate=lambda: timezone_settings.now(),
+        default=lambda: timezone_settings.utc_now(),
+        onupdate=lambda: timezone_settings.utc_now(),
         nullable=False,
     )
 

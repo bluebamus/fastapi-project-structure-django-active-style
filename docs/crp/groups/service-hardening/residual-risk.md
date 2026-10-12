@@ -12,6 +12,8 @@
 | R-204 | 2026-10-07 리뷰 중 이 그룹 단계에 들지 않은 항목 — 미처리 예외 트레이스백의 SQL·바인드 값(리뷰 R-05), `.env` 가 있을 때 `ENV` 누락(R-08), 커넥션 풀 크기 하드코딩(R-12), CRP 안의 스키마 골든(R-15), 고정 버전 갱신 자동화(R-16), 그 밖의 Low·Info 정리 항목. | MED | REQ-001 의 단계 A~F2 범위 밖. 사용자 지시 "요청 범위 밖의 정리를 하지 않는다". | 2026-10-12 | 사용자가 다음 요청으로 범위에 넣으면 이 그룹 또는 새 그룹의 ledger 로 승격. |
 | R-205 | OpenAPI 의 Update 스키마는 NOT NULL 필드도 `anyOf: [..., null]` 로 보인다 — 서버는 그 null 을 422 로 거부한다(`PatchSchema`). | LOW | 단계 B 는 런타임 거부만 범위다(ADR-005). 필드 타입을 바꾸면 OpenAPI 계약이 바뀌어 클라이언트 생성기가 영향을 받는다. | 2026-10-12 | OpenAPI 로 클라이언트를 생성해 null 전송 버그가 관측되면 `json_schema_extra` 로 null 을 빼거나 필드 타입을 좁힌다. |
 | R-206 | Raw SQL 경로(`RawRepositoryBase`)의 DB 오류는 `DBErrorTranslator` 를 거치지 않고 전역 500 핸들러로 간다. | LOW | REQ-001 B 의 변환 대상은 ORM `BaseRepository` 의 create·update(·delete)다. 현재 Raw 예제는 조회뿐이다. | 2026-10-12 | Raw 쓰기 경로가 생기면 `_observed` 에서 같은 변환기를 쓴다. |
+| R-207 | 리포트의 지역 날짜 묶기는 쿼리당 고정 오프셋(기간 시작 시점)이다 — DST 가 있는 `TIME_ZONE` 에서는 전환일 전후 주문이 한 시간 어긋난 날짜로 묶일 수 있다. | LOW | 기본·운영 지역 Asia/Seoul 은 DST 가 없다. 행별 변환은 MySQL 타임존 테이블 적재가 필요해 운영 의존이 늘어난다(ADR-020 ⑤, 코드의 `ponytail:` 주석). | 2026-10-12 | DST 지역으로 운영하면 타임존 테이블을 적재해 `CONVERT_TZ(created_at, '+00:00', '<지역 이름>')` 로 바꾸거나 경계별로 나눠 조회한다. |
+| R-208 | 리비전 `e5a7c9d1f3b5` 는 기존 MySQL 값이 Asia/Seoul 벽시계라고 가정한다. downgrade 는 `DATETIME` 으로 좁히며 소수 초를 반올림한다. | LOW | 이전 기본 `TIME_ZONE` 과 모델 default(`timezone_settings.now()`)가 KST 였다. 다른 지역으로 운영한 DB 를 자동 판별할 근거가 DB 에 없다(오프셋이 저장되지 않았다). | 2026-10-12 | 다른 `TIME_ZONE` 으로 쌓인 DB 에 적용해야 하면 리비전의 `_LOCAL_OFFSET` 을 그 지역 값으로 바꿔 적용한다(README 배포 확인 7). |
 
 <!--
 규칙:

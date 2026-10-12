@@ -245,7 +245,7 @@ ASGI lifespan 진입
 
 | 전역 인스턴스 | 쓰는 곳 |
 |---|---|
-| `timezone_settings` | 로그 시각, 모델 시간 기본값, Celery timezone |
+| `timezone_settings` | 로그 시각(지역), 모델 시각 기본값(`utc_now()`, UTC), 리포트 영업일 경계(`local_dates_to_utc`·`utc_offset`), Celery beat timezone |
 | `app_settings` | 앱 메타데이터, `DEBUG`/`ENV`/`ADMIN`/`ADMIN_ALLOW_UNAUTHENTICATED`, 직접 실행 host/port |
 | `db_settings` | 엔진 URL·라우팅·풀, Alembic URL(`ALEMBIC_URL`), `describe_routing()`(DSN 마스킹) |
 | `cors_settings` | `CustomCORSMiddleware.configure_cors()` |
@@ -513,6 +513,17 @@ sticky 는 세션 내부 정책이라 다음 요청의 read-only 세션까지 �
 read-only DB 계정·권한을 최종 방어선으로 둡니다. 회귀 가드: `tests/core/test_read_only_guard.py`,
 `tests/core/test_db_router.py`.
 
+### 8.4 시각 저장 — UTC·마이크로초
+
+DB 의 시각은 **UTC** 로 저장합니다. `Base.type_annotation_map` 이 `Mapped[datetime]` 을
+`app/core/models/types.py` 의 `UTCDateTime` 으로 바꿉니다 — aware 값은 UTC 로 변환해 저장하고, naive 값은
+`ValueError`(flush 시 `StatementError`)로 거부하며, 읽을 때 UTC tzinfo 를 붙입니다. MySQL 컬럼은
+`DATETIME(6)`(마이크로초)입니다. 모델 기본값은 `timezone_settings.utc_now()` 하나에서 나오고, 응답 JSON 은
+`...Z` 오프셋을 가집니다. `TIME_ZONE` 은 저장값의 의미를 바꾸지 않습니다 — 로그 표시·리포트 영업일·Celery
+beat 표시에만 쓰입니다. 리포트는 지역 날짜 범위를 UTC 반열린 구간으로 바꿔 조회하고
+`DATE(CONVERT_TZ(created_at, '+00:00', <오프셋>))` 로 묶습니다(쿼리당 고정 오프셋 — DST 지역은 행별 변환이
+필요합니다). 회귀 가드: `tests/core/test_utc_datetime.py`, MySQL 은 `tests/integration/test_mysql_utc_datetime.py`.
+
 ---
 
 ## 9. 오류 응답과 health / ready
@@ -610,6 +621,7 @@ Repository 의 DB 오류 변환(`DBErrorTranslator` — MySQL 오류 코드·SQL
   폐기(`dispose(close=False)`)하고 루프를 새로 만들며, 종료 시 루프를 닫습니다. async DB dispose 까지
   하지는 않습니다.
 - API 기동은 worker/beat 를 띄우지 않고, API lifespan 이 워커 자원을 정리하지도 않습니다.
+- `enable_utc=True` 입니다 — ETA·만료·결과 시각은 UTC 로 다루고, `timezone`(`TIME_ZONE`)은 beat crontab 해석·표시에만 쓰입니다.
 - 태스크에는 요청 세션·Service·Request 를 넘기지 않고 JSON 직렬화 가능한 id·값만 넘깁니다. 태스크가
   `background_db_session()` 을 열고 재시도·중복 정책을 스스로 정합니다.
 
@@ -636,7 +648,12 @@ config.set_main_option(
 - DSN 은 문자열로 이어 붙이지 않고 `URL.create(...)` 로 만듭니다 — 비밀번호의 `@ / : #` 는 렌더링 때
   인코딩되고, `%` 는 ConfigParser 보간을 피하려고 `%%` 로 넘깁니다. 회귀 가드: `tests/core/test_dsn_urls.py`.
 - revision 체인: `f4adf0ae24ea`(baseline) → `b2f1a9c0d3e4`(user 비밀번호) →
-  `c3d5e7a91b02`(catalog_products) → `d4e6f8b12c34`(sales_orders, head).
+  `c3d5e7a91b02`(catalog_products) → `d4e6f8b12c34`(sales_orders) → `e5a7c9d1f3b5`(시각 컬럼 UTC·`DATETIME(6)`, head).
+- `e5a7c9d1f3b5` 는 MySQL 에서만 동작합니다(SQLite no-op). 기존 값을 `CONVERT_TZ(col, '+09:00', '+00:00')` 로
+  옮기므로 **기존 데이터가 Asia/Seoul 벽시계라는 가정**입니다 — 다른 `TIME_ZONE` 으로 운영하던 DB 는 적용 전에
+  리비전의 오프셋을 바꿔야 합니다. downgrade 는 역변환 후 `DATETIME` 으로 좁힙니다(소수 초 반올림).
+- autogenerate 는 `UTCDateTime` 을 `sa.DateTime().with_variant(mysql.DATETIME(fsp=6), "mysql")` 로 적습니다
+  (`env.py` 의 `render_item=render_alembic_type`) — 리비전이 앱 클래스를 import 하지 않습니다.
 - 서버 기동은 upgrade 를 하지 않습니다. 운영은 트래픽 전환 전에 `alembic upgrade head` 를 적용합니다.
 - 회귀 가드: `tests/core/test_migration_chain.py`(빈 DB `upgrade head` 결과 = ORM metadata),
   `tests/core/test_alembic_metadata.py`, 게이트 `structure` 그룹(`alembic heads` 단일 head).
