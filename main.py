@@ -12,6 +12,7 @@ lifespan·Admin 활성화 분기).
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -79,17 +80,21 @@ def _register_exception_handlers(app: FastAPI) -> None:
 
         AppException 및 하위 예외들을 처리하여 일관된 에러 응답을 반환합니다.
         """
-        logger.error(
-            "[AppException] %s: %s",
-            exc.error_code,
-            exc.message,
-            extra={
-                "path": request.url.path,
-                "method": request.method,
-                "error_code": exc.error_code,
-                "detail": exc.detail,
-            },
-        )
+        # 4xx 는 클라이언트 입력의 결과라 WARNING 이다 — ERROR 로 남기면 운영 경보가
+        # 잘못된 요청 수에 끌려다닌다. 4xx 의 detail 은 클라이언트가 보낸 값(이메일·
+        # 사용자명 등)을 담으므로 로그에 싣지 않는다. 경로는 route template 으로 남긴다.
+        route = request.scope.get("route")
+        extra: dict[str, Any] = {
+            "path": getattr(route, "path", None) or request.url.path,
+            "method": request.method,
+            "status_code": exc.status_code,
+            "error_code": exc.error_code,
+        }
+        if exc.status_code >= 500:
+            extra["detail"] = exc.detail
+            logger.error("[AppException] %s: %s", exc.error_code, exc.message, extra=extra)
+        else:
+            logger.warning("[AppException] %s: %s", exc.error_code, exc.message, extra=extra)
         return JSONResponse(
             status_code=exc.status_code,
             content=exc.to_response().model_dump(mode="json"),

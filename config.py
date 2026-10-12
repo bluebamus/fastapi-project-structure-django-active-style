@@ -720,17 +720,34 @@ class MiddlewareSettings(BaseSettings):
         extra="ignore",
     )
 
-    # 프록시가 붙인 전달 헤더(X-Forwarded-For / X-Real-IP)를 접속 IP 로 신뢰할지.
+    # 앱 앞에 둔 신뢰 프록시의 수(ClientIPResolver 가 쓴다).
     #
-    # 기본값이 False 인 것은 의도다. 이 헤더는 클라이언트가 그냥 보낼 수 있는 값이라,
-    # 프록시 뒤가 아닌데 신뢰하면 아무나 헤더 한 줄로 접속 로그의 IP 를 위조하고
-    # IP 기반 조회를 오염시킨다. 리버스 프록시 뒤에 둔 배포에서만 명시적으로 켠다.
+    # 기본값 0 은 의도다 — 전달 헤더(X-Forwarded-For / X-Real-IP)는 클라이언트가 그냥
+    # 보낼 수 있는 값이라, 프록시 뒤가 아닌데 신뢰하면 아무나 헤더 한 줄로 접속 로그의
+    # IP 를 위조한다. N 이면 XFF 의 오른쪽에서 N번째(우리 프록시가 붙인 값)만 채택하고,
+    # 왼쪽(클라이언트가 써 보낸 값)은 보지 않는다. 예전 bool `TRUST_PROXY_HEADERS` 를
+    # 대체한다(true ≈ 1).
     #
-    # ponytail: bool 한 개로 "신뢰/불신뢰" 만 가른다. 신뢰할 프록시를 CIDR 목록으로
-    # 좁혀야 할 만큼 토폴로지가 복잡해지면 그때 목록 설정으로 올린다.
-    TRUST_PROXY_HEADERS: bool = Field(
-        default=False,
-        description="X-Forwarded-For/X-Real-IP 를 접속 IP 로 신뢰할지 (리버스 프록시 뒤에서만 true)",
+    # ponytail: 홉 "수" 만 센다. 경로마다 프록시 수가 다르거나 신뢰할 프록시를 CIDR
+    # 목록으로 좁혀야 할 만큼 토폴로지가 복잡해지면 그때 목록 설정으로 올린다.
+    TRUSTED_PROXY_HOPS: int = Field(
+        default=0,
+        ge=0,
+        description="앱 앞의 신뢰 리버스 프록시 수 (0=전달 헤더 무시, N=XFF 오른쪽에서 N번째)",
+    )
+
+    # 접속 로그의 query_string 에서 값을 `***` 로 가릴 키(대소문자 무시).
+    ACCESS_LOG_SENSITIVE_QUERY_KEYS: list[str] = Field(
+        default=[
+            "password",
+            "token",
+            "access_token",
+            "refresh_token",
+            "secret",
+            "api_key",
+            "code",
+        ],
+        description="접속 로그 query_string 에서 값을 가릴 키",
     )
 
     # 접속 로그 수집 활성화
@@ -876,8 +893,9 @@ class SessionSettings(BaseSettings):
     """세션 쿠키 설정.
 
     Note:
-        현재 인증은 JWT(Bearer) 기반이라 세션 쿠키를 사용하는 코드는 없다.
-        쿠키 세션을 도입할 때 이 설정을 주입하면 된다. 설정 자체는 `.env` 에
+        현재 인증은 JWT(Bearer) 기반이라 세션 쿠키를 발급하는 코드는 없다.
+        `SESSION_COOKIE_NAME` 은 접속 로그 미들웨어가 session_id 를 읽을 쿠키
+        이름으로 쓴다. 쿠키 세션을 도입할 때 이 설정을 주입하면 된다. 설정 자체는 `.env` 에
         있으므로 config 가 로드해 둔다(설정의 단일 출처 유지).
     """
 
@@ -887,7 +905,7 @@ class SessionSettings(BaseSettings):
         extra="ignore",
     )
 
-    # 세션 쿠키 이름 (현재 미사용 — 접속 로그는 `session_id` 쿠키 이름을 코드에 고정해 읽는다)
+    # 세션 쿠키 이름 (접속 로그의 session_id 가 이 이름의 쿠키를 읽는다)
     SESSION_COOKIE_NAME: str = Field(
         default="session",
         description="세션 쿠키 이름",

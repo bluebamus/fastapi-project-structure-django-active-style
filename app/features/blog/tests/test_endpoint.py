@@ -105,3 +105,27 @@ async def test_get_missing_post_returns_404(client):
 async def test_create_rejects_empty_title(client):
     resp = await client.post("/api/v1/blog/posts", json={"title": "", "content": "c"})
     assert resp.status_code == 422
+
+
+async def test_patch_null_on_required_field_returns_422(client):
+    """NOT NULL 컬럼의 명시적 null 은 422 다 — DB 까지 가서 409 "충돌" 이 되지 않는다 (F-011)."""
+    created = await client.post("/api/v1/blog/posts", json={"title": "t", "content": "c"})
+    post_id = created.json()["id"]
+
+    resp = await client.patch(f"/api/v1/blog/posts/{post_id}", json={"title": None})
+
+    assert resp.status_code == 422
+    assert resp.json()["error_code"] == "VALIDATION_ERROR"
+    assert (await client.get(f"/api/v1/blog/posts/{post_id}")).json()["title"] == "t"
+
+
+async def test_patch_null_on_nullable_field_clears_it(client):
+    created = await client.post(
+        "/api/v1/blog/posts", json={"title": "t", "content": "c", "author": "hong"}
+    )
+    post_id = created.json()["id"]
+
+    resp = await client.patch(f"/api/v1/blog/posts/{post_id}", json={"author": None})
+
+    assert resp.status_code == 200
+    assert resp.json()["author"] is None

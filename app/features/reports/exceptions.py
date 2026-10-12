@@ -16,7 +16,7 @@ class ReportsErrorCode(StrEnum):
 
 
 class InvalidDateRangeException(ValidationException):
-    """종료일이 시작일보다 빠른 경우."""
+    """조회 기간이 잘못된 경우(역순·허용 날짜 범위 밖·최대 일수 초과)."""
 
     error_code = ReportsErrorCode.DATE_RANGE_INVALID
     message = "종료일은 시작일보다 빠를 수 없습니다."

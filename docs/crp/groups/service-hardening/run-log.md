@@ -28,8 +28,23 @@
 - **수렴 판정:** `NOT CONVERGED` (Open Fix 18: F-006~F-023 — 다음 단계)
 - **잔여 위험 변화:** 없음.
 
+### Round 2 — 2026-10-12 (base SHA: `679e4c6`) — 단계 B
+- **트리거:** REQ-001 단계 B(리뷰 우선 조치 4·5 — 접속 로그 수집, 오류 매핑 버그).
+- **검수 범위:** `app/core/middlewares/`(user_info_middleware·새 client_ip), `config.py` MiddlewareSettings·SessionSettings, home `UserAccessLogService`, `app/core/schemas.py`(신규)·5개 기능 Update 스키마, `app/core/repositories/repository_base.py`·새 `db_error_translator.py`, reports `ReportService`, `main.py` AppException 핸들러, 관련 문서.
+- **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 ☑ 4 □ 5 □
+- **신규 finding(심각도별):** CRIT 0 · HIGH 0 · MED 0 · LOW 0 (Round 0 의 F-006·F-007·F-009~F-013 을 닫고, F-008 은 B 부분만 닫음)
+- **Fix:** F-006 · F-007 · F-009 · F-010 · F-011 · F-012 · F-013 → **Fixed**, F-008 → B 부분 Fixed(조회 접근 통제는 Round 7)
+- **설계 구체화:** ADR-019 — `TRUST_PROXY_HEADERS` 제거·`TRUSTED_PROXY_HOPS` 대체, 홉 해석(`XFF[-N]`, 직접 피어를 0번째로 셈), delete 도 변환, 4xx WARNING·detail 미기록.
+- **fail-on-revert:** 수정 전 파일을 작업 폴더 밖 사본으로 하나씩 되돌려 새 테스트를 돌렸다 — 미들웨어 6 실패 · config 2 실패 · home 서비스 1 실패 · 스키마 5개 11 실패(대조군 7 통과) · repository_base 2 실패(409 유지·변환기 단위 테스트는 대조군) · report_service 5 실패(경계 허용 3 은 대조군) · main 1 실패(5xx ERROR 는 대조군). 판정기는 신규 클래스라 변이로 확인 — "왼쪽 값 채택" 변이 7 실패, IP 검증 제거 변이 4 실패. 복원 후 전부 통과.
+- **동작이 바뀐 기존 테스트:** `tests/core/test_client_ip_trust.py` 를 새 계약으로 고쳤다 — 예전 `test_first_hop_is_taken_from_forwarded_chain`(신뢰 모드에서 **왼쪽** 값 채택)은 이번에 고친 결함 자체를 고정하던 테스트라 반대 단언(`test_one_hop_takes_the_value_appended_by_our_proxy`)으로 바꿨고, bool 설정을 monkeypatch 하던 픽스처는 `ClientIPResolver(hops)` 직접 생성으로 바꿨다. 가짜 요청 객체는 실제 Starlette `Request` 로 바꿨다(여러 줄 XFF 를 시험하려고). 나머지 기존 테스트는 그대로 통과.
+- **OpenAPI:** Home 태그 설명 문구만 바뀌었다(`TRUST_PROXY_HEADERS` → `TRUSTED_PROXY_HOPS`·민감 query 가림). 스키마 구조는 그대로다 — `PatchSchema` 는 `model_validator` 라 JSON Schema 에 나타나지 않는다(R-205). orm-raw-repository 의 `baseline/openapi.json` 은 그 그룹의 재구조화 이전 기록이고 비교하는 테스트가 없어 고치지 않았다.
+- **검사 수치:** `pytest -m "not mysql"` 905 passed / 32 deselected / skip 0(845 → +60), ruff check·format 클린, mypy 193 files 0 issues(Round 1 과 같은 순수 Python 빌드 우회), review_gate `structure`·`supply`·`docs` 통과 · `static` 은 로컬 mypy DLL 차단으로만 실패(위 우회로 별도 확인). `deps`(pip-audit, 네트워크)는 생략했다.
+- **수렴 판정:** `NOT CONVERGED` (Open Fix 11: F-008(F2 부분)·F-014~F-023 — 다음 단계)
+- **잔여 위험 변화:** R-205(OpenAPI 의 Update null 표기), R-206(Raw 경로 DB 오류 미변환) 등록.
+
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
 | 0 | 0 | 1 | 14 | 8 | 23 | NOT CONVERGED |
 | 1 | 0 | 0 | 0 | 0 | 0 (Fixed 5) | NOT CONVERGED |
+| 2 | 0 | 0 | 0 | 0 | 0 (Fixed 7, 부분 1) | NOT CONVERGED |

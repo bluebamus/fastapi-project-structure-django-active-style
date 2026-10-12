@@ -19,6 +19,13 @@ from app.features.reports.exceptions import InvalidDateRangeException
 from app.features.reports.repositories.sales_report_repository import SalesReportRawRepository
 from app.features.reports.schemas.report_schema import DailySalesItem
 
+# 한 번에 집계할 수 있는 최대 일수(양 끝 포함). 윤년 1년치까지 — 그보다 긴 기간은
+# 일별 집계가 아니라 배치·월별 집계의 일이고, 과대 스캔이 replica 를 붙잡는다.
+MAX_REPORT_DAYS = 366
+# SQL 이 `end_date + 1일` 을 계산하므로 9999-12-31 은 넘친다(MySQL 은 NULL → 조용한 빈 결과).
+MIN_REPORT_DATE = date(1970, 1, 1)
+MAX_REPORT_DATE = date(9998, 12, 31)
+
 
 class ReportService(BaseService):
     """매출 리포트 유스케이스."""
@@ -31,11 +38,21 @@ class ReportService(BaseService):
         """기간 내 일별 매출을 집계한다.
 
         Raises:
-            InvalidDateRangeException: 종료일이 시작일보다 빠를 때.
+            InvalidDateRangeException: 종료일이 시작일보다 빠르거나, 날짜가 허용 범위
+                (1970-01-01~9998-12-31) 밖이거나, 기간이 366일을 넘을 때.
         """
+        detail = {"start_date": str(start_date), "end_date": str(end_date)}
         if end_date < start_date:
+            raise InvalidDateRangeException(detail=detail)
+        if start_date < MIN_REPORT_DATE or end_date > MAX_REPORT_DATE:
             raise InvalidDateRangeException(
-                detail={"start_date": str(start_date), "end_date": str(end_date)}
+                message=f"날짜는 {MIN_REPORT_DATE}~{MAX_REPORT_DATE} 범위여야 합니다.",
+                detail=detail,
+            )
+        if (end_date - start_date).days + 1 > MAX_REPORT_DAYS:
+            raise InvalidDateRangeException(
+                message=f"조회 기간은 최대 {MAX_REPORT_DAYS}일입니다.",
+                detail=detail,
             )
 
         self.log.debug("일별 매출 집계 %s~%s", start_date, end_date)

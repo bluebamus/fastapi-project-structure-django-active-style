@@ -65,9 +65,9 @@ refresh token 을 access token 으로 제시하는 경로가 열리므로, stagi
 
 - 목록(페이지네이션) / 최근 / IP별 / 사용자별 조회와 통계
 
-수집 IP 는 신뢰한 proxy 를 거친 경우에만 `X-Forwarded-For`/`X-Real-IP` 를 반영한다
-(`TRUST_PROXY_HEADERS`, 기본 false). 임의 클라이언트가 보낸 헤더로 접속 기록을
-위조할 수 없다.
+수집 IP 는 신뢰 프록시 수(`TRUSTED_PROXY_HOPS`, 기본 0)만큼만 `X-Forwarded-For` 를
+오른쪽에서 반영한다. 임의 클라이언트가 보낸 헤더로 접속 기록을 위조할 수 없고,
+query string 의 민감 키 값은 `***` 로 가려 저장한다.
         """,
     },
     {

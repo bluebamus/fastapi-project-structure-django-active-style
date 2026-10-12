@@ -265,7 +265,7 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | `DB_ROUTER_ENABLED` / `DB_REPLICATION_ENABLED` / `MYSQL_REPLICA_HOSTS` | `false` / `false` / `[]` | replica 라우팅 (선택). read-only 세션의 쓰기 차단은 이 설정과 **무관하게** 항상 동작한다 |
 | `ACCESS_TOKEN_SECRET_KEY` / `REFRESH_TOKEN_SECRET_KEY` / `SESSION_SECRET_KEY` | `change-this-...` | 서명·세션 키. 배포 전 서로 다른 값으로 교체 — 생성: `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"` |
 | `CORS_ALLOW_ORIGINS` | `["*"]` | JSON 배열로 지정 |
-| `TRUST_PROXY_HEADERS` | `false` | 리버스 프록시 뒤에서만 `true` — 접속 로그 IP 에 X-Forwarded-For 사용 |
+| `TRUSTED_PROXY_HOPS` | `0` | 앱 앞의 신뢰 리버스 프록시 수. `0` 은 전달 헤더 무시, `N` 은 X-Forwarded-For 의 오른쪽에서 N번째를 접속 IP 로 사용 |
 | `ACCESS_LOG_ENABLED` | `true` | 접속 로그 수집 |
 | `LOG_LEVEL` / `LOG_CONSOLE_LEVEL` | 미설정 | 미설정이면 DEBUG 에 따라 DEBUG/INFO |
 | `SERVER_HOST` / `SERVER_PORT` | `0.0.0.0` / `8000` | `python main.py` 직접 실행 시 바인딩 |
@@ -303,7 +303,7 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | 1 | `ENV` 를 실제 환경 값으로 넘겼는가 | 기본값 `development` 에서는 위 표의 staging·production 검사가 돌지 않는다. `.env` 없이 환경 변수로 주입하는 배포는 `ENV` 가 없으면 기동 거부 |
 | 2 | 트래픽 전환 전에 `alembic upgrade head` 를 적용했는가 | 서버 기동은 migration 을 하지 않는다 |
 | 3 | 외부 노출이 필요 없으면 `SERVER_HOST=127.0.0.1` 인가, 프록시·방화벽에서 `/admin` 을 막았는가 | 기본 바인딩은 `0.0.0.0` 이다 |
-| 4 | 프록시 뒤라면 `TRUST_PROXY_HEADERS=true` 이고 프록시가 외부 전달 헤더를 지우는가 | 아니면 접속 로그 IP 가 위조되거나 프록시 IP 로 찍힌다 |
+| 4 | 프록시 뒤라면 `TRUSTED_PROXY_HOPS` 가 실제 프록시 수와 같은가 | 아니면 접속 로그 IP 가 위조되거나 프록시 IP 로 찍힌다 |
 | 5 | readiness 는 `/ready`, Redis 는 별도로 감시하는가 | `/health` 는 DB·Redis 를 보지 않는다 |
 | 6 | 공개할 CRUD 에 인가를 붙였는가 | 현재 예제 API 에는 인증·소유권 검사가 없다 |
 

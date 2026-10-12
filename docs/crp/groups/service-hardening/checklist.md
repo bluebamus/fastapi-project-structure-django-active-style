@@ -17,13 +17,14 @@
 - [x] 문서 정정 — `docs/guides/ARCHITECTURE.md` §8.3 라우팅 규칙·Alembic URL, `docs/guides/DEVELOPMENT.md` §5.3·§6.5, `docs/guides/feature-development-guide.html` 의 "정렬 없음"
 - [x] 각 Fix fail-on-revert 확인, GATE 3 그린(845 passed / 32 deselected / skip 0), run-log 기록
 
-## Round 2 — 단계 B (접속 로그 · 오류 매핑)
-- [ ] (F-006) `ClientIPResolver` + `TRUSTED_PROXY_HOPS`
-- [ ] (F-008·F-009·F-010) 미들웨어 500 기록·민감 query 가림·쿠키 이름 설정
-- [ ] (F-007) home 기능에서 컬럼 길이 절단
-- [ ] (F-011) Update 스키마 null 거부 + DB 오류 코드별 변환
-- [ ] (F-012) 리포트 기간 상한, (F-013) 4xx 로그 레벨
-- [ ] 각 Fix fail-on-revert 확인, GATE 3 그린, run-log 기록
+## Round 2 — 2026-10-12 단계 B (접속 로그 · 오류 매핑) — 완료
+- [x] (F-006) `ClientIPResolver` + `TRUSTED_PROXY_HOPS`(옛 `TRUST_PROXY_HEADERS` 대체, ADR-019), 미들웨어 생성자 주입
+- [x] (F-008·F-009·F-010) 미들웨어 500 기록·민감 query 가림·쿠키 이름 설정 (F-008 의 조회 접근 통제는 Round 7)
+- [x] (F-007) home 기능에서 컬럼 길이 절단(모델에서 도출)
+- [x] (F-011) Update 스키마 null 거부(`PatchSchema`) + DB 오류 코드별 변환(`DBErrorTranslator`, delete 포함)
+- [x] (F-012) 리포트 기간 상한, (F-013) 4xx 로그 레벨
+- [x] 문서 — `.env.example`·README 환경표/배포 체크·ARCHITECTURE §4·§7.1·§9·§10.3·DEVELOPMENT §5.1·§5.3·§6·가이드 HTML 2종·Home 태그 설명
+- [x] 각 Fix fail-on-revert 확인, GATE 3 그린(905 passed / 32 deselected / skip 0), run-log 기록
 
 ## Round 3 — 단계 C (테스트 하네스)
 - [ ] (F-014) 공용 override 헬퍼로 전 엔드포인트 테스트 전환 + read-only flush 거부 회귀

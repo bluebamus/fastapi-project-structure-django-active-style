@@ -250,10 +250,11 @@ ASGI lifespan 진입
 | `db_settings` | 엔진 URL·라우팅·풀, Alembic URL(`ALEMBIC_URL`), `describe_routing()`(DSN 마스킹) |
 | `cors_settings` | `CustomCORSMiddleware.configure_cors()` |
 | `log_settings` | `build_dictconfig()` |
-| `middleware_settings` | `UserInfoMiddleware` (활성·제외 규칙·`TRUST_PROXY_HEADERS`) |
+| `middleware_settings` | `UserInfoMiddleware` (활성·제외 규칙·민감 query 키), `ClientIPResolver`(`TRUSTED_PROXY_HOPS`) |
 | `redis_settings` | startup Redis ping client, Celery broker/backend |
 | `jwt_settings` | 토큰 서명·검증·수명 |
-| `api_settings` · `session_settings` · `smtp_settings` · `upload_settings` | **선언만 있고 앱 코드가 쓰지 않는다.** `session_settings.SESSION_SECRET_KEY` 만 배포 게이트가 검사한다 |
+| `session_settings` | `UserInfoMiddleware` 가 `SESSION_COOKIE_NAME` 쿠키를 session_id 로 읽는다. `SESSION_SECRET_KEY` 는 배포 게이트가 검사한다. 쿠키 세션 구현은 없다 |
+| `api_settings` · `smtp_settings` · `upload_settings` | **선언만 있고 앱 코드가 쓰지 않는다.** |
 
 설정 클래스가 있다고 기능이 있는 것은 아닙니다. SMTP 발송·쿠키 세션·업로드 처리·Redis 캐시는
 구현돼 있지 않고, `API_VERSION` 을 바꿔도 라우터 prefix(`/v1/...`)는 바뀌지 않습니다.
@@ -414,21 +415,29 @@ core 의 `UserInfoMiddleware` 가 수집하고, home 앱의 `HomeAccessLogSink` 
    `.css .js .ico .png .jpg .jpeg .gif .svg`.
 2. `call_next()` 가 응답을 돌려주면 상태 코드와 `response_time_ms` 를 붙여
    `access_log_tasks.spawn()` 으로 저장을 제출합니다. 응답은 기다리지 않습니다.
+   처리되지 않은 예외는 **500 으로 기록한 뒤** 그대로 다시 던집니다(바깥의 500 핸들러가 응답).
 3. `BackgroundTaskRunner` 는 동시 256개 상한을 넘으면 새 로그를 **버리고** `dropped` 를 셉니다.
    종료 시에는 수락 중단 → 5초 대기 → 남은 태스크 cancel → 취소 완료까지 await 순서로 drain 합니다.
 4. sink 는 `background_db_session()`(별도 풀)으로 `UserAccessLogService` 를 조립해 저장하고 명시
    commit 합니다. 요청 세션을 넘기지 않습니다. 저장 실패는 로그만 남기고 응답에 영향이 없습니다.
+   서비스는 저장 직전에 문자열을 **모델 컬럼 길이로 자릅니다**(`String(n)` 의 n 을 모델에서
+   읽는다 — 숫자를 두 번 적지 않는다). 긴 헤더·쿠키 하나 때문에 MySQL strict 모드가 그 요청의
+   기록을 통째로 거부하지 않게 하려는 것입니다.
 
 | 분류 | 필드 |
 |---|---|
 | 네트워크 | `ip_address`, `forwarded_for`(X-Forwarded-For 원문), `real_ip`(X-Real-IP 원문) |
 | User-Agent | `user_agent`, `os_name`, `os_version`, `browser_name`, `browser_version`, `device_type`, `device_brand`, `device_model`, `is_bot` |
-| 요청·응답 | `request_path`, `request_method`, `query_string`, `referer`, `accept_language`, `response_status`, `response_time_ms` |
-| 식별 | `session_id`(`session_id` 쿠키), `user_id`(`request.state.user_id` 가 있으면) |
+| 요청·응답 | `request_path`, `request_method`, `query_string`(민감 키 값은 `***`), `referer`, `accept_language`, `response_status`, `response_time_ms` |
+| 식별 | `session_id`(`SESSION_COOKIE_NAME` 쿠키), `user_id`(`request.state.user_id` 가 있으면) |
 
-`ip_address` 는 `TRUST_PROXY_HEADERS=true` 일 때만 X-Forwarded-For 첫 값 → X-Real-IP 순으로 전달
-헤더를 믿고, 기본(false)은 직접 연결 주소를 씁니다. 리버스 프록시 뒤에서만 켜고, 프록시가 외부에서
-온 전달 헤더를 지우도록 구성합니다. JWT 인증은 `request.state.user_id` 를 설정하지 않으므로
+`ip_address` 는 core 의 `ClientIPResolver` 가 `TRUSTED_PROXY_HOPS` 로 판정합니다(미들웨어 등록 시
+설정에서 한 번 만들어 생성자로 주입). 기본 `0` 은 전달 헤더를 보지 않고 직접 연결 주소를 씁니다.
+`N` 이면 X-Forwarded-For 의 **오른쪽에서 N번째** — 각 프록시가 오른쪽 끝에 덧붙이므로 우리 프록시가
+붙인 값만 채택하고, 클라이언트가 왼쪽에 써 보낸 값은 보지 않습니다. XFF 가 없으면 X-Real-IP,
+목록이 N 개보다 짧거나 값이 IP 가 아니면 직접 연결 주소입니다. `query_string` 은
+`ACCESS_LOG_SENSITIVE_QUERY_KEYS`(기본 password·token·access_token·refresh_token·secret·api_key·code,
+대소문자 무시)의 값을 `***` 로 가려 저장합니다. JWT 인증은 `request.state.user_id` 를 설정하지 않으므로
 `user_id` 는 보통 비어 있습니다. `user_access_logs` 는 `ip_address`·`created_at`·`device_type`·
 `os_name`·`browser_name`·`session_id`·`user_id`·`country` 에 인덱스가 있습니다 — `country`·
 `country_code`·`city` 컬럼은 선언과 인덱스만 있고 미들웨어가 값을 채우지 않습니다(위 표에 없는
@@ -518,8 +527,11 @@ read-only DB 계정·권한을 최종 방어선으로 둡니다. 회귀 가드: 
 | 그 밖의 `Exception` | 500 `INTERNAL_SERVER_ERROR`, 고정 메시지, `detail=null` — **DEBUG 여부와 무관** |
 
 500 의 예외 타입·route template·스택은 로그에만 남습니다(경로에 박힌 식별자 대신 template).
-Repository 의 DB 오류 변환도 드라이버 원문을 응답에 싣지 않습니다. 회귀 가드:
-`tests/test_exception_handler_leak.py`.
+Repository 의 DB 오류 변환(`DBErrorTranslator` — MySQL 오류 코드·SQLite 메시지로 중복 409·필수 값
+422·참조 없음 422·참조 중 409·그 외 500)도 드라이버 원문을 응답에 싣지 않습니다. `AppException` 은
+상태 코드 500 이상만 ERROR(`detail` 포함)로, 4xx 는 WARNING 으로 남기고 4xx 의 `detail`(클라이언트가
+보낸 값)은 로그에 싣지 않습니다. 경로는 route template 입니다. 회귀 가드:
+`tests/test_exception_handler_leak.py`, `tests/core/test_db_error_translator.py`.
 
 | 경로 / 지점 | 의미 | 결과 |
 |---|---|---|
@@ -580,8 +592,7 @@ Repository 의 DB 오류 변환도 드라이버 원문을 응답에 싣지 않�
 | 참조 무결성 | `Reply.post_id` 는 FK 없는 문자열 — 게시글 존재 검증·삭제 전파 정책 없음 |
 | 로그인 보호 | rate limit·계정 잠금 없음 |
 | 토큰 폐기 | 서버 측 폐기 목록 없음 — 유출된 refresh 토큰은 만료까지 유효(`REFRESH_TOKEN_EXPIRE_DAYS` 로 수명 조절) |
-| 접속 로그 개인정보 | `query_string`·`referer`·`session_id` 쿠키를 원문 저장한다. redaction·보존 기간·파기 절차·조회 API 접근 통제가 없다 |
-| 쿠키 이름 | `session_id` 가 코드에 고정 — `SESSION_COOKIE_NAME` 은 쓰이지 않는다 |
+| 접속 로그 개인정보 | `query_string` 은 민감 키 값만 가리고 나머지와 `referer`·`session_id` 쿠키는 원문 저장한다. 보존 기간·파기 절차·조회 API 접근 통제가 없다 |
 | CORS | 기본 `CORS_ALLOW_ORIGINS=["*"]`, credentials false (staging/production 은 게이트가 `*` 를 거부) |
 
 ---

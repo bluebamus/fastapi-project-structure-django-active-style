@@ -9,6 +9,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.schemas import PatchSchema
+
 
 class ProductCreate(BaseModel):
     """상품 생성 입력."""
@@ -21,7 +23,7 @@ class ProductCreate(BaseModel):
     price: Decimal = Field(gt=0, max_digits=12, decimal_places=2, description="판매가")
 
 
-class ProductUpdate(BaseModel):
+class ProductUpdate(PatchSchema):
     """상품 부분 수정 입력.
 
     모든 필드가 선택이다. 아무것도 넘기지 않은 PATCH 는 오류가 아니라 존재 확인 후
