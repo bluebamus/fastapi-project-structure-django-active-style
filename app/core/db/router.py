@@ -6,7 +6,8 @@ Django 의 ``DATABASE_ROUTERS`` 와 같은 역할을 SQLAlchemy 에서 수행한
 세션이 실행하는 구문의 성격에 따라 **바인딩할 엔진을 자동 선택**한다.
 
 라우팅 규칙:
-    1. ORM flush(=INSERT/UPDATE/DELETE) 또는 Core DML  → writer
+    1. ORM flush(=INSERT/UPDATE/DELETE), Core DML,
+       잠금 조회(``select(...).with_for_update()``)     → writer
     2. 그 밖의 SELECT                                   → reader (라운드로빈)
     3. 쓰기가 한 번이라도 일어난 세션의 이후 SELECT     → writer 고정(sticky)
 
@@ -121,9 +122,19 @@ def mark_read_only(session: Session | AsyncSession) -> None:
     _session_info(session)[_READ_ONLY] = True
 
 
+def _is_locking_select(clause: Any) -> bool:
+    """``select(...).with_for_update()`` 처럼 행 잠금을 잡는 ORM/Core SELECT 인가.
+
+    잠금 조회는 읽기처럼 생겼지만 primary 의 행을 지키려고 쓰는 것이다. replica 로 가면
+    잠금이 엉뚱한 서버에 걸려 아무것도 보호하지 못한다(service-hardening F-004).
+    text SQL 의 ``FOR UPDATE`` 는 ``_LOCKING_READ`` 가 따로 잡는다.
+    """
+    return isinstance(clause, Select) and clause._for_update_arg is not None
+
+
 def _is_write(clause: Any, flushing: bool) -> bool:
-    """이 구문이 쓰기인지 판별한다 (ORM flush 또는 Core INSERT/UPDATE/DELETE)."""
-    return flushing or isinstance(clause, UpdateBase)
+    """이 구문이 쓰기인지 판별한다 (ORM flush, Core INSERT/UPDATE/DELETE, 잠금 조회)."""
+    return flushing or isinstance(clause, UpdateBase) or _is_locking_select(clause)
 
 
 def make_routing_session_class(router: DatabaseRouter) -> type[Session]:
@@ -335,7 +346,7 @@ def _statement_is_readable(clause: Any) -> bool:
     if isinstance(clause, UpdateBase):
         return False  # Insert / Update / Delete / DDL
     if isinstance(clause, Select):
-        return True
+        return not _is_locking_select(clause)  # 잠금 조회는 쓰기 성격이다
     if isinstance(clause, TextClause):
         return _text_is_readable(str(clause))
     return False  # 판별 불가 — 거부

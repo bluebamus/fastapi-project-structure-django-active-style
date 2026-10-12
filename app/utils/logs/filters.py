@@ -85,7 +85,7 @@ class ContextFilter(logging.Filter):
 # echo 를 켜거나 드라이버가 예외에 DSN 을 실어 보내면 무너진다. 파이프라인 끝에서
 # 한 번 더 지운다.
 #
-# DSN 마스킹 규칙은 config.mask_dsn 과 같은 의도지만 여기서 다시 구현한다 —
+# DSN 마스킹은 config 의 URL 렌더링(`render_as_string(hide_password=True)`)과 같은 의도지만 여기서 다시 구현한다 —
 # 로깅 설정은 config 보다 먼저 세워질 수 있어서 import 순서를 얽지 않는다.
 _DSN_CREDENTIALS = re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://)([^:/@\s]+):([^@\s]+)@")
 _KEYWORD_SECRET = re.compile(

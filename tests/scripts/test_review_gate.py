@@ -73,6 +73,79 @@ def test_repository_workflows_are_pinned():
         assert check_action_pins(workflow.read_text(encoding="utf-8")) == []
 
 
+def test_ci_installs_with_a_lock_freshness_check():
+    """CI 는 락이 pyproject 와 어긋나면 실패해야 한다 (service-hardening F-001).
+
+    `uv sync --frozen` 은 락이 최신인지 보지 않고 설치한다 — pyproject 에 추가한 의존성이
+    락에 없으면 조용히 빠진 채 초록이 된다. 그 확인을 하는 것은 `--locked` 다.
+    """
+    text = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    assert "--frozen" not in text
+    syncs = [line.strip() for line in text.splitlines() if "uv sync" in line and "run:" in line]
+    assert syncs, "ci.yml 에 의존성 설치 단계가 없습니다."
+    assert all(line == "run: uv sync --locked" for line in syncs), syncs
+    assert len(syncs) == text.count("runs-on:"), "의존성을 설치하지 않는 job 이 있습니다."
+
+
+# ------------------------------------------------------------------ 파일 목록
+
+
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+
+def test_repo_files_lists_only_tracked_files(tmp_path, monkeypatch):
+    """추적되지 않은 파일(로컬 `.env`·로컬 전용 문서)은 게이트 목록에 없다 (F-002).
+
+    작업 트리를 훑으면 개발자의 실제 `.env` 가 비밀 스캔에 들어가 로컬에서만 빨개지고,
+    로컬 전용 문서가 문서 경로 검사를 로컬에서만 통과시킨다.
+    """
+    import scripts.review_gate as gate
+
+    _git(tmp_path, "init", "-q")
+    (tmp_path / "tracked.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "guide.md").write_text("# g\n", encoding="utf-8")
+    _git(tmp_path, "add", "tracked.py", "docs/guide.md")
+    (tmp_path / ".env").write_text("SECRET_KEY='not-tracked'\n", encoding="utf-8")
+    (tmp_path / "local-only.md").write_text("# local\n", encoding="utf-8")
+    monkeypatch.setattr(gate, "REPO_ROOT", tmp_path)
+
+    assert sorted(_repo_files()) == ["docs/guide.md", "tracked.py"]
+
+
+def test_repo_files_skips_tracked_files_deleted_from_the_worktree(tmp_path, monkeypatch):
+    """추적 중이지만 지운 파일은 읽을 수 없다 — 목록에 넣으면 비밀 스캔이 죽는다."""
+    import scripts.review_gate as gate
+
+    _git(tmp_path, "init", "-q")
+    (tmp_path / "gone.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "kept.py").write_text("x = 1\n", encoding="utf-8")
+    _git(tmp_path, "add", "gone.py", "kept.py")
+    (tmp_path / "gone.py").unlink()
+    monkeypatch.setattr(gate, "REPO_ROOT", tmp_path)
+
+    assert _repo_files() == ["kept.py"]
+
+
+def test_repo_files_falls_back_to_walking_without_git(tmp_path, monkeypatch):
+    """git 을 쓸 수 없으면(소스 압축본 등) 작업 트리를 훑되 도구 디렉터리는 뺀다."""
+    import scripts.review_gate as gate
+
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "__pycache__").mkdir()
+    (tmp_path / "__pycache__" / "a.pyc").write_bytes(b"")
+    monkeypatch.setattr(gate, "REPO_ROOT", tmp_path)
+
+    def no_git(*args, **kwargs):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(gate.subprocess, "run", no_git)
+
+    assert _repo_files() == ["a.py"]
+
+
 # ------------------------------------------------------------------ 이미지 digest
 
 

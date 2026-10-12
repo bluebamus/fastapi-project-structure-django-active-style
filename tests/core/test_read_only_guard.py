@@ -169,6 +169,28 @@ async def test_unknown_or_locking_statements_are_denied_by_default(read_only, sq
         await read_only.execute(text(sql))
 
 
+@pytest.mark.parametrize(
+    "lock",
+    [{}, {"read": True}, {"nowait": True}, {"skip_locked": True}],
+    ids=["for-update", "for-share", "nowait", "skip-locked"],
+)
+async def test_orm_locking_select_is_blocked(read_only, lock):
+    """ORM 잠금 조회도 text 의 `FOR UPDATE` 와 같이 거부한다 (service-hardening F-004).
+
+    예전에는 `Select` 면 무조건 통과시켜, 같은 의미의 text SQL 은 막히는데 ORM
+    `with_for_update()` 만 read-only 가드를 지나갔다.
+    """
+    with pytest.raises(ReadOnlyRoutingError):
+        await read_only.execute(select(Widget).with_for_update(**lock))
+
+
+async def test_writable_session_can_lock_rows(writable):
+    """대조군 — 쓰기 세션의 잠금 조회는 그대로 동작한다."""
+    rows = (await writable.execute(select(Widget).with_for_update())).scalars().all()
+
+    assert [row.name for row in rows] == ["seed"]
+
+
 # ---------------------------------------------------------------- 읽기 허용
 
 

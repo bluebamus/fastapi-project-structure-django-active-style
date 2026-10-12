@@ -296,6 +296,33 @@ def _config_env_names() -> set[str]:
 
 
 def _repo_files() -> list[str]:
+    """게이트가 검사할 파일 목록 — **git 이 추적하는 파일**만 본다.
+
+    작업 트리를 훑으면 무시 대상(로컬 `.env`, 도구 캐시, 로컬 전용 문서)까지 들어온다.
+    그러면 비밀 스캔이 개발자의 실제 `.env` 때문에 로컬에서만 빨개지고, 문서 경로 검사는
+    로컬 전용 파일과 우연히 맞아 로컬은 통과·CI 는 실패한다 — 같은 파일로 같은 판정을
+    내린다는 이 게이트의 전제가 깨진다(service-hardening F-002). 추적 목록은 CI 의
+    checkout 과 같다. git 을 쓸 수 없을 때(소스 압축본 등)만 작업 트리 순회로 대체한다.
+    """
+    try:
+        completed = subprocess.run(  # nosec B603 B607 - 인자 목록 고정, shell 미사용
+            ["git", "ls-files", "-z"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return _walk_files()
+    # 추적 중이지만 작업 트리에서 지운 파일은 읽을 수 없으므로 뺀다.
+    return [
+        path
+        for path in completed.stdout.decode("utf-8").split("\0")
+        if path and (REPO_ROOT / path).is_file()
+    ]
+
+
+def _walk_files() -> list[str]:
+    """git 이 없을 때의 대체 — 작업 트리를 훑되 도구 디렉터리는 뺀다."""
     ignored = {".git", ".venv", "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache"}
     return [
         str(path.relative_to(REPO_ROOT)).replace("\\", "/")

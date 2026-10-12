@@ -11,7 +11,7 @@ create · get_by_id · get_by_id_or_raise · get_all · count · exists · updat
 
     user = await repo.create({"username": "hong"})
     user = await repo.get_by_id("id")
-    users = await repo.get_all(skip=0, limit=100)   # 정렬 없음
+    users = await repo.get_all(skip=0, limit=100)   # created_at DESC, PK DESC
 
 공개 eager-loading 메서드는 없습니다. 관계를 응답에 쓰려면 기능 Repository 쿼리에
 selectinload/joinedload 를 명시합니다. 아래 ``_apply_eager_loading()`` ·
@@ -272,7 +272,13 @@ class BaseRepository(CRUDBase[ModelType, PrimaryKeyType], Generic[ModelType, Pri
         limit: int = 100,
     ) -> Sequence[ModelType]:
         """
-        모든 레코드를 조회합니다.
+        모든 레코드를 최신순으로 조회합니다.
+
+        정렬은 ``created_at DESC, <PK> DESC`` 다(모델에 ``created_at`` 이 없으면 PK 만).
+        정렬 없는 offset 페이지네이션은 DB 가 고른 임의 순서라 페이지 사이에서 행이
+        중복·누락되고, ``created_at`` 하나만으로는 같은 시각의 행끼리 순서가 정해지지
+        않는다 — PK 가 마지막 동률을 끊는다(service-hardening F-005). 다른 순서가 필요하면
+        기능 Repository 에 ``order_by`` 를 명시한 메서드를 둔다.
 
         Args:
             skip: 건너뛸 레코드 수
@@ -284,7 +290,9 @@ class BaseRepository(CRUDBase[ModelType, PrimaryKeyType], Generic[ModelType, Pri
         Example:
             users = await repo.get_all(skip=0, limit=100)
         """
-        stmt = select(self.model).offset(skip).limit(limit)
+        created_at = getattr(self.model, "created_at", None)
+        order = [self._pk.desc()] if created_at is None else [created_at.desc(), self._pk.desc()]
+        stmt = select(self.model).order_by(*order).offset(skip).limit(limit)
         result = await self.session.execute(stmt)
         return result.scalars().all()
 

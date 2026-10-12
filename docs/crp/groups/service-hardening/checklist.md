@@ -8,13 +8,14 @@
 - [x] CRP 템플릿 6파일 작성, 기준선 실측(814 passed / 32 deselected / skip 0)
 - [x] 2026-10-07 리뷰 지적을 ledger F-001~F-023 으로 등록, 범위 밖 항목은 residual-risk 로
 
-## Round 1 — 단계 A (CI 재현성 · DSN · 잠금 읽기 · 정렬)
-- [ ] (F-001) CI 두 job `uv sync --locked`, 주석 정정 + 계약 테스트
-- [ ] (F-002) 게이트 파일 목록 = `git ls-files -z`(git 없을 때만 순회) + 추적되지 않은 파일 제외 테스트
-- [ ] (F-003) DSN `URL.create`·마스킹 `render_as_string`·Alembic `%%`·Redis 비밀번호 인코딩 + 왕복 테스트, 문자열 비교 테스트를 URL 의미 비교로
-- [ ] (F-004) 잠금 읽기 = 쓰기(라우터 on/off), read-only 거부 + 테스트
-- [ ] (F-005) `get_all` 기본 정렬 + PK 보조 키, 결정적 순서·겹치지 않는 페이지 테스트
-- [ ] 각 Fix fail-on-revert 확인, GATE 3 그린, run-log 기록
+## Round 1 — 2026-10-12 단계 A (CI 재현성 · DSN · 잠금 읽기 · 정렬) — 완료
+- [x] (F-001) CI 두 job `uv sync --locked`, 주석 정정 + 계약 테스트
+- [x] (F-002) 게이트 파일 목록 = `git ls-files -z`(git 없을 때만 순회) + 추적되지 않은 파일 제외 테스트
+- [x] (F-003) DSN `URL.create`·마스킹 `render_as_string`·Alembic `%%`·Redis 비밀번호 인코딩 + 왕복 테스트, 문자열 비교 테스트를 URL 의미 비교로
+- [x] (F-004) 잠금 읽기 = 쓰기(라우터 on/off), read-only 거부 + 테스트
+- [x] (F-005) `get_all` 기본 정렬 + PK 보조 키, 결정적 순서·겹치지 않는 페이지 테스트
+- [x] 문서 정정 — `docs/guides/ARCHITECTURE.md` §8.3 라우팅 규칙·Alembic URL, `docs/guides/DEVELOPMENT.md` §5.3·§6.5, `docs/guides/feature-development-guide.html` 의 "정렬 없음"
+- [x] 각 Fix fail-on-revert 확인, GATE 3 그린(845 passed / 32 deselected / skip 0), run-log 기록
 
 ## Round 2 — 단계 B (접속 로그 · 오류 매핑)
 - [ ] (F-006) `ClientIPResolver` + `TRUSTED_PROXY_HOPS`
