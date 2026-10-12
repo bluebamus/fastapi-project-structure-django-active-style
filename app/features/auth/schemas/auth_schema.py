@@ -46,13 +46,16 @@ class TokenResponse(BaseModel):
     """토큰 응답(OAuth2 bearer)."""
 
     access_token: str = Field(description="API 호출에 쓰는 짧은 수명 토큰")
-    refresh_token: str = Field(description="access token 재발급용 토큰(별도 키로 서명)")
+    refresh_token: str = Field(
+        description="access token 재발급용 토큰(별도 키로 서명, 한 번 쓰면 회전된다)"
+    )
     token_type: str = Field(default="bearer", description="토큰 타입")
+    expires_in: int = Field(description="access token 만료까지 남은 시간(초)")
 
 
 class RefreshRequest(BaseModel):
-    """토큰 재발급 요청."""
+    """refresh token 을 담은 요청 — 재발급(`/refresh`)과 로그아웃(`/logout`)이 함께 쓴다."""
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"refresh_token": "eyJhbGci..."}]})
 
-    refresh_token: str = Field(..., description="유효한 Refresh Token")
+    refresh_token: str = Field(..., description="로그인·재발급으로 받은 Refresh Token")

@@ -83,6 +83,20 @@
 - **수렴 판정:** `NOT CONVERGED` (Open Fix 6: F-008(F2 부분)·F-019~F-023 — 다음 단계)
 - **잔여 위험 변화:** R-209(앱 삭제 시 큐에 남은 태스크 메시지) 등록.
 
+### Round 6 — 2026-10-12 (base SHA: `39e2b0d`) — 단계 F1
+- **트리거:** REQ-001 단계 F1(리뷰 우선 조치 9 전반 — Argon2 해시와 기존 bcrypt 점진 이전, JWT claims 강화, refresh 회전·재사용 탐지, 로그인·가입 rate limit).
+- **검수 범위:** `app/core/security/`(신규 — `tokens.py`·`refresh_store.py`·`rate_limiter.py`), `app/core/exception.py`(`headers`·`InvalidTokenException`·`TooManyRequestsException`), `main.py`(예외 헤더), `config.py`(`JWTSettings`), auth 기능 전부(`services/password_hasher.py` 신규·`auth_service.py`·`dependencies`·`api/routers/v1/auth.py`·`schemas`·`exceptions.py`), 옛 JWT·bcrypt 유틸 패키지(삭제), 관련 테스트·문서.
+- **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 ☑ 4 □ 5 □
+- **신규 finding(심각도별):** CRIT 0 · HIGH 0 · MED 0 · LOW 0 (Round 0 의 F-019·F-020·F-021 을 닫았다)
+- **Fix:** F-019 · F-020 · F-021 → **Fixed**
+- **설계 구체화:** ADR-022 — 토큰 예외를 core 로, access `su` claim 은 F2 로, 저장소 TTL 은 생성자 인자, rate limit 은 MULTI `INCR`+`EXPIRE NX`+`TTL`·정수 설정 5개·`ClientIPResolver` provider, `/login` 항상 커밋·`/refresh`·`/logout` 무커밋, `get_current_user` 는 리포지토리 직접 조회, 옛 유틸 삭제, `pwdlib[argon2]`·dev `fakeredis` 추가.
+- **fail-on-revert:** 새 클래스·경로는 변이로 확인했다(작업 폴더 밖 사본으로 복원) — `GETDEL`→`GET` 2 실패, 재사용 시 family 폐기 제거 1, 폐기 확인 제거 2, `EXPIRE NX`→`EXPIRE` 1, 로그인 성공 시 초기화 제거 1, IP 한도 제거 1, 핸들러의 `headers` 전달 제거 2, 가입 제한 의존성 제거 1, 옛 72바이트 절단 제거 1, 재해시 저장 제거 1, `require` 옵션 제거 6, `audience` 제거 5, `type` 검사 제거 1, `nbf` 제거 3. 복원 후 전부 통과. 수정 전 코드에는 새 모듈(`app.core.security`·`PasswordHasher`)과 `/logout` 이 없어 새 테스트는 수집 단계에서 실패한다.
+- **동작이 바뀐 기존 테스트:** ① auth 엔드포인트·트랜잭션 경계 테스트와 `tests/test_dto_before_commit.py` — 가입·로그인이 Redis(rate limit·refresh 저장소)를 쓰므로 `get_redis` 를 `fakeredis.FakeAsyncRedis` 로 override(단언 불변). ② `tests/test_route_inventory.py` — `/api/v1/auth/logout` 추가(ADR-018: 이유를 주석으로). ③ `tests/test_read_path_no_commit.py` — login 은 재해시 저장 때문에 커밋하므로 무커밋 허용 목록에서 빼고, Redis 만 바꾸는 refresh·logout 을 이유와 함께 등록. ④ 옛 유틸 단위 테스트(tests/utils/test_auth.py)는 삭제 — 같은 단언(해시 왕복·72바이트 초과·토큰 왕복·종류 혼동·만료·변조)을 `test_password_hasher.py`·`test_token_service.py` 가 새 클래스에 대해 한다.
+- **OpenAPI:** `authLogout`(204) 추가, `TokenResponse.expires_in` 필드, register·login 에 429 응답, refresh·logout 설명. 규칙 기반 계약 테스트(`tests/test_openapi_contract.py`) 통과.
+- **검사 수치:** `pytest -m "not mysql"` 1001 passed / 41 deselected / skip 0(948 → +53), `-m mysql --collect-only` 41 수집(변화 없음), ruff check·format 클린, mypy 198 files 0 issues(Round 1 과 같은 순수 Python 빌드 우회), review_gate `structure`·`supply`·`docs` 통과, `uv lock --check` 통과.
+- **수렴 판정:** `NOT CONVERGED` (Open Fix 3: F-008(F2 부분)·F-022·F-023 — 단계 F2)
+- **잔여 위험 변화:** R-210(rate limit IP 판정의 프록시 홉 의존) 등록.
+
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
@@ -92,3 +106,4 @@
 | 3 | 0 | 0 | 0 | 0 | 0 (Fixed 2) | NOT CONVERGED |
 | 4 | 0 | 0 | 0 | 0 | 0 (Fixed 1) | NOT CONVERGED |
 | 5 | 0 | 0 | 0 | 0 | 0 (Fixed 2) | NOT CONVERGED |
+| 6 | 0 | 0 | 0 | 0 | 0 (Fixed 3) | NOT CONVERGED |

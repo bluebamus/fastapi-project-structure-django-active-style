@@ -36,6 +36,8 @@ EXPECTED: dict[str, frozenset[str]] = {
     "/api/v1/auth/register": frozenset({"POST"}),
     "/api/v1/auth/login": frozenset({"POST"}),
     "/api/v1/auth/refresh": frozenset({"POST"}),
+    # service-hardening 단계 F1(ADR-012) — refresh family 폐기. ADR-018 에 따라 이유와 함께 갱신.
+    "/api/v1/auth/logout": frozenset({"POST"}),
     "/api/v1/auth/me": frozenset({"GET"}),
 }
 

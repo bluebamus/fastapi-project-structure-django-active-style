@@ -24,7 +24,7 @@
 | D | 시각 정책 | `app/core/models/types.py`(신규), `app/core/models/models_base.py`, `config.py`(`TimezoneSettings`), `migrations/env.py`, `migrations/versions/e5a7c9d1f3b5_store_datetimes_as_utc.py`(신규), `app/features/reports/services/report_service.py`, `app/features/reports/repositories/sales_report_repository.py`, `app/celery/app.py`, 응답 스키마 설명 | 소스 | UTC 저장·리포트 영업일 |
 | E | Redis·readiness | `app/core/resources.py`, `main.py`, `app/core/redis.py`(신규), `compose.test.yaml` | 소스 | `/ready` 의 Redis 확인 |
 | E | Celery 발견 | `app/celery/app.py`, 중앙 태스크 모듈(단계 E 에서 삭제), `app/core/registry.py`, `app/features/home/tasks.py`(신규), home `dependencies` | 소스 | registry 기반 include |
-| F1 | 인증 코어 | `app/features/auth/**`, `app/utils/authenticator/auth.py`, core security 모듈(신규) | 소스 | 해시·토큰·refresh 저장소·rate limit |
+| F1 | 인증 코어 | `app/features/auth/**`, 옛 JWT·bcrypt 유틸 패키지(단계 F1 에서 삭제), `app/core/security/`(신규), `app/core/exception.py`, `config.py`(`JWTSettings`), `main.py`(예외 헤더) | 소스 | 해시·토큰·refresh 저장소·rate limit |
 | F2 | 인가·소유권 | core security 모듈, blog·sns·reply·catalog·reports·home·user 라우터와 서비스, 신규 Alembic 리비전 | 소스 | 주체·소유권·슈퍼유저 |
 | F2 | 운영 도구 | `scripts/` 의 슈퍼유저 생성 스크립트(신규) | 소스 | Django `createsuperuser` 대응 |
 | 공통 | 문서 | `README.md`, `docs/guides/ARCHITECTURE.md`, `docs/guides/DEVELOPMENT.md`, `.env.example` | 문서 | 단계마다 갱신 |
@@ -62,7 +62,7 @@
 - INV-7: 저장 시각은 UTC aware 로 돌아온다. naive 저장은 거부된다. (검사: `tests/core/test_utc_datetime.py`, MySQL `tests/integration/test_mysql_utc_datetime.py`)
 - INV-8: Redis 가 응답하지 않으면 `/ready` 는 503 이다. (검사: `tests/test_ready.py` 의 `test_ready_returns_503_when_redis_*`, `tests/core/test_redis_provider.py`)
 - INV-9: 워커 include 는 registry 가 발견한 앱에서 만들어지고, 기능을 지워도 깨지지 않는다. (검사: `tests/core/test_registry_tasks.py`, `tests/core/test_celery_app.py`)
-- INV-10: 소비된 refresh 토큰의 재사용은 그 family 전체를 폐기한다. (단계 F1)
+- INV-10: 소비된 refresh 토큰의 재사용은 그 family 전체를 폐기한다. (검사: `app/features/auth/tests/test_endpoint.py::test_reused_refresh_token_revokes_the_whole_family`, `tests/core/test_refresh_store.py`)
 - INV-11: 소유자도 슈퍼유저도 아닌 주체의 수정·삭제는 403, 토큰 없는 쓰기는 401. (단계 F2)
 
 ### 2-4. 비목표
@@ -86,4 +86,5 @@
 - v0.2 (2026-10-12): 단계 A 완료 — INV-1~INV-5 에 검사 경로를 적었다(845 passed / 32 deselected / skip 0).
 - v0.4 (2026-10-12): 단계 D 완료 — INV-7 검사 경로(930 passed / 41 deselected / skip 0). alembic head `d4e6f8b12c34` → `e5a7c9d1f3b5`(ADR-020).
 - v0.5 (2026-10-12): 단계 E 완료 — INV-8·INV-9 검사 경로(948 passed / 41 deselected / skip 0). 인벤토리 E 행을 실제 파일로 고쳤다(중앙 태스크 모듈 삭제, ADR-021).
+- v0.6 (2026-10-12): 단계 F1 완료 — INV-10 검사 경로(1001 passed / 41 deselected / skip 0). 인벤토리 F1 행을 실제 파일로 고쳤다(옛 유틸 삭제, ADR-022).
 - v0.3 (2026-10-12): 단계 B 완료 — INV-6 검사 경로(905 passed / 32 deselected / skip 0). 설정 `TRUST_PROXY_HEADERS` → `TRUSTED_PROXY_HOPS`, `ACCESS_LOG_SENSITIVE_QUERY_KEYS` 추가(ADR-019).
