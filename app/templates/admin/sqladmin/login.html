@@ -1,0 +1,44 @@
+<!doctype html>
+{#
+  /admin 로그인 화면 — sqladmin 기본 login.html 을 덮어쓴다(admin-login ADR-005).
+  Admin(templates_dir=app/templates/admin) 의 FileSystemLoader 가 패키지 템플릿보다 먼저 찾는다.
+  base 를 확장하지 않는 독립 페이지다. Bootstrap 5.3.8 CSS 만 SRI 로 고정해 불러오고 JS 는 없다.
+  버전을 올리면 integrity 를 실제 파일로 다시 계산하고 tests/test_admin_login.py 의 상수도 바꾼다.
+  error 는 Jinja 자동 이스케이프(sqladmin 템플릿 엔진 autoescape=True)로 출력한다.
+#}
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ admin.title }} — 로그인</title>
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css"
+        integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB"
+        crossorigin="anonymous">
+</head>
+<body class="bg-body-tertiary">
+  <main class="container d-flex align-items-center justify-content-center min-vh-100">
+    <div class="card shadow-sm w-100" style="max-width: 24rem;">
+      <div class="card-body p-4">
+        <h1 class="h4 text-center mb-4">{{ admin.title }}</h1>
+        {% if error %}
+        <div class="alert alert-danger" role="alert">{{ error }}</div>
+        {% endif %}
+        <form action="{{ url_for('admin:login') }}" method="POST">
+          <div class="mb-3">
+            <label for="username" class="form-label">사용자명</label>
+            <input id="username" name="username" type="text" class="form-control"
+                   autocomplete="username" required autofocus>
+          </div>
+          <div class="mb-4">
+            <label for="password" class="form-label">비밀번호</label>
+            <input id="password" name="password" type="password" class="form-control"
+                   autocomplete="current-password" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100">로그인</button>
+        </form>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

@@ -19,13 +19,14 @@ SQLAdmin 을 사용한 User 모델의 관리자 인터페이스를 정의한다.
     구조 증거: ``tests/core/test_admin_views.py``.
 
 Note:
-    SQLAdmin 은 ADMIN 설정으로 제어된다 (DEBUG 와 독립적).
-    ADMIN=True: /admin 마운트, ADMIN=False: /admin 이 존재하지 않음(404).
-    기본값 True 는 개발 우선 구조의 의도된 선택이며, 인증이 없으므로 운영에서는
-    ADMIN=false 를 명시한다 — 상세는 ``config.py`` 의 ADMIN 필드 주석 참고.
+    SQLAdmin 은 ADMIN_DISABLED 설정으로 제어된다 (DEBUG 와 독립적).
+    ADMIN_DISABLED=false(기본): /admin 마운트 — 활성 슈퍼유저 로그인 필요
+    (``app/features/auth/admin_auth.py``). ADMIN_DISABLED=true: /admin 자체가 없음(404).
+    관리 화면을 쓰지 않는 배포는 ADMIN_DISABLED=true 로 둔다.
 """
 
 from sqladmin import ModelView
+from sqladmin.filters import BooleanFilter
 
 from app.features.user.models.models import User
 
@@ -71,9 +72,12 @@ class UserAdmin(ModelView, model=User):
         User.email,
     ]
 
+    # 필터는 sqladmin 0.32 의 필터 클래스로 준다 — 모델 컬럼을 그대로 넣으면 목록 페이지가
+    # 500 이다(`parameter_name` 없음, admin-login F-006). 문자열·숫자는 OperationColumnFilter,
+    # bool 은 BooleanFilter. created_at(UTCDateTime)은 OperationColumnFilter 가 문자열을 그대로
+    # 바인딩해 naive/문자열 거부에 걸리므로 필터에서 뺐다 — 정렬로 본다(residual-risk R-310).
     column_filters = [
-        User.is_active,
-        User.created_at,
+        BooleanFilter(User.is_active),
     ]
 
     # =========================================================================
@@ -126,5 +130,5 @@ class UserAdmin(ModelView, model=User):
 
 # AppRegistry 가 이 모듈의 ``admin_views`` 를 자동으로 발견해 SQLAdmin 에 등록한다.
 # 패키지 __init__.py 로 재노출하지 않는다 — 그러면 라우터만 필요한 import 에도
-# sqladmin 이 딸려 와 ADMIN=false 가 무의미해진다(가드: tests/test_admin_wiring.py).
+# sqladmin 이 딸려 와 ADMIN_DISABLED=true 가 무의미해진다(가드: tests/test_admin_wiring.py).
 admin_views: list[type] = [UserAdmin]

@@ -25,6 +25,7 @@ ARCHITECTURE = REPO_ROOT / "docs" / "guides" / "ARCHITECTURE.md"
 HTML_GUIDES = (
     REPO_ROOT / "docs" / "guides" / "server-lifecycle-guide.html",
     REPO_ROOT / "docs" / "guides" / "feature-development-guide.html",
+    REPO_ROOT / "docs" / "guides" / "admin-auth-guide.html",
 )
 # 문서 목록은 README 의 이 절 한 곳에만 둔다(별도 docs/README.md 없음).
 DOCS_INDEX_HEADING = "## 문서 안내"

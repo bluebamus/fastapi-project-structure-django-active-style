@@ -3,7 +3,9 @@ scripts/create_superuser.py — 슈퍼유저 만들기·승격 (Django ``creates
 
 관리 경로(사용자 목록·생성, catalog 쓰기, 리포트, 접속 로그)는 슈퍼유저만 쓸 수 있고,
 API 에는 "첫 슈퍼유저" 를 만드는 경로가 없다(가입은 항상 일반 사용자). 이 스크립트가
-배포 직후 그 한 명을 만든다(service-hardening ADR-016).
+배포 직후 그 한 명을 만든다(service-hardening ADR-016). 이 계정은 ``/admin``(SQLAdmin) 로그인
+계정이기도 하다 — 관리 화면은 활성 슈퍼유저만 들어간다(admin-login ADR-002). 관리 화면을 쓰지
+않는 배포(``ADMIN_DISABLED=true``)에서도 관리 API 용으로 만든다.
 
 - 사용자명이 없으면 새 슈퍼유저를 만든다 — 이메일·비밀번호가 필요하다.
 - 이미 있으면 슈퍼유저로 **승격**한다. 비밀번호는 ``--set-password`` 를 줄 때만 바꾼다.

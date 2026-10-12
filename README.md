@@ -32,6 +32,9 @@ Repository 패턴과 계층 분리를 적용한 FastAPI 프로젝트 골격입�
   Argon2 해시(기존 bcrypt 해시는 로그인 때 이전), 로그인·가입 rate limit.
 - **인가** — 슈퍼유저/일반 2단계. 글 수정·삭제는 작성자 본인 또는 슈퍼유저, 관리 API 는 슈퍼유저 전용
   ([권한 표](#권한-표)). 첫 슈퍼유저는 `scripts/create_superuser.py` 로 만든다.
+- **관리 화면** — SQLAdmin `/admin` 은 활성 슈퍼유저 로그인(Bootstrap 로그인 화면, 서명 세션 쿠키)
+  뒤에 있고, `ADMIN_DISABLED=true` 면 경로·링크·로그까지 통째로 사라진다
+  ([admin 인증 안내서](docs/guides/admin-auth-guide.html)).
 - **운영 안전장치** — staging/production 에서 위험한 설정이면 기동 거부, 오류 응답에 내부 정보 비노출,
   접속 로그 비동기 수집, 로그 비밀값 마스킹.
 - **검증 게이트** — 로컬과 CI 가 같은 `scripts/review_gate.py` 로 정적 검사·테스트·공급망·문서를 판정.
@@ -154,7 +157,7 @@ Remove-Item Env:DEBUG      # 끝나면 개발 기본값으로 복원
 
 `DEBUG=true`(기본값)면 기동 때 테이블 자동 생성을 시도하므로 MySQL 이 없으면 startup 이 실패합니다.
 **API 문서를 켜는 스위치와 MySQL 을 요구하는 스위치가 같다**는 점이 첫 실행에서 가장 헷갈립니다.
-DB 없이 구조만 볼 때는 `ADMIN=false`, `ACCESS_LOG_ENABLED=false` 도 함께 고려합니다.
+DB 없이 구조만 볼 때는 `ADMIN_DISABLED=true`, `ACCESS_LOG_ENABLED=false` 도 함께 고려합니다.
 
 ### 3. MySQL 을 더해 기능 API·문서까지
 
@@ -175,7 +178,7 @@ utf8mb4_unicode_ci;` 로 데이터베이스를 먼저 만듭니다(자동 생성
 | 주소 | 조건 |
 |---|---|
 | http://localhost:8000/docs (Scalar) · `/openapi.json` | `DEBUG=true` |
-| http://localhost:8000/admin | `ADMIN=true` (**인증 없음**) |
+| http://localhost:8000/admin | `ADMIN_DISABLED=false`(기본). **슈퍼유저 로그인 필요** — [첫 관리자 만들기](#첫-관리자-만들기) |
 | http://localhost:8000/health · `/ready` | 항상 |
 
 ### 스키마 관리 — 자동 생성에서 Alembic 으로
@@ -264,14 +267,13 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 |---|---|---|
 | `DEBUG` | `true` | 개발 모드 — 아래 표 |
 | `ENV` | `development` | `development`/`test`/`staging`/`production`. 로그 구성과 배포 게이트가 따른다 |
-| `ADMIN` | `true` | `/admin` 마운트. **인증 없음** (DEBUG 와 독립) |
-| `ADMIN_ALLOW_UNAUTHENTICATED` | `false` | staging/production 에서 인증 없는 `/admin` 을 의도적으로 연다는 확인. 켜면 매 기동 WARNING |
+| `ADMIN_DISABLED` | `false` | `true` 면 `/admin` 을 아예 만들지 않는다(404, 응답·로그에 경로 없음). `false` 면 마운트하고 **슈퍼유저 로그인**을 요구한다 (DEBUG 와 독립). 예전 `ADMIN` 은 이 설정으로 바뀌었고 남아 있으면 기동하지 않는다 |
 | `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_PASSWORD` | `localhost` / `6379` / `0` / 없음 | startup `ping()` 대상, Celery broker |
 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | `localhost` / `3306` / `root` / `""` / `fastapi_db` | primary(writer) DB |
 | `DB_ROUTER_ENABLED` / `DB_REPLICATION_ENABLED` / `MYSQL_REPLICA_HOSTS` | `false` / `false` / `[]` | replica 라우팅 (선택). read-only 세션의 쓰기 차단은 이 설정과 **무관하게** 항상 동작한다 |
-| `ACCESS_TOKEN_SECRET_KEY` / `REFRESH_TOKEN_SECRET_KEY` / `SESSION_SECRET_KEY` | `change-this-...` | 서명·세션 키. 배포 전 서로 다른 값으로 교체 — 생성: `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"` |
+| `ACCESS_TOKEN_SECRET_KEY` / `REFRESH_TOKEN_SECRET_KEY` / `SESSION_SECRET_KEY` | `change-this-...` | JWT 서명 키 둘과 `/admin` 세션 쿠키 서명 키. 배포 전 서로 다른 값으로 교체 — 생성: `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"` |
 | `CORS_ALLOW_ORIGINS` | `["*"]` | JSON 배열로 지정 |
-| `TRUSTED_PROXY_HOPS` | `0` | 앱 앞의 신뢰 리버스 프록시 수. `0` 은 전달 헤더 무시, `N` 은 X-Forwarded-For 의 오른쪽에서 N번째를 접속 IP 로 사용 |
+| `TRUSTED_PROXY_HOPS` | `0` | 앱 앞의 신뢰 리버스 프록시 수. `0` 은 전달 헤더 무시, `N` 은 X-Forwarded-For 의 오른쪽에서 N번째를 접속 IP 로 사용. **프록시 뒤 배포면 반드시 설정**(운영 배포 확인 4) |
 | `ACCESS_LOG_ENABLED` | `true` | 접속 로그 수집 |
 | `LOG_LEVEL` / `LOG_CONSOLE_LEVEL` | 미설정 | 미설정이면 DEBUG 에 따라 DEBUG/INFO |
 | `SERVER_HOST` / `SERVER_PORT` | `0.0.0.0` / `8000` | `python main.py` 직접 실행 시 바인딩 |
@@ -284,7 +286,9 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | `python main.py` reload | 켜짐 | 꺼짐 |
 | 500 응답 상세 | 숨김 | 숨김 |
 
-`SESSION_*`·`SMTP_*`·`UPLOAD_*`·`API_VERSION` 은 설정만 있고 이를 쓰는 기능은 아직 없습니다. 설정 로딩
+`SESSION_SECRET_KEY` 는 `/admin` 세션 쿠키 서명에, `SESSION_COOKIE_NAME` 은 접속 로그의 session_id 기록에만
+쓰입니다(API 인증은 JWT 만). `SESSION_EXPIRE_SECONDS`·`SMTP_*`·`UPLOAD_*`·`API_VERSION` 은 설정만 있고
+이를 쓰는 기능은 아직 없습니다. 설정 로딩
 순서와 클래스별 소비 지점, 로그 구성은 [ARCHITECTURE §4·§5](docs/guides/ARCHITECTURE.md)를 봅니다.
 
 ---
@@ -299,8 +303,8 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | `.env` 가 없고 `ENV`·비밀 키 3종·`MYSQL_HOST/USER/PASSWORD/DATABASE` 가 환경 변수로도 없음(`validate_env_source`) | test 외 전부 |
 | placeholder 인 access/refresh/session 키(앞뒤 공백 제거·소문자화 후 `change-this` 를 포함하거나 `your-` 로 시작하거나 빈 값 — `config.is_placeholder_secret`), 32자 미만, access 와 refresh 가 같음. `.env.example` 의 키 예시는 일부러 이 규칙에 걸린다 | test 외 전부 |
 | placeholder 인 `MYSQL_PASSWORD`(**빈 값 포함** — 무인증 DB 계정). `REDIS_PASSWORD`·`SMTP_PASSWORD` 는 빈 값이 정당한 구성이라 값이 있을 때만 검사한다 | test 외 전부 |
+| 예전 설정 `ADMIN` 이 `.env`·환경 변수에 남아 있음(`validate_renamed_settings` — `ADMIN_DISABLED` 로 바뀌었고 의미가 반대) | test 외 전부 |
 | `DEBUG=true` · `CORS_ALLOW_ORIGINS` 의 `*` · `LOG_SQL_ECHO_ENABLED=true` · `LOG_LEVEL=DEBUG`(롤백 상세에 SQL 본문과 바인딩된 값이 남는다) | staging·production |
-| `ADMIN=true` 인데 `ADMIN_ALLOW_UNAUTHENTICATED=true` 확인이 없음 | staging·production |
 
 **사람이 확인할 것.**
 
@@ -308,19 +312,20 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 |---|---|---|
 | 1 | `ENV` 를 실제 환경 값으로 넘겼는가 | 기본값 `development` 에서는 위 표의 staging·production 검사가 돌지 않는다. `.env` 없이 환경 변수로 주입하는 배포는 `ENV` 가 없으면 기동 거부 |
 | 2 | 트래픽 전환 전에 `alembic upgrade head` 를 적용했는가 | 서버 기동은 migration 을 하지 않는다 |
-| 2a | 첫 관리자를 만들었는가(`python -m scripts.create_superuser`, [첫 관리자 만들기](#첫-관리자-만들기)) | 관리 API(사용자·상품 쓰기·리포트·접속 로그)는 슈퍼유저 전용이고 API 로는 첫 슈퍼유저를 만들 수 없다 |
-| 3 | 외부 노출이 필요 없으면 `SERVER_HOST=127.0.0.1` 인가, 프록시·방화벽에서 `/admin` 을 막았는가 | 기본 바인딩은 `0.0.0.0` 이다 |
-| 4 | 프록시 뒤라면 `TRUSTED_PROXY_HOPS` 가 실제 프록시 수와 같은가 | 아니면 접속 로그 IP 가 위조되거나 프록시 IP 로 찍힌다 |
+| 2a | 첫 관리자를 만들었는가 — `scripts/create_superuser.py`(대화형 또는 `--password-stdin`, [첫 관리자 만들기](#첫-관리자-만들기)) | 관리 API(사용자·상품 쓰기·리포트·접속 로그)는 슈퍼유저 전용이고 API 로는 첫 슈퍼유저를 만들 수 없다. 이 계정이 `/admin` 로그인 계정이기도 하다 |
+| 2b | 관리 화면을 쓰는가 — 쓰지 않으면 `ADMIN_DISABLED=true`. 쓰면 `/admin` 이 **슈퍼유저 로그인**을 요구하고 세션 쿠키 서명 키가 `SESSION_SECRET_KEY` 임을 확인했는가 | 끄면 `/admin` 경로·링크·로그가 모두 사라진다. 켜면 로그인 세션은 `SESSION_SECRET_KEY` 로 서명되고 staging/production 에서 Secure 쿠키라 HTTPS 가 필요하다. 키를 바꾸면 관리 세션이 모두 끊긴다([admin 인증 안내서](docs/guides/admin-auth-guide.html)) |
+| 3 | 외부 노출이 필요 없으면 `SERVER_HOST=127.0.0.1` 인가 | 기본 바인딩은 `0.0.0.0` 이다. 관리 화면을 켰다면 프록시·방화벽으로 `/admin` 접근 범위를 좁히는 것도 권장한다 |
+| 4 | 프록시 뒤라면 `TRUSTED_PROXY_HOPS` 를 앞단 프록시 단 수로 설정했는가 | `0` 이면 모든 클라이언트가 프록시 IP 하나로 보여 접속 로그와 로그인 rate limit(API·`/admin`)이 전체 사용자를 한 사람으로 취급한다. 실제보다 크게 잡으면 IP 위조가 가능하다 |
 | 5 | readiness 를 `/ready` 에 걸었는가 | `/ready` 는 DB 와 Redis 를 모두 본다(각 2초). `/health` 는 둘 다 보지 않는다 |
 | 6 | 새로 더한 엔드포인트가 [권한 표](#권한-표)에 분류됐는가 | 예제 API 는 인증·소유권·슈퍼유저 검사를 갖췄다. 새 엔드포인트는 직접 보호해야 하고, 분류하지 않으면 `tests/test_authorization.py` 가 실패한다 |
-| 7 | 기존 MySQL 데이터가 있다면 `e5a7c9d1f3b5`(시각 UTC 전환) 적용 전에 그 시각이 Asia/Seoul 벽시계인지 확인했는가 | 리비전이 `+09:00 → UTC` 로 옮긴다. 다른 지역 시각으로 쌓인 DB 는 오프셋을 바꿔 적용해야 한다([ARCHITECTURE §12](docs/guides/ARCHITECTURE.md)) |
+| 7 | 기존 MySQL 데이터가 있다면 `e5a7c9d1f3b5`(KST→UTC 시각 전환) 적용 **전에 백업**하고, 그 시각이 `+09:00`(Asia/Seoul 벽시계)으로 저장됐는지 확인했는가 | 리비전이 `+09:00 → UTC` 로 옮긴다. 다른 시간대로 쌓인 DB 는 적용 전에 리비전의 `_LOCAL_OFFSET` 상수를 그 오프셋으로 바꾼다([ARCHITECTURE §12](docs/guides/ARCHITECTURE.md)) |
 
-**`/admin` 에는 인증이 없습니다** — API 의 인증·권한(JWT·슈퍼유저)은 `/admin` 에 적용되지 않습니다. 인증 백엔드는 붙이지 않기로 확정했고(영구 비목표), 기본값 `true` 는
-로컬에서 바로 DB 를 들여다보기 위한 의도된 선택입니다. 켜져 있으면 도달 가능한 누구나 데이터를
-조회·수정·삭제하고 CSV 로 내보낼 수 있습니다(비밀번호 해시만 제외). 개발 서버를 네트워크에 노출할
-때는 `ADMIN=false` 를 둡니다. 배포 환경에서도 인증 없이 쓸 수 있지만, `ADMIN_ALLOW_UNAUTHENTICATED=true`
-로 **알고 켰다는 확인**을 줘야 기동하고 매 기동 WARNING 이 남습니다 — 그때는 프록시·VPN 으로 `/admin`
-접근을 제한합니다. 보안 경계와 현재 한계 전체는 [ARCHITECTURE §10](docs/guides/ARCHITECTURE.md)
+**`/admin` 은 슈퍼유저 로그인이 필요합니다.** SQLAdmin 에 붙인 `AdminAuthBackend` 가 활성 슈퍼유저만
+들여보내고(매 요청 DB 확인 — 강등·비활성화는 다음 요청부터 막힌다), 로그인 시도는 API 로그인과 같은
+한도로 따로 셉니다(`admin:rl:`). 세션은 `/admin` 전용 서명 쿠키(`admin_session`, `Path=/admin`,
+`SameSite=Strict`, HttpOnly, 8시간, staging/production 은 Secure)이고 API 인증에는 쓰이지 않습니다.
+관리 화면을 쓰지 않으면 `ADMIN_DISABLED=true` 로 경로 자체를 없앱니다. 설계·흐름·위협 모델은
+[admin 인증 안내서](docs/guides/admin-auth-guide.html), 보안 경계 전체는 [ARCHITECTURE §10](docs/guides/ARCHITECTURE.md)
 에 있습니다.
 
 ---
@@ -383,7 +388,8 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
   무시되고 수정할 수 없습니다. 작성자 컬럼이 생기기 전의 글(`author_id` 가 null)은 관리자만 고칩니다.
 - 사용자를 비활성화·강등·삭제하면 그 사용자의 refresh 토큰이 모두 폐기됩니다. 이미 발급된 access
   토큰은 만료(기본 15분)까지 남습니다 — 권한은 토큰의 `su` claim 으로 판정하고 DB 를 다시 보지 않습니다.
-- `/admin`(SQLAdmin)은 이 표와 별개이며 인증이 없습니다([운영 배포](#운영-배포)).
+- `/admin`(SQLAdmin)은 이 표와 별개로 **슈퍼유저 로그인**(서명 세션 쿠키)을 요구합니다. API 의 Bearer
+  토큰으로는 들어갈 수 없고, 관리 세션 쿠키로 API 를 호출할 수도 없습니다([운영 배포](#운영-배포)).
 
 ### 인증 흐름
 
@@ -419,6 +425,7 @@ access 15분, refresh 7일(`ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_
   오면 탈취로 보고 그 로그인 세션(family)의 토큰을 모두 폐기합니다 — 정상 사용자도 다시 로그인해야
   합니다. access 토큰은 폐기 수단이 없어 만료까지 유효하므로 짧게 둡니다.
 - **rate limit** — 로그인은 IP+사용자명 5회/60초·IP 20회/60초, 가입은 IP 5회/시간(`AUTH_*` 설정).
+  `/admin` 로그인도 같은 로그인 한도를 쓰되 키를 따로 셉니다.
   초과하면 429 와 `Retry-After` 헤더. 로그인이 성공하면 IP+사용자명 카운터를 지웁니다. 프록시 뒤라면
   `TRUSTED_PROXY_HOPS` 를 맞추세요 — 0 이면 모든 사용자가 프록시 IP 하나로 함께 막힙니다.
 - **비밀번호** — Argon2(pwdlib)로 저장합니다. 이전 버전의 bcrypt 해시는 로그인에 성공할 때 Argon2 로
@@ -442,7 +449,8 @@ uv run python -m scripts.create_superuser --username alice
 ```
 
 스크립트는 API 와 같은 부품(`background_db_session`, core `get_password_hasher` 의 Argon2,
-`UserRepository`)으로 조립하고 한 번 커밋합니다. 그 뒤의 관리자는 관리자가 `POST /api/v1/user/users`
+`UserRepository`)으로 조립하고 한 번 커밋합니다. 만든 계정으로 `/admin` 에도 로그인합니다
+(`ADMIN_DISABLED=false` 일 때). 그 뒤의 관리자는 관리자가 `POST /api/v1/user/users`
 (`"is_superuser": true`) 또는 `PATCH /api/v1/user/users/{user_id}` 로 만듭니다.
 
 ---
@@ -469,7 +477,9 @@ Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워
 |---|---|---|
 | `.env 파일이 없고, 필수 설정이 …` | `.env` 가 없다 | 빠른 시작 1단계. 컨테이너라면 메시지에 나온 환경 변수를 주입 |
 | `ENV=development 에서 안전하지 않은 설정으로 기동할 수 없습니다` | `.env` 의 비밀 키·비밀번호가 예시 값·빈 값·32자 미만 | 빠른 시작 1단계 표대로 고친다 |
-| `ENV=production … ADMIN=true` | 배포 환경에서 `ADMIN=true`(기본값) | 쓰지 않으면 `ADMIN=false`, 의도라면 `ADMIN_ALLOW_UNAUTHENTICATED=true` |
+| `설정 ADMIN 은 ADMIN_DISABLED 로 바뀌었습니다` | `.env`·환경 변수에 예전 `ADMIN` 이 남아 있다 | 예전 값이 false 였다면 `ADMIN_DISABLED=true` 로, 아니면 그 줄을 지운다 |
+| `/admin` 로그인 뒤 계속 로그인 화면으로 돌아온다 | staging/production 은 세션 쿠키가 Secure 라 HTTP 에서는 붙지 않는다. 또는 슈퍼유저가 아니거나 비활성 | HTTPS 로 접속(프록시의 TLS 종료 포함). 계정은 `scripts/create_superuser.py` 로 승격 |
+| `/admin` 로그인이 429 | 로그인 시도 한도 초과(`AUTH_LOGIN_*`, 창 60초) | `Retry-After` 만큼 기다린다. 프록시 뒤인데 `TRUSTED_PROXY_HOPS` 가 0 이면 모든 사용자가 한 IP 로 묶인다 |
 | startup 에서 `Redis 연결 실패` | Redis 미기동, 주소·포트·비밀번호 오류 | `REDIS_*` 와 서버 확인. `DEBUG=false` 로 우회되지 않는다 |
 | startup 에서 `Can't connect to MySQL server` | `DEBUG=true` 기본값이 테이블 생성을 시도 | MySQL 을 띄우거나 `DEBUG=false` |
 | staging/production 에서 `안전하지 않은 설정으로 기동할 수 없습니다` | 배포 게이트 | 메시지의 설정을 모두 고친다 ([운영 배포](#운영-배포)) |
@@ -493,11 +503,12 @@ Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워
 | [docs/guides/DEVELOPMENT.md](docs/guides/DEVELOPMENT.md) | 기능 개발 가이드 — ORM/Raw 선택, 파일 순서, 세션·트랜잭션, migration, 테스트, 체크리스트 | 새 기능을 만들 때 |
 | [docs/guides/server-lifecycle-guide.html](docs/guides/server-lifecycle-guide.html) | 서버 수명주기 안내서 — 설정 → 기동 → 요청 → 종료를 도식으로 추적 (브라우저로 연다) | 기동·종료 흐름을 한 번에 따라가 볼 때 |
 | [docs/guides/feature-development-guide.html](docs/guides/feature-development-guide.html) | 신규 뷰·테이블 개발 안내서 — catalog·reports 요청을 따라가는 도식 설명 (브라우저로 연다) | 개발 가이드를 예제 흐름으로 익힐 때 |
+| [docs/guides/admin-auth-guide.html](docs/guides/admin-auth-guide.html) | admin 인증 안내서 — `/admin` 로그인·세션 범위(관리 전용)·`ADMIN_DISABLED`·위협 모델·운영 (브라우저로 연다) | 관리 화면 인증을 이해하거나 바꿀 때 |
 | [docs/specs/orm-raw-repository/requirements.md](docs/specs/orm-raw-repository/requirements.md) | 고정 기준선 — ORM/Raw 착수 요구명세 | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/orm-raw-repository/development-plan.md](docs/specs/orm-raw-repository/development-plan.md) | 고정 기준선 — ORM/Raw 개발 계획 | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/orm-raw-repository/workflow-guide.md](docs/specs/orm-raw-repository/workflow-guide.md) | 고정 기준선 — ORM/Raw 지침 원본 (코드 주석의 `workflow-guide §N` 출처) | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/django-style-app-automation.md](docs/specs/django-style-app-automation.md) | 고정 기준선 — 앱 자동 등록 요구사항(`FR-*`·`NFR-*`·`SEC-*` 등, 코드 주석이 인용)과 설계 근거 | 자동 등록 규칙의 원래 의도를 볼 때 |
-| [docs/crp/groups/](docs/crp/groups/) | 검수 이력(append-only) — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
+| [docs/crp/groups/](docs/crp/groups/) | 검수 이력(append-only) — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계), `service-hardening`(인증·인가·rate limit·UTC), `admin-login`(관리 화면 로그인·`ADMIN_DISABLED`) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
 
 `docs/guides/` 는 **현행 문서**라 코드 기준으로 유지하고, `review_gate` docs 그룹이 Markdown 의 백틱
 경로와 HTML 의 `<code>` 경로·환경변수를 검사합니다. HTML 안내서는 흐름을 요약하고 표·목록의 원문은

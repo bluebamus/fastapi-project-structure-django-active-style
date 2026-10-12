@@ -90,12 +90,18 @@ _ADMIN_TMPL = '''\
 컨벤션: 모듈 레벨 ``admin_views`` 리스트를 두면 AppRegistry.install_admin 이
 자동으로 SQLAdmin 에 등록한다(중앙 파일 수정 불필요).
 
+인증은 여기서 다루지 않는다 — ``/admin`` 전체가 슈퍼유저 로그인 뒤에 있다
+(``app/features/auth/admin_auth.py``). ``ADMIN_DISABLED=true`` 면 이 모듈은 import 되지 않는다.
+비밀번호 해시 같은 자격증명 컬럼은 상세·폼에서 제외한다(``app/features/user/admin.py`` 참고).
+
 활성화하려면 placeholder 를 실제 모델 기반 ModelView 로 교체한다:
     from sqladmin import ModelView
     from app.features.{name}.models.models import {Class}Model
 
     class {Class}Admin(ModelView, model={Class}Model):
         column_list = "__all__"
+        # 필터는 sqladmin.filters 의 클래스로 준다(컬럼을 그대로 넣으면 목록이 500):
+        # column_filters = [OperationColumnFilter({Class}Model.name), BooleanFilter({Class}Model.is_active)]
 
     admin_views = [{Class}Admin]
 """

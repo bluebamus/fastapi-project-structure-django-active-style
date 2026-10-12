@@ -1,14 +1,14 @@
 """SQLAdmin 배선 테스트 (기능 소유 + registry 자동 취합 기준).
 
 ``ModelView`` 는 기능이 소유하고(``app/features/<name>/admin.py``), ``AppRegistry`` 가
-발견된 앱에서 ``admin_views`` 를 모아 등록한다. ``main.py`` 는 ADMIN=true 일 때
+발견된 앱에서 ``admin_views`` 를 모아 등록한다. ``main.py`` 는 ADMIN_DISABLED=false 일 때
 ``register_admin(app, engine, registry)`` 만 호출한다.
 
 여기서 확인하는 것:
     1. registry 취합 결과가 기능 디렉터리에서 독립적으로 만든 기대 목록과 **순서까지** 같다
     2. 모델을 가진 기능은 빠짐없이 자기 ``admin.py`` 를 갖는다
     3. 부팅된 앱의 SQLAdmin 에 그대로 등록됐고 ``/admin`` 이 마운트됐다
-    4. ADMIN=false 일 때 관리 계층이 **로드조차 되지 않는다** (SEC-01)
+    4. ADMIN_DISABLED=true 일 때 관리 계층이 **로드조차 되지 않는다** (SEC-01)
     5. 중앙 취합 목록이 코드에 남아 있지 않다 (FR-08)
 
 1번이 핵심이다. 자동 취합은 편하지만 조용하다 — 앱 하나가 발견에서 빠지면 그 앱의
@@ -226,11 +226,11 @@ def test_every_model_feature_owns_admin_module() -> None:
 # 부팅된 애플리케이션
 # =============================================================================
 def test_admin_layer_is_not_loaded_when_disabled() -> None:
-    """ADMIN=false 면 sqladmin 을 아예 로드하지 않는다 (SEC-01).
+    """ADMIN_DISABLED=true 면 sqladmin 을 아예 로드하지 않는다 (SEC-01).
 
     기능 패키지 ``__init__.py`` 가 ``admin_views`` 를 재노출하면, registry 가 라우터를
     얻으려고 패키지를 import 하는 것만으로 sqladmin 과 ModelView 가 전부 올라온다. 그러면
-    ADMIN=false 는 "라우트만 안 붙임" 이 되어 설정의 의미가 실제와 어긋나고, sqladmin 을
+    ADMIN_DISABLED=true 는 "라우트만 안 붙임" 이 되어 설정의 의미가 실제와 어긋나고, sqladmin 을
     선택적 의존성으로 분리할 수도 없다(ADMIN-2).
 
     registry 쪽에도 같은 함정이 있다 — ``app/core/registry.py`` 가 모듈 레벨에서
@@ -244,7 +244,7 @@ def test_admin_layer_is_not_loaded_when_disabled() -> None:
             sys.executable,
             "-c",
             "import os, sys;"
-            " os.environ['ADMIN'] = 'false'; os.environ['DEBUG'] = 'false';"
+            " os.environ['ADMIN_DISABLED'] = 'true'; os.environ['DEBUG'] = 'false';"
             " import main;"
             " print('SQLADMIN_LOADED=' + str('sqladmin' in sys.modules))",
         ],
@@ -258,9 +258,9 @@ def test_admin_layer_is_not_loaded_when_disabled() -> None:
     )
     assert (
         "SQLADMIN_LOADED=" in result.stdout
-    ), f"ADMIN=false 로 앱을 띄우지 못했습니다.\nstderr:\n{result.stderr[-2000:]}"
+    ), f"ADMIN_DISABLED=true 로 앱을 띄우지 못했습니다.\nstderr:\n{result.stderr[-2000:]}"
     assert "SQLADMIN_LOADED=False" in result.stdout, (
-        "ADMIN=false 인데 sqladmin 이 로드됐습니다. 기능 패키지 __init__.py 또는 "
+        "ADMIN_DISABLED=true 인데 sqladmin 이 로드됐습니다. 기능 패키지 __init__.py 또는 "
         "app/core/registry.py 가 admin 모듈을 import 하고 있지 않은지 확인하세요."
     )
 
