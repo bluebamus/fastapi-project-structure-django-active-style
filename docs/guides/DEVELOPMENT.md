@@ -576,7 +576,8 @@ uv run python -m scripts.review_gate --group static structure docs
 - [ ] `dependencies/` — 쓰기용·조회용 getter 둘 다
 - [ ] `api/routers/v1/` — `operation_id`, DTO 검증 → commit 1회 / `router.py` 의 `<name>_router`
 - [ ] 권한 — §7.1 의 부품으로 보호, `tests/test_authorization.py` 의 `POLICY`·README 권한 표에 분류
-- [ ] 필요하면 `admin.py` 의 `admin_views` (민감 필드 제외 확인), `apps.py` 의 `ready()`
+- [ ] 필요하면 `admin.py` 의 `admin_views` (민감 필드 제외 확인 — `/admin` 은 슈퍼유저 로그인 뒤에 있고
+  `ADMIN_DISABLED=true` 면 import 되지 않으므로 뷰에 인증을 따로 넣지 않는다), `apps.py` 의 `ready()`
 - [ ] 태그 설명(`app/core/tags_metadata.py`), `tests/test_route_inventory.py`, README API 표 갱신
 - [ ] 테스트 작성, `mysql` 마커 대상 SQL 확인, 게이트 실행
 - [ ] Celery 태스크가 필요하면 기능 폴더의 `tasks.py` 에 추가 (중앙 파일 수정 없음)

@@ -73,6 +73,10 @@ DI·Service·세션 선택·트랜잭션 경계·검증·라우터 구성·문�
 
 > **상태 갱신 (2026-10-12):** charter 2-4 비목표 중 "Redis readiness / JWT lifecycle 확장" 과 residual-risk R-002 의 "RBAC/권한 모델은 범위 밖" 은 **Superseded by** `service-hardening` ADR-018(REQ-001, 2026-10-12) — 사용자가 Redis 필수·`/ready` 의 Redis 확인·refresh 회전·슈퍼유저/일반 2단계 권한을 범위에 넣었다. "API Redis cache" 는 여전히 비목표이고, C-8(SQLAdmin 인증 백엔드 비목표)은 그대로 유효하다(`service-hardening` ADR-017).
 
+> **상태 갱신 (2026-10-12):** ADR-005·C-8(SQLAdmin 인증 백엔드 영구 비목표)과 ADR-013 의 배포 환경 확인 플래그는
+> **Superseded by** `admin-login` ADR-002·ADR-006 — `/admin` 은 활성 슈퍼유저 로그인이 필요하고, 설정은
+> `ADMIN_DISABLED`(true=끔)로 바뀌었으며 확인 플래그는 없어졌다. 기존 행은 고치지 않았다.
+
 ## 5. 변경 이력
 - v0.1 (2026-08-18): 최초 작성. REQ-001/002, ADR-001~004, C-1~C-7 확정. Phase 0 기준선과 연결.
 - v0.2 (2026-08-18): Phase 1 수행 중 선행 확정 결정(2026-08-12 Admin 인증 영구 비목표)을 발견해 ADR-005·C-8 로 승계. 패키지 init 경량화 계약을 C-9 로 고정.
@@ -85,3 +89,4 @@ DI·Service·세션 선택·트랜잭션 경계·검증·라우터 구성·문�
 - v0.9 (2026-09-29): REQ-009 · ADR-012 등록 — `judge_pytest_summary()` 가 ANSI 색상 코드 때문에 실전에서 아무것도 잡지 못하던 것을 고쳤다. 색상이 섞인 실제 출력 모양으로 회귀 테스트 3건을 추가했고 변이 검증(2 failed)으로 확인했다.
 - v0.10 (2026-10-07): REQ-010 · ADR-013 등록 — 설정 검사 확장(`.env` 출처, 개발 환경 예시 비밀값·짧은 키), 배포 환경 `ADMIN=true` 를 확인 플래그로 완화(C-8 갱신), CI 주간 실행.
 - v0.11 (2026-10-12): 상태 주석 append — charter 2-4 의 Redis readiness·JWT lifecycle 비목표와 R-002 의 권한 모델 비목표를 `service-hardening` ADR-018 이 대체. 기존 행은 고치지 않았다.
+- v0.12 (2026-10-12): 상태 주석 append — ADR-005·C-8·ADR-013 의 SQLAdmin 무인증·확인 플래그 결정을 `admin-login` ADR-002·ADR-006 이 대체. 기존 행은 고치지 않았다.

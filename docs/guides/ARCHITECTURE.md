@@ -82,7 +82,7 @@ AppRegistry.discover()            "어떤 앱이 있는가" — 부작용 0
       ├─ import_models()   ──→ Base.metadata ──→ DEBUG create_all / Alembic
       ├─ install_routers() ──→ app.include_router(<name>_router, prefix="/api")
       ├─ task_modules()    ──→ Celery include (워커 — 각 앱 tasks.py)
-      └─ install_admin()   ──→ Admin.add_view(...)   (ADMIN=true 일 때만)
+      └─ install_admin()   ──→ Admin.add_view(...)   (ADMIN_DISABLED=false 일 때만)
 ```
 
 결선 메서드는 마지막 `discover()` 결과만 쓰고 스스로 다시 스캔하지 않습니다. 목록이 둘이면
@@ -159,12 +159,13 @@ def ready() -> None:
 | `migrations/env.py` | 새 `AppRegistry` 로 `discover()` + `import_models()` (같은 발견 규칙, 훅 없음) |
 | `app/celery/app.py` | 새 `AppRegistry` 로 `discover()` + `import_models()` + `task_modules()` → `include` (훅 없음) |
 | `app/core/db/models_registry.py` | `import_all_models()` — registry 에 위임하는 호환 facade (테스트가 사용) |
-| `app/features/admin.py` | `register_admin(app, engine, registry)` → `create_admin_interface()`(Admin 생성, `/admin` 마운트) → `registry.install_admin()`(뷰 등록) |
+| `app/features/admin.py` | `register_admin(app, engine, registry)` → `create_admin_interface()`(Admin 생성 + 로그인 백엔드 `AdminAuthBackend` 주입, `/admin` 마운트) → `registry.install_admin()`(뷰 등록) |
 
 `register_admin` 이 registry 를 **인자로 받는** 것이 계약입니다. 스스로 발견하면 라우터·모델과
-다른 앱 집합을 볼 수 있습니다. Admin 인증 백엔드를 붙인다면 자리는 `create_admin_interface()`
-하나입니다(`Admin` 생성 인자이기 때문). `ADMIN=false` 면 `sqladmin` 과 기능 `admin.py` 가
-**로드조차 되지 않습니다** — 그래서 기능 `__init__.py` 에서 `admin_views` 를 재노출하지 않습니다.
+다른 앱 집합을 볼 수 있습니다. Admin 인증 백엔드(`app/features/auth/admin_auth.py` 의
+`AdminAuthBackend`)는 `create_admin_interface()` 가 주입합니다(`Admin` 생성 인자이기 때문 — §10.3).
+`ADMIN_DISABLED=true` 면 `sqladmin`·기능 `admin.py`·인증 백엔드가 **로드조차 되지 않습니다** — 그래서
+기능 `__init__.py` 에서 `admin_views` 를 재노출하지 않습니다.
 
 ### 2.5 Django 와의 대응 범위
 
@@ -197,7 +198,7 @@ Django 호환 계층도 Django 기반도 아닙니다. Django 의 앱 단위 응
 | 앱 전체가 안 보인다 | 직계 하위 패키지인지, `__init__.py` 가 있는지, 이름이 식별자이고 `_` 로 시작하지 않는지 |
 | 라우터만 없다 | `api/routers/router.py` 경로와 `<name>_router` 이름 |
 | migration 이 비었다 | 모델이 `Base` 를 상속하고 `models/` 아래에서 import 되는지 |
-| Admin 뷰가 없다 | `ADMIN` 값, `admin_views` 가 `ModelView` 목록인지 |
+| Admin 뷰가 없다 | `ADMIN_DISABLED` 값, `admin_views` 가 `ModelView` 목록인지 |
 | 기동 시 `ModuleNotFoundError` | 선택 모듈 **내부**의 잘못된 import |
 
 회귀 가드: `tests/test_app_autowiring.py`(임시 앱 결선 + 중앙 파일 해시 불변),
@@ -219,7 +220,7 @@ main:app import
   ├─ _register_exception_handlers(app)          4개 글로벌 핸들러
   ├─ registry.install_routers(app)              <name>_router → /api
   ├─ _add_health_and_docs(app)                  /health · /ready · (DEBUG) Scalar /docs
-  └─ ADMIN=true → register_admin(app, engine, registry)
+  └─ ADMIN_DISABLED=false → register_admin(app, engine, registry)   (true 면 import·마운트 없음)
 ASGI lifespan 진입
   └─ manage_application_resources(app)          Redis ping → (DEBUG) create_db_tables → yield
 ```
@@ -255,17 +256,17 @@ ASGI lifespan 진입
 | 전역 인스턴스 | 쓰는 곳 |
 |---|---|
 | `timezone_settings` | 로그 시각(지역), 모델 시각 기본값(`utc_now()`, UTC), 리포트 영업일 경계(`local_dates_to_utc`·`utc_offset`), Celery beat timezone |
-| `app_settings` | 앱 메타데이터, `DEBUG`/`ENV`/`ADMIN`/`ADMIN_ALLOW_UNAUTHENTICATED`, 직접 실행 host/port |
+| `app_settings` | 앱 메타데이터, `DEBUG`/`ENV`/`ADMIN_DISABLED`, 직접 실행 host/port |
 | `db_settings` | 엔진 URL·라우팅·풀, Alembic URL(`ALEMBIC_URL`), `describe_routing()`(DSN 마스킹) |
 | `cors_settings` | `CustomCORSMiddleware.configure_cors()` |
 | `log_settings` | `build_dictconfig()` |
 | `middleware_settings` | `UserInfoMiddleware` (활성·제외 규칙·민감 query 키), `ClientIPResolver`(`TRUSTED_PROXY_HOPS`) |
 | `redis_settings` | startup Redis ping client, Celery broker/backend |
 | `jwt_settings` | `TokenService`(서명·검증·수명·iss/aud·leeway), 로그인·가입 rate limit(`AUTH_*`) |
-| `session_settings` | `UserInfoMiddleware` 가 `SESSION_COOKIE_NAME` 쿠키를 session_id 로 읽는다. `SESSION_SECRET_KEY` 는 배포 게이트가 검사한다. 쿠키 세션 구현은 없다 |
+| `session_settings` | `SESSION_SECRET_KEY` 는 `/admin` 세션 쿠키(`admin_session`)의 서명 키이고 배포 게이트가 검사한다. `UserInfoMiddleware` 는 `SESSION_COOKIE_NAME` 쿠키를 session_id 로 **기록만** 한다. API 인증에 쓰는 쿠키 세션은 없다(§10.3) |
 | `api_settings` · `smtp_settings` · `upload_settings` | **선언만 있고 앱 코드가 쓰지 않는다.** |
 
-설정 클래스가 있다고 기능이 있는 것은 아닙니다. SMTP 발송·쿠키 세션·업로드 처리·Redis 캐시는
+설정 클래스가 있다고 기능이 있는 것은 아닙니다. SMTP 발송·API 쿠키 세션·업로드 처리·Redis 캐시는
 구현돼 있지 않고, `API_VERSION` 을 바꿔도 라우터 prefix(`/v1/...`)는 바뀌지 않습니다.
 `LogSettings` 의 `LOG_CONSOLE_ENABLED`·`LOG_CONSOLE_FORMAT`·`LOG_FILE_FORMAT`·`LOG_DATE_FORMAT` 도
 현재 로깅 구성에서 읽지 않습니다(§5).
@@ -285,7 +286,10 @@ ASGI lifespan 진입
 
 1. `validate_env_source()` — **출처.** `.env` 가 없으면 `REQUIRED_WITHOUT_ENV_FILE`(`ENV`·비밀 키 3종·
    `MYSQL_HOST/USER/PASSWORD/DATABASE`)이 환경 변수로 모두 있어야 합니다. 컨테이너 주입은 통과합니다.
-2. `validate_deployment_safety()` — **내용.** 위반을 **한 번에 모아** 알립니다.
+2. `validate_renamed_settings()` — **이름이 바뀐 설정.** 예전 `ADMIN`(true=켬)은 `ADMIN_DISABLED`
+   (true=끔)로 바뀌었습니다. `.env`·환경 변수에 `ADMIN` 이 남아 있으면 Settings 가 조용히 버리고(extra
+   "ignore") 관리 화면이 **켜지므로** 기동을 멈춥니다(test 제외).
+3. `validate_deployment_safety()` — **내용.** 위반을 **한 번에 모아** 알립니다.
 
 test 외 **모든 ENV**(개발 환경 포함 — 기본값·예시 값 그대로는 `.env` 를 채우라는 신호):
 
@@ -300,14 +304,13 @@ test 외 **모든 ENV**(개발 환경 포함 — 기본값·예시 값 그대로
 staging/production 만:
 
 - `DEBUG=true`
-- `ADMIN=true` 인데 `ADMIN_ALLOW_UNAUTHENTICATED=true` 가 없음 — 무인증 `/admin` 은 배포 환경에서도 쓸 수
-  있지만 알고 켰다는 확인이 있어야 하고, 그때 `main.py` 가 매 기동 WARNING 을 남깁니다
 - `CORS_ALLOW_ORIGINS` 에 `*`
 - `LOG_SQL_ECHO_ENABLED=true`
 - `LOG_LEVEL=DEBUG` — 롤백 상세(SQL 본문·바인딩 값)는 DEBUG 레코드로만 나갑니다(§8.2).
   `DEBUG` 와 달리 `LOG_LEVEL` 은 단독으로도 유효 레벨을 DEBUG 로 올립니다
 
-`development`/`test` 는 편의 기본값(`DEBUG=true`, `ADMIN=true`)을 그대로 둡니다. 회귀 가드:
+관리 화면을 켠 배포(`ADMIN_DISABLED=false`)는 위반이 아닙니다 — `/admin` 은 슈퍼유저 로그인이 필요합니다
+(§10.3). `development`/`test` 는 편의 기본값(`DEBUG=true`, 관리 화면 켬)을 그대로 둡니다. 회귀 가드:
 `tests/core/test_deployment_safety.py`, 설정과 `.env.example` 의 동기화는
 `tests/core/test_settings_contract.py`.
 
@@ -656,15 +659,26 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
 
 ### 10.3 SQLAdmin
 
-- `/admin` 에는 **인증이 없습니다.** 인증 백엔드는 붙이지 않기로 확정한 영구 비목표입니다.
-  `ADMIN` 기본값 `true` 는 개발 편의를 위한 의도된 선택입니다. staging/production 은
-  `ADMIN_ALLOW_UNAUTHENTICATED=true` 확인 없이 `ADMIN=true` 로 기동하지 않고, 확인이 있으면 인증 없이
-  열린 채 매 기동 WARNING 을 남깁니다. 인증은 로그인 고도화에서 붙입니다.
-- `development`/`test` 에서 켜 두면 도달 가능한 누구나 사용자·게시글·댓글·SNS·상품·주문·접속로그를
-  조회·수정·삭제하고 CSV 로 내보낼 수 있습니다. 로컬 밖에 노출되는 개발 서버라면 `ADMIN=false`,
-  `SERVER_HOST=127.0.0.1`, 프록시 차단을 함께 씁니다(`SERVER_HOST` 기본값은 `0.0.0.0`).
+- `/admin` 은 **활성 슈퍼유저 로그인**이 필요합니다(admin-login ADR-002). `create_admin_interface()` 가
+  `AdminAuthBackend`(`app/features/auth/admin_auth.py`)를 주입합니다. 로그인은 API 로그인과 같은
+  `verify_credentials`(Argon2·bcrypt 재해시·비활성 거부)를 쓰고, 슈퍼유저가 아니면 실패입니다. 실패
+  사유는 구분하지 않습니다(400). 시도 수는 API 와 같은 `AUTH_LOGIN_*` 한도로 키를 따로 셉니다
+  (`admin:rl:`, 초과 시 로그인 화면을 429 + `Retry-After` 로).
+- 세션은 `/admin` 하위 앱에만 붙은 starlette `SessionMiddleware` 의 서명 쿠키입니다 — 이름
+  `admin_session`, `Path=/admin`, `SameSite=Strict`, HttpOnly, 8시간, staging/production 은 Secure, 서명
+  키 `SESSION_SECRET_KEY`. 성공하면 세션을 비우고 사용자 id 만 넣습니다(세션 고정 방지). 매 요청 DB 를
+  다시 봐서 강등·비활성화는 다음 요청부터 막힙니다.
+- **세션은 관리 화면 전용입니다.** 메인 앱에는 `SessionMiddleware` 가 없고, API 보호 경로는 Bearer
+  토큰만 봅니다 — 관리 세션 쿠키로 API 를 호출해도 401 입니다. 회귀 가드: `tests/test_admin_login.py`
+  의 세션 범위 테스트.
+- 로그인 화면은 `app/templates/admin/sqladmin/login.html`(Bootstrap 5.3.8 CSS, SRI 고정, JS 없음)이
+  sqladmin 기본 화면을 덮어씁니다(`templates_dir` 의 FileSystemLoader 가 먼저 찾는다).
+- `ADMIN_DISABLED=true` 면 `/admin` 이 아예 없습니다(404). sqladmin·관리 세션 미들웨어·인증 백엔드를
+  만들지 않고 OpenAPI·`/docs`·오류 응답·헤더·기동 로그 어디에도 관리 경로가 나오지 않습니다
+  (`tests/test_admin_disabled.py`). 관리 화면을 쓰지 않는 배포는 끕니다.
 - `User.hashed_password` 는 목록·상세·폼·내보내기 어디에도 나오지 않고, `User` 는 Admin 에서
   생성할 수 없습니다(비밀번호 없는 계정 방지). 구조 증거: `tests/core/test_admin_views.py`.
+- 설계·흐름도·위협 모델·운영 절차 전체: [admin 인증 안내서](admin-auth-guide.html).
 
 ### 10.4 현재 한계 — 외부 공개 전에 결정할 것
 
@@ -673,7 +687,8 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
 | 권한 모델 | 슈퍼유저/일반 2단계뿐이다(세분화된 역할·그룹 없음). 강등·비활성화는 access 만료(기본 15분)까지 반영이 늦다 |
 | 작성자 | 작성자 컬럼 도입 전의 글(`author_id` NULL)은 슈퍼유저만 수정한다. `author` 표시 이름은 작성 시점의 username 이라 이름을 바꿔도 따라가지 않는다 |
 | 참조 무결성 | `Reply.post_id` 는 FK 없는 문자열 — 게시글 존재 검증·삭제 전파 정책 없음 |
-| 로그인 보호 | 고정 창 rate limit(창 경계에서 최대 2배 통과). 계정 잠금은 없다 |
+| 로그인 보호 | 고정 창 rate limit(창 경계에서 최대 2배 통과, API·`/admin` 공통). 계정 잠금은 없다 |
+| 관리 세션 | 서명 쿠키라 서버 쪽 폐기 목록이 없다 — 로그아웃은 브라우저 쿠키를 비울 뿐이고, 복사된 쿠키 값은 만료(8시간)까지 서명상 유효하다(매 요청 DB 확인으로 강등·비활성화만 즉시 끊긴다). CSRF 는 `SameSite=Strict` 에 의존하며 sqladmin 폼에 CSRF 토큰은 없다 |
 | 토큰 폐기 | refresh 는 family 단위로 폐기된다(재사용 탐지·로그아웃). access 토큰은 만료(기본 15분)까지 유효하다 |
 | 접속 로그 개인정보 | `query_string` 은 민감 키 값만 가리고 나머지와 `referer`·`session_id` 쿠키는 원문 저장한다. 보존 기간·파기 절차가 없다(조회 API 는 슈퍼유저 전용) |
 | CORS | 기본 `CORS_ALLOW_ORIGINS=["*"]`, credentials false (staging/production 은 게이트가 `*` 를 거부) |
@@ -691,6 +706,9 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
   기능별 `worker/` 는 두지 않습니다.
 - **앱을 지우면 그 앱의 태스크도 include 에서 빠집니다.** 고칠 중앙 목록이 없고 워커는 그대로
   뜹니다(큐에 남은 메시지는 §2.6).
+- **include 모듈의 import 는 CI 가 검사합니다.** `tests/core/test_celery_app.py` 의
+  `test_celery_include_modules_import_and_register_their_tasks` 가 워커 기동 때처럼 include 를 import 하고
+  각 모듈이 태스크를 등록했는지 본다 — `tasks.py` 의 import 오류가 워커 기동이 아니라 CI 에서 드러난다.
 - 태스크 본문의 서비스 조립은 그 기능의 provider 함수(세션을 받는 일반 함수, 예:
   `build_user_access_log_service(session)`)를 재사용합니다. 요청용 `Depends` provider 도 같은
   함수를 부르므로 조립 경로가 하나입니다.
@@ -730,8 +748,9 @@ config.set_main_option(
 - revision 체인: `f4adf0ae24ea`(baseline) → `b2f1a9c0d3e4`(user 비밀번호) →
   `c3d5e7a91b02`(catalog_products) → `d4e6f8b12c34`(sales_orders) → `e5a7c9d1f3b5`(시각 컬럼 UTC·`DATETIME(6)`, head).
 - `e5a7c9d1f3b5` 는 MySQL 에서만 동작합니다(SQLite no-op). 기존 값을 `CONVERT_TZ(col, '+09:00', '+00:00')` 로
-  옮기므로 **기존 데이터가 Asia/Seoul 벽시계라는 가정**입니다 — 다른 `TIME_ZONE` 으로 운영하던 DB 는 적용 전에
-  리비전의 오프셋을 바꿔야 합니다. downgrade 는 역변환 후 `DATETIME` 으로 좁힙니다(소수 초 반올림).
+  옮기므로 **기존 데이터가 `+09:00`(Asia/Seoul 벽시계)으로 저장됐다는 가정**입니다 — 적용 전에 백업하고,
+  다른 시간대로 운영하던 DB 는 적용 전에 리비전의 `_LOCAL_OFFSET` 상수를 그 오프셋으로 바꿔야 합니다(README
+  운영 배포 확인 7). downgrade 는 역변환 후 `DATETIME` 으로 좁힙니다(소수 초 반올림).
 - autogenerate 는 `UTCDateTime` 을 `sa.DateTime().with_variant(mysql.DATETIME(fsp=6), "mysql")` 로 적습니다
   (`env.py` 의 `render_item=render_alembic_type`) — 리비전이 앱 클래스를 import 하지 않습니다.
 - 서버 기동은 upgrade 를 하지 않습니다. 운영은 트래픽 전환 전에 `alembic upgrade head` 를 적용합니다.

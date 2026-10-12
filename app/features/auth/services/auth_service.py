@@ -26,6 +26,28 @@ from app.features.user.models.models import User
 from app.features.user.repositories.user_repository import UserRepository
 
 
+async def verify_credentials(
+    users: UserRepository, hasher: PasswordHasher, username: str, password: str
+) -> User:
+    """사용자명/비밀번호를 검증해 활성 사용자를 돌려준다. 실패는 ``InvalidCredentialsException``.
+
+    API 로그인(``AuthService.authenticate``)과 ``/admin`` 로그인(``AdminAuthBackend``)이 같은
+    규칙을 쓰도록 여기 하나만 둔다(admin-login ADR-002). 실패 사유(없는 사용자·틀린 비밀번호·
+    비활성)는 구분하지 않는다. 저장된 해시가 옛 형식(bcrypt)이면 새 해시로 UPDATE 해 둔다 —
+    커밋은 호출자가 한다.
+    """
+    user = await users.get_by_username(username)
+    # 사용자 부재/비밀번호 미설정이어도 더미 해시로 항상 같은 검증을 치른다
+    # (응답 시간차로 사용자명을 열거하는 타이밍 공격 방지).
+    stored = user.hashed_password if user and user.hashed_password else hasher.dummy_hash
+    ok, new_hash = await asyncio.to_thread(hasher.verify_and_update, password, stored)
+    if user is None or not user.hashed_password or not user.is_active or not ok:
+        raise InvalidCredentialsException()
+    if new_hash is not None:
+        await users.update(user.id, {"hashed_password": new_hash})
+    return user
+
+
 class AuthService(BaseService):
     """인증 비즈니스 로직. 커밋은 핸들러가 한다."""
 
@@ -61,16 +83,7 @@ class AuthService(BaseService):
 
         저장된 해시가 옛 형식(bcrypt)이면 새 해시로 바꿔 둔다 — 호출자가 커밋한다.
         """
-        user = await self.users.get_by_username(username)
-        # 사용자 부재/비밀번호 미설정이어도 더미 해시로 항상 같은 검증을 치른다
-        # (응답 시간차로 사용자명을 열거하는 타이밍 공격 방지).
-        stored = user.hashed_password if user and user.hashed_password else self.hasher.dummy_hash
-        ok, new_hash = await asyncio.to_thread(self.hasher.verify_and_update, password, stored)
-        if user is None or not user.hashed_password or not user.is_active or not ok:
-            raise InvalidCredentialsException()
-        if new_hash is not None:
-            await self.users.update(user.id, {"hashed_password": new_hash})
-        return user
+        return await verify_credentials(self.users, self.hasher, username, password)
 
     async def _issue(self, user: User, family: str) -> TokenResponse:
         refresh, jti = self.tokens.issue_refresh(user.id, family)

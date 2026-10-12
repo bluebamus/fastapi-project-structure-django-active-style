@@ -6,14 +6,15 @@ SQLAdmin을 사용한 UserAccessLog 모델의 관리자 인터페이스를 정�
 등록 경로:
     이 파일은 ModelView 정의와 ``admin_views`` 노출까지만 담당합니다.
     ``AppRegistry`` 가 발견된 앱에서 ``admin_views`` 를 자동 취합하고, ``main.py`` 는
-    ADMIN=true 일 때 ``register_admin(app, engine, registry)`` 만 호출합니다.
+    ADMIN_DISABLED=false 일 때 ``register_admin(app, engine, registry)`` 만 호출합니다.
     이 파일에서 ``Admin`` 인스턴스를 직접 만들지 않으며, 새 관리 화면을 붙이려고
     중앙 파일을 고칠 일도 없습니다.
 
 Note:
-    SQLAdmin은 ADMIN 설정으로 제어됩니다 (DEBUG와 독립적).
-    ADMIN=True: /admin 접근 가능, ADMIN=False: /admin 접근 차단
-    운영 환경에서는 보안상 ADMIN=False 설정을 권장합니다.
+    SQLAdmin 은 ADMIN_DISABLED 설정으로 제어된다 (DEBUG 와 독립적).
+    ADMIN_DISABLED=false(기본): /admin 마운트 — 활성 슈퍼유저 로그인 필요
+    (``app/features/auth/admin_auth.py``). ADMIN_DISABLED=true: /admin 자체가 없음(404).
+    관리 화면을 쓰지 않는 배포는 ADMIN_DISABLED=true 로 둔다.
 """
 
 from typing import Any
@@ -197,5 +198,5 @@ class UserAccessLogAdmin(ModelView, model=UserAccessLog):
 
 # AppRegistry 가 이 모듈의 ``admin_views`` 를 자동으로 발견해 SQLAdmin 에 등록한다.
 # 패키지 __init__.py 로 재노출하지 않는다 — 그러면 라우터만 필요한 import 에도
-# sqladmin 이 딸려 와 ADMIN=false 가 무의미해진다(가드: tests/test_admin_wiring.py).
+# sqladmin 이 딸려 와 ADMIN_DISABLED=true 가 무의미해진다(가드: tests/test_admin_wiring.py).
 admin_views: list[type] = [UserAccessLogAdmin]

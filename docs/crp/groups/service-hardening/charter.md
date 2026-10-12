@@ -66,7 +66,7 @@
 - INV-11: 소유자도 슈퍼유저도 아닌 주체의 수정·삭제는 403, 토큰 없는 쓰기는 401. (검사: `tests/test_authorization.py`(분류표·`test_protected_routes_reject_missing_token`·`test_superuser_routes_reject_normal_user`·`test_other_user_cannot_modify`·`test_legacy_rows_without_author_are_superuser_only`), `tests/test_user_permissions.py`, `tests/core/test_authorization_policy.py`)
 
 ### 2-4. 비목표
-- SQLAdmin 인증 백엔드(orm-raw-repository C-8 유지), OAuth 소셜 로그인, 이메일 인증·비밀번호 재설정 메일, 2FA.
+- SQLAdmin 인증 백엔드(orm-raw-repository C-8 유지 — 2026-10-12 `admin-login` 그룹이 범위에 넣어 해소), OAuth 소셜 로그인, 이메일 인증·비밀번호 재설정 메일, 2FA.
 - access 토큰 즉시 폐기, 다중 테넌시, 세분화된 RBAC(슈퍼유저/일반 2단계만).
 - API 응답 Redis 캐시.
 - 2026-10-07 리뷰 중 이 그룹 단계에 들지 않은 항목(미처리 예외 트레이스백의 SQL·`.env` 의 `ENV` 누락·풀 크기 설정·스키마 골든 위치·버전 갱신 자동화) — residual-risk 참조.

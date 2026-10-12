@@ -4,6 +4,10 @@ Revision ID: e5a7c9d1f3b5
 Revises: d4e6f8b12c34
 Create Date: 2026-10-12 00:00:00.000000
 
+[배포 전 확인] 적용 전에 반드시 백업한다. 이 리비전은 기존 MySQL 시각 값이 `+09:00`(Asia/Seoul
+벽시계)으로 저장됐다고 가정하고 UTC 로 옮긴다. 다른 시간대로 쌓인 DB 라면 적용 **전에** 아래
+`_LOCAL_OFFSET` 상수를 그 지역 오프셋으로 바꾼다(README 운영 배포 체크리스트).
+
 모든 시각 컬럼을 MySQL `DATETIME(6)` 으로 넓히고, 기존 값을 KST 벽시계에서 UTC 로 옮긴다
 (ADR-007). 앱은 이제 `UTCDateTime` 으로 UTC 를 저장하므로, 옮기지 않은 기존 행은 9시간 미래로
 읽힌다.

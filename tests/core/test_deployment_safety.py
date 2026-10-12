@@ -3,8 +3,10 @@
 - 비밀값(placeholder·짧은 키·같은 JWT 키·예시 비밀번호)은 test 를 뺀 **모든 ENV** 에서 거부한다.
   기본값·예시 값 그대로는 개발 환경에서도 `.env` 를 채우라는 신호다.
 - staging/production 은 추가로 DEBUG·와일드카드 CORS·SQL echo·LOG_LEVEL=DEBUG 를 거부한다.
-- SQLAdmin 에는 인증 백엔드를 붙이지 않는다(영구 비목표, 결정 2026-08-12). 무인증 /admin 은
-  배포 환경에서도 쓸 수 있지만 `ADMIN_ALLOW_UNAUTHENTICATED=true` 확인이 있어야 기동한다.
+- /admin 은 슈퍼유저 로그인이 필요하다(admin-login ADR-002). 그래서 관리 화면을 켠 배포
+  (ADMIN_DISABLED=false)는 위반이 아니고, 예전 "무인증 허용" 확인 플래그는 없앴다 — `.env` 에
+  남아 있어도 기동한다.
+- 예전 `ADMIN` 은 `ADMIN_DISABLED` 로 바뀌었다. 남아 있으면 기동을 멈춘다(`validate_renamed_settings`).
 - `.env` 가 없으면 필수 값이 환경 변수로 와야 한다(`validate_env_source`).
 """
 
@@ -28,8 +30,7 @@ def _install(
     *,
     env,
     debug=False,
-    admin=False,
-    admin_ack=False,
+    admin_disabled=False,
     origins=None,
     secrets=None,
     sql_echo=False,
@@ -41,7 +42,7 @@ def _install(
     monkeypatch.setattr(
         config_module,
         "app_settings",
-        _Stub(ENV=env, DEBUG=debug, ADMIN=admin, ADMIN_ALLOW_UNAUTHENTICATED=admin_ack),
+        _Stub(ENV=env, DEBUG=debug, ADMIN_DISABLED=admin_disabled),
     )
     monkeypatch.setattr(
         config_module, "cors_settings", _Stub(CORS_ALLOW_ORIGINS=origins or ["https://example.com"])
@@ -86,23 +87,15 @@ def _install(
 
 @pytest.mark.parametrize("env", ["development", "test"])
 def test_non_production_env_is_untouched(monkeypatch, env):
-    """개발·테스트 환경은 ADMIN=true, DEBUG=true, CORS '*' 여도 막지 않는다(의도된 기본값)."""
-    _install(monkeypatch, env=env, debug=True, admin=True, origins=["*"])
+    """개발·테스트 환경은 관리 화면 켬, DEBUG=true, CORS '*' 여도 막지 않는다(의도된 기본값)."""
+    _install(monkeypatch, env=env, debug=True, origins=["*"])
     config_module.validate_deployment_safety()  # 예외가 없어야 한다
 
 
 @pytest.mark.parametrize("env", ["staging", "production"])
-def test_admin_true_without_ack_is_rejected(monkeypatch, env):
-    """기본값 ADMIN=true 를 그대로 들고 온 배포는 기동하지 않는다 — 해결책 둘을 함께 알린다."""
-    _install(monkeypatch, env=env, admin=True)
-    with pytest.raises(RuntimeError, match="ADMIN_ALLOW_UNAUTHENTICATED"):
-        config_module.validate_deployment_safety()
-
-
-@pytest.mark.parametrize("env", ["staging", "production"])
-def test_admin_true_with_ack_passes(monkeypatch, env):
-    """인증 없는 /admin 을 알고 켠 배포는 기동한다(매 기동 WARNING 은 main.py 가 남긴다)."""
-    _install(monkeypatch, env=env, admin=True, admin_ack=True)
+def test_enabled_admin_passes_in_deployed_env(monkeypatch, env):
+    """/admin 은 슈퍼유저 로그인이 필요하다 — 배포 환경에서 관리 화면을 켜도 위반이 아니다."""
+    _install(monkeypatch, env=env, admin_disabled=False)
     config_module.validate_deployment_safety()
 
 
@@ -160,7 +153,6 @@ def test_error_lists_every_problem_at_once(monkeypatch):
         monkeypatch,
         env="production",
         debug=True,
-        admin=True,
         origins=["*"],
         secrets={"access": "change-this-access-token-secret-key"},
     )
@@ -168,7 +160,7 @@ def test_error_lists_every_problem_at_once(monkeypatch):
         config_module.validate_deployment_safety()
 
     message = str(excinfo.value)
-    for expected in ("DEBUG", "ADMIN", "CORS", "SECRET_KEY"):
+    for expected in ("DEBUG", "CORS", "SECRET_KEY"):
         assert expected in message
 
 
@@ -535,20 +527,52 @@ def _deployed_env(**overrides: str) -> dict[str, str]:
     }
 
 
-def test_import_fails_in_production_with_admin_default():
-    result = _run("import config", _deployed_env(ADMIN="true"), PROJECT_ROOT)
-    assert result.returncode != 0
-    assert "ADMIN_ALLOW_UNAUTHENTICATED" in result.stderr
+def test_deployed_admin_starts_with_login_required(tmp_path):
+    """배포 환경에서 관리 화면을 켠 채 기동하고, 로그인 필요를 알린다.
 
-
-def test_deployed_admin_with_ack_logs_warning_on_startup():
-    """확인 플래그로 연 /admin 은 기동마다 WARNING 을 남긴다 — 운영 로그에서 놓치지 않게."""
-    result = _run(
-        "import main",
-        _deployed_env(ADMIN="true", ADMIN_ALLOW_UNAUTHENTICATED="true"),
-        PROJECT_ROOT,
-    )
+    예전 확인 플래그가 환경에 남아 있어도(extra="ignore") 기동이 깨지지 않는다.
+    `.env` 없는 작업 디렉터리에서 돌린다 — 개발자의 로컬 `.env` 가 결과를 바꾸지 않게.
+    """
+    env = {
+        **_deployed_env(ADMIN_DISABLED="false", ADMIN_ALLOW_UNAUTHENTICATED="true"),
+        "PYTHONPATH": str(PROJECT_ROOT),
+    }
+    result = _run("import main", env, tmp_path)
     assert result.returncode == 0, result.stderr[-2000:]
     output = result.stdout + result.stderr
-    assert "WARNING" in output
-    assert "SQLAdmin 이 인증 없이 열려 있습니다" in output
+    assert "슈퍼유저 로그인 필요" in output
+    assert "인증 없이" not in output
+
+
+# =============================================================================
+# 이름이 바뀐 설정 — ADMIN → ADMIN_DISABLED (admin-login ADR-006)
+# =============================================================================
+@pytest.mark.parametrize("name", ["ADMIN", "admin"])
+def test_leftover_admin_in_environ_is_rejected(tmp_path, name):
+    with pytest.raises(RuntimeError, match="ADMIN_DISABLED"):
+        config_module.validate_renamed_settings("production", tmp_path / ".env", {name: "false"})
+
+
+def test_leftover_admin_in_env_file_is_rejected(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("ENV=development\nADMIN=true\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="ADMIN_DISABLED"):
+        config_module.validate_renamed_settings("development", env_file, {})
+
+
+def test_without_leftover_admin_passes(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("ADMIN_DISABLED=true\nADMIN_PASSWORD=x\n", encoding="utf-8")
+    config_module.validate_renamed_settings("production", env_file, {"ADMIN_DISABLED": "true"})
+
+
+def test_renamed_settings_check_skips_test_env(tmp_path):
+    config_module.validate_renamed_settings("test", tmp_path / ".env", {"ADMIN": "false"})
+
+
+def test_import_fails_with_leftover_admin(tmp_path):
+    """검사는 import 시점에 실제로 돈다 — 남은 ADMIN=false 가 관리 화면을 켜지 않게."""
+    env = {**_deployed_env(ADMIN="false"), "PYTHONPATH": str(PROJECT_ROOT)}
+    result = _run("import config", env, tmp_path)
+    assert result.returncode != 0
+    assert "ADMIN_DISABLED" in result.stderr

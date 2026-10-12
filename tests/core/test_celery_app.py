@@ -47,3 +47,20 @@ def test_celery_keeps_internal_times_in_utc():
 
     assert celery_app.conf.enable_utc is True
     assert celery_app.conf.timezone == timezone_settings.TIME_ZONE
+
+
+def test_celery_include_modules_import_and_register_their_tasks():
+    """워커가 기동할 때 하는 include import 를 여기서 한다.
+
+    ``tasks.py`` 의 import 오류·이름 오타가 워커 기동 때가 아니라 CI 에서 드러난다.
+    include 모듈마다 자기 모듈에서 정의한 태스크가 하나 이상 등록돼야 한다.
+    """
+    from app.celery.app import celery_app
+
+    celery_app.loader.import_default_modules()
+
+    registered = {task.__module__ for task in celery_app.tasks.values()}
+    missing = [module for module in celery_app.conf.include if module not in registered]
+    assert celery_app.conf.include, "include 가 비어 있다 — 발견이 깨졌다"
+    assert missing == []
+    assert "home.aggregate_access_stats" in celery_app.tasks

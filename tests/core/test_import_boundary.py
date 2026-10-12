@@ -3,7 +3,7 @@
 `discover()` 는 "어떤 앱이 있는가" 만 확정한다. 그런데 기능 `__init__.py` 가
 라우터·모델을 eager import 하면 발견만 해도 DB 모듈과 라우팅 트리가 통째로
 메모리에 올라온다. 그러면 discover / install_routers / import_models 의 분리가
-이름만 남고, ADMIN=false 나 Alembic 처럼 일부만 필요한 경로도 전부를 끌어온다.
+이름만 남고, ADMIN_DISABLED=true 나 Alembic 처럼 일부만 필요한 경로도 전부를 끌어온다.
 
 이 경계는 같은 프로세스에서는 잴 수 없다(다른 테스트가 이미 import 해버린다).
 그래서 깨끗한 서브프로세스에서 측정한다.

@@ -24,6 +24,7 @@ from typing import Literal
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
+from dotenv import dotenv_values
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
@@ -172,32 +173,23 @@ class AppSettings(BaseSettings):
         description="디버그 모드 활성화",
     )
 
-    # 관리자 페이지 활성화 (DEBUG와 독립적으로 동작)
-    # True: /admin 마운트  /  False: /admin 자체가 없음(404)
+    # 관리 화면(SQLAdmin, /admin)을 완전히 끈다 (DEBUG 와 독립적으로 동작).
+    # false(기본): /admin 마운트  /  true: /admin 자체가 없음(404) — sqladmin·관리 세션
+    # 미들웨어·인증 백엔드를 만들지 않고, 앱이 내보내는 어떤 응답·기동 로그에도 관리 경로가
+    # 나오지 않는다(admin-login ADR-007). 관리 화면을 쓰지 않는 배포는 true 로 둔다.
     #
-    # 기본값이 True 인 것은 의도다 — 이 저장소는 개발을 우선 고려한 레퍼런스 구조라,
-    # 받자마자 /admin 으로 DB 를 들여다볼 수 있어야 한다. "보안 기본값"으로 보고
-    # False 로 되돌리지 말 것(결정: 2026-08-12).
+    # 기본값 false(켜짐)는 의도다 — 이 저장소는 개발을 우선 고려한 레퍼런스 구조라, 받자마자
+    # /admin 으로 DB 를 들여다볼 수 있어야 한다(결정: 2026-08-12).
     #
-    # 다만 대가를 알고 켜야 한다: 이 프로젝트는 SQLAdmin 에 인증 백엔드를 붙이지
-    # 않기로 확정했다(영구 비목표). 즉 ADMIN=True 이면 /admin 이 **자격증명 없이**
-    # 열리고, 게시글·댓글·사용자·접속로그의 조회·수정·삭제와 CSV 내보내기가 가능하다
-    # (비밀번호 해시만 SQLAdmin 설정으로 제외된다).
-    # → 운영·스테이징(ENV=staging/production)에서 ADMIN=true 로 기동하려면 아래
-    #   ADMIN_ALLOW_UNAUTHENTICATED=true 를 **함께** 줘야 한다. 없으면 배포 안전 게이트가
-    #   기동을 멈춘다. 기본값 true 를 그대로 들고 배포한 실수와, 인증 없는 /admin 을
-    #   알고 켠 경우를 구분하기 위해서다.
-    ADMIN: bool = Field(
-        default=True,
-        description="관리자 페이지 활성화 (인증 없음 — 배포 환경은 ADMIN_ALLOW_UNAUTHENTICATED 필요)",
-    )
-
-    # 배포 환경에서 인증 없는 /admin 을 **의도적으로** 연다는 확인. ADMIN=true 일 때만 의미가
-    # 있고 development/test 에서는 보지 않는다. 켜고 기동하면 main.py 가 매 기동 WARNING 을
-    # 남긴다. 로그인 고도화로 SQLAdmin 에 인증이 붙으면 이 플래그는 필요 없어진다.
-    ADMIN_ALLOW_UNAUTHENTICATED: bool = Field(
+    # /admin 은 **활성 슈퍼유저 로그인**이 필요하다(admin-login ADR-002 — 이전의 "인증 없음"
+    # 결정을 대체한다). 계정은 `scripts/create_superuser.py` 로 만들고, 세션 쿠키
+    # (`admin_session`, Path=/admin)는 SESSION_SECRET_KEY 로 서명한다. 그래서 배포 환경에서도
+    # 켠 채 기동할 수 있다. 예전의 "무인증 허용" 확인 플래그는 없앴다(extra="ignore" 라
+    # `.env` 에 남아도 무시된다). 예전 `ADMIN`(true=켬)은 이 설정으로 바뀌었고, 남아 있으면
+    # 의미가 뒤집힌 채 무시되므로 `validate_renamed_settings()` 가 기동을 멈춘다.
+    ADMIN_DISABLED: bool = Field(
         default=False,
-        description="staging/production 에서 인증 없는 /admin 허용 확인 (ADMIN=true 와 함께)",
+        description="관리 화면(/admin) 끄기 — true 면 마운트·링크·로그 모두 없음 (켜면 슈퍼유저 로그인 필요)",
     )
 
     # 실행 환경. 로그 구성(핸들러·UTC)과 배포 안전 게이트가 따른다.
@@ -743,6 +735,11 @@ class MiddlewareSettings(BaseSettings):
 
     # 앱 앞에 둔 신뢰 프록시의 수(ClientIPResolver 가 쓴다).
     #
+    # [배포 전 확인] 프록시(로드밸런서·nginx 등) 뒤에 배포하면 앞단 프록시 단 수로 설정한다.
+    # 0 으로 두면 모든 클라이언트가 프록시 IP 하나로 보여 접속 로그와 로그인 rate limit
+    # (API·/admin)이 전체 사용자를 한 사람으로 취급한다. 실제보다 크게 잡으면 클라이언트가
+    # X-Forwarded-For 로 IP 를 위조해 한도를 우회한다.
+    #
     # 기본값 0 은 의도다 — 전달 헤더(X-Forwarded-For / X-Real-IP)는 클라이언트가 그냥
     # 보낼 수 있는 값이라, 프록시 뒤가 아닌데 신뢰하면 아무나 헤더 한 줄로 접속 로그의
     # IP 를 위조한다. N 이면 XFF 의 오른쪽에서 N번째(우리 프록시가 붙인 값)만 채택하고,
@@ -754,7 +751,10 @@ class MiddlewareSettings(BaseSettings):
     TRUSTED_PROXY_HOPS: int = Field(
         default=0,
         ge=0,
-        description="앱 앞의 신뢰 리버스 프록시 수 (0=전달 헤더 무시, N=XFF 오른쪽에서 N번째)",
+        description=(
+            "앱 앞의 신뢰 리버스 프록시 수 (0=전달 헤더 무시, N=XFF 오른쪽에서 N번째). "
+            "프록시 뒤 배포면 반드시 앞단 프록시 단 수로 설정"
+        ),
     )
 
     # 접속 로그의 query_string 에서 값을 `***` 로 가릴 키(대소문자 무시).
@@ -964,9 +964,10 @@ class SessionSettings(BaseSettings):
     """세션 쿠키 설정.
 
     Note:
-        현재 인증은 JWT(Bearer) 기반이라 세션 쿠키를 발급하는 코드는 없다.
-        `SESSION_COOKIE_NAME` 은 접속 로그 미들웨어가 session_id 를 읽을 쿠키
-        이름으로 쓴다. 쿠키 세션을 도입할 때 이 설정을 주입하면 된다. 설정 자체는 `.env` 에
+        API 인증은 JWT(Bearer) 기반이다. 쿠키 세션은 `/admin` 로그인만 쓴다 —
+        `SESSION_SECRET_KEY` 가 그 세션 쿠키(`admin_session`, Path=/admin)의 서명 키다
+        (admin-login ADR-003). `SESSION_COOKIE_NAME` 은 접속 로그 미들웨어가 session_id 를
+        읽을 쿠키 이름이며 `/admin` 세션 쿠키와는 별개다. 설정 자체는 `.env` 에
         있으므로 config 가 로드해 둔다(설정의 단일 출처 유지).
     """
 
@@ -982,10 +983,11 @@ class SessionSettings(BaseSettings):
         description="세션 쿠키 이름",
     )
 
-    # 세션 암호화 키 (운영 환경에서 반드시 교체)
+    # 세션 서명 키 (운영 환경에서 반드시 교체). /admin 로그인 세션 쿠키를 서명한다 —
+    # 바꾸면 기존 /admin 로그인 세션이 모두 끊긴다.
     SESSION_SECRET_KEY: str = Field(
         default="change-this-session-secret-key",
-        description="세션 암호화 키",
+        description="세션 서명 키 (/admin 로그인 세션 쿠키)",
     )
 
     # 세션 만료 시간 (초, 기본값 24시간)
@@ -1233,10 +1235,9 @@ upload_settings = get_upload_settings()
 # 보고 `.env` 를 고친다. 비밀값 검사는 test 를 뺀 모든 ENV, 운영 조합 검사는
 # staging/production 에만 적용한다.
 #
-# 이 프로젝트는 SQLAdmin 에 인증 백엔드를 붙이지 않기로 확정했다(영구 비목표,
-# 결정 2026-08-12 — ADMIN 필드 주석 참고). 무인증 /admin 은 배포 환경에서도 쓸 수 있지만,
-# ADMIN_ALLOW_UNAUTHENTICATED=true 로 알고 켰다는 확인이 있어야 기동한다.
-# 개발·테스트 환경은 편의 기본값(ADMIN=true, DEBUG=true)을 그대로 둔다.
+# /admin 은 슈퍼유저 로그인이 필요하므로(admin-login ADR-002) 관리 화면을 켠 배포
+# (ADMIN_DISABLED=false)도 위반이 아니다. 개발·테스트 환경은 편의 기본값(관리 화면 켬,
+# DEBUG=true)을 그대로 둔다.
 def is_placeholder_secret(value: str) -> bool:
     """서명·세션 키가 자리표시자(placeholder)인지 판정한다.
 
@@ -1292,6 +1293,33 @@ def validate_env_source(
         )
 
 
+def validate_renamed_settings(
+    env: str,
+    env_file: Path = Path(".env"),
+    environ: Mapping[str, str] = os.environ,
+) -> None:
+    """이름이 바뀐 설정이 `.env`·환경 변수에 남아 있으면 기동을 멈춘다.
+
+    예전 ``ADMIN``(true=켬)은 ``ADMIN_DISABLED``(true=끔)로 바뀌었다. Settings 는
+    ``extra="ignore"`` 라 남은 ``ADMIN=false`` 를 조용히 버리고 관리 화면을 **켠다** — 끄려던
+    의도가 뒤집히므로 무시하지 않는다(admin-login ADR-006). test 는 검사하지 않는다(다른 검사와
+    같다 — pytest 가 ENV=test 를 준다). 메시지에는 값을 담지 않는다.
+
+    Raises:
+        RuntimeError: ``ADMIN`` 이 남아 있을 때.
+    """
+    if env == "test":
+        return
+    names = {name.upper() for name in environ}
+    if env_file.is_file():
+        names |= {name.upper() for name in dotenv_values(env_file)}
+    if "ADMIN" in names:
+        raise RuntimeError(
+            "설정 ADMIN 은 ADMIN_DISABLED 로 바뀌었습니다(의미가 반대입니다). "
+            "ADMIN=false 였다면 ADMIN_DISABLED=true 로, 아니면 ADMIN 줄을 지우세요."
+        )
+
+
 def validate_deployment_safety() -> None:
     """안전하지 않은 설정이면 기동을 멈춘다.
 
@@ -1305,8 +1333,6 @@ def validate_deployment_safety() -> None:
 
     staging/production 만:
         - ``DEBUG=true``      : 상세 오류·문서 노출
-        - ``ADMIN=true``      : ``ADMIN_ALLOW_UNAUTHENTICATED=true`` 확인이 없으면 위반.
-          확인이 있으면 무인증 /admin 으로 기동하고 main.py 가 매 기동 WARNING 을 남긴다.
         - 와일드카드 CORS     : ``CORS_ALLOW_ORIGINS`` 에 ``*``
         - SQL echo           : ``LOG_SQL_ECHO_ENABLED=true`` (파라미터가 로그에 남는다)
         - DEBUG 로그 레벨      : ``LOG_LEVEL=DEBUG`` (롤백 상세에 SQL·바인딩 값이 남는다)
@@ -1325,15 +1351,6 @@ def validate_deployment_safety() -> None:
 
     if deployed and app_settings.DEBUG:
         problems.append("DEBUG=true — 상세 오류와 API 문서가 노출됩니다. false 로 두세요.")
-    if deployed and app_settings.ADMIN and not app_settings.ADMIN_ALLOW_UNAUTHENTICATED:
-        # 인증 없는 /admin 은 배포 환경에서도 쓸 수 있다 — 단, 알고 켰다는 확인이 있어야
-        # 한다. 기본값 ADMIN=true 를 그대로 들고 온 배포가 여기서 걸린다.
-        problems.append(
-            "ADMIN=true — /admin 은 인증 백엔드 없이 열립니다(영구 비목표). 쓰지 않으면 "
-            "false 로, 인증 없이 쓰는 것이 의도라면 ADMIN_ALLOW_UNAUTHENTICATED=true 를 "
-            "함께 설정하세요."
-        )
-
     for name, value in (
         ("ACCESS_TOKEN_SECRET_KEY", jwt_settings.ACCESS_TOKEN_SECRET_KEY),
         ("REFRESH_TOKEN_SECRET_KEY", jwt_settings.REFRESH_TOKEN_SECRET_KEY),
@@ -1393,4 +1410,5 @@ def validate_deployment_safety() -> None:
 
 
 validate_env_source(app_settings.ENV)
+validate_renamed_settings(app_settings.ENV)
 validate_deployment_safety()

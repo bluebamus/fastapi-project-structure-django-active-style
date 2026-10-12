@@ -167,8 +167,8 @@ class AppModule:
         서브클래스가 아니면 `AppContractError`.
 
         `sqladmin` 은 이 함수 안에서만 import 한다 — 모듈 레벨에서 끌어오면
-        `ADMIN=false` 에서도 sqladmin 이 메모리에 올라간다(SEC-01). 이 함수는
-        `install_admin()` 에서만 호출되고, 그 시점엔 이미 ADMIN=true 다.
+        `ADMIN_DISABLED=true` 에서도 sqladmin 이 메모리에 올라간다(SEC-01). 이 함수는
+        `install_admin()` 에서만 호출되고, 그 시점엔 이미 ADMIN_DISABLED=false 다.
 
         Raises:
             AppContractError: admin 모듈은 있으나 `admin_views` 규약 위반.
