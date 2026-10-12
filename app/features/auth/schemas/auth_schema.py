@@ -2,6 +2,7 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.security.password_hasher import PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH
 from app.utils.validators import EMAIL_PATTERN
 
 
@@ -18,7 +19,12 @@ class RegisterRequest(BaseModel):
 
     username: str = Field(..., min_length=1, max_length=100, description="사용자명(고유)")
     email: str = Field(..., max_length=255, pattern=EMAIL_PATTERN, description="이메일")
-    password: str = Field(..., min_length=8, max_length=128, description="비밀번호(8자 이상)")
+    password: str = Field(
+        ...,
+        min_length=PASSWORD_MIN_LENGTH,
+        max_length=PASSWORD_MAX_LENGTH,
+        description="비밀번호(8자 이상)",
+    )
 
 
 class AuthUserResponse(BaseModel):
@@ -40,6 +46,7 @@ class AuthUserResponse(BaseModel):
     username: str = Field(description="사용자명")
     email: str = Field(description="이메일")
     is_active: bool = Field(description="활성 여부")
+    is_superuser: bool = Field(description="슈퍼유저 여부")
 
 
 class TokenResponse(BaseModel):

@@ -30,6 +30,8 @@ Repository 패턴과 계층 분리를 적용한 FastAPI 프로젝트 골격입�
 - **ORM 과 Raw SQL** — `BaseRepository`(catalog 예제)와 `RawRepositoryBase`(reports 예제).
 - **JWT 인증** — OAuth2 password flow, access/refresh 토큰(refresh 회전·재사용 탐지·로그아웃),
   Argon2 해시(기존 bcrypt 해시는 로그인 때 이전), 로그인·가입 rate limit.
+- **인가** — 슈퍼유저/일반 2단계. 글 수정·삭제는 작성자 본인 또는 슈퍼유저, 관리 API 는 슈퍼유저 전용
+  ([권한 표](#권한-표)). 첫 슈퍼유저는 `scripts/create_superuser.py` 로 만든다.
 - **운영 안전장치** — staging/production 에서 위험한 설정이면 기동 거부, 오류 응답에 내부 정보 비노출,
   접속 로그 비동기 수집, 로그 비밀값 마스킹.
 - **검증 게이트** — 로컬과 CI 가 같은 `scripts/review_gate.py` 로 정적 검사·테스트·공급망·문서를 판정.
@@ -56,11 +58,11 @@ config.py          설정 단일 출처 (Pydantic Settings) + 배포 안전 게�
 app/features/      기능 앱 — 디렉터리 존재 = 등록 선언
   auth · blog · catalog(ORM 예제) · home(접속 로그) · reply · reports(Raw 예제) · sns · user
 app/core/          registry · db(세션·라우팅) · Base 모델/Repository/Service · 미들웨어 · 자원 관리
-                   · security(JWT 발급·검증 · refresh 저장소 · rate limit)
+                   · security(JWT 발급·검증 · refresh 저장소 · rate limit · 해시 · 인증 주체·소유권)
 app/celery/        Celery 앱·실행 기반 (태스크는 기능별 tasks.py, registry 가 발견)
 app/utils/         로깅 · 페이지네이션 · 검증
 migrations/        Alembic (런타임과 같은 registry 로 모델 수집)
-scripts/           new_app.py(앱 생성기) · review_gate.py(검증 게이트)
+scripts/           new_app.py(앱 생성기) · review_gate.py(검증 게이트) · create_superuser.py(첫 관리자)
 tests/             횡단 테스트 (기능 테스트는 app/features/<name>/tests/)
 docs/              guides(현행) · specs(고정 기준선) · crp(검수 이력)
 ```
@@ -306,13 +308,14 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 |---|---|---|
 | 1 | `ENV` 를 실제 환경 값으로 넘겼는가 | 기본값 `development` 에서는 위 표의 staging·production 검사가 돌지 않는다. `.env` 없이 환경 변수로 주입하는 배포는 `ENV` 가 없으면 기동 거부 |
 | 2 | 트래픽 전환 전에 `alembic upgrade head` 를 적용했는가 | 서버 기동은 migration 을 하지 않는다 |
+| 2a | 첫 관리자를 만들었는가(`python -m scripts.create_superuser`, [첫 관리자 만들기](#첫-관리자-만들기)) | 관리 API(사용자·상품 쓰기·리포트·접속 로그)는 슈퍼유저 전용이고 API 로는 첫 슈퍼유저를 만들 수 없다 |
 | 3 | 외부 노출이 필요 없으면 `SERVER_HOST=127.0.0.1` 인가, 프록시·방화벽에서 `/admin` 을 막았는가 | 기본 바인딩은 `0.0.0.0` 이다 |
 | 4 | 프록시 뒤라면 `TRUSTED_PROXY_HOPS` 가 실제 프록시 수와 같은가 | 아니면 접속 로그 IP 가 위조되거나 프록시 IP 로 찍힌다 |
 | 5 | readiness 를 `/ready` 에 걸었는가 | `/ready` 는 DB 와 Redis 를 모두 본다(각 2초). `/health` 는 둘 다 보지 않는다 |
-| 6 | 공개할 CRUD 에 인가를 붙였는가 | 현재 예제 API 에는 인증·소유권 검사가 없다 |
+| 6 | 새로 더한 엔드포인트가 [권한 표](#권한-표)에 분류됐는가 | 예제 API 는 인증·소유권·슈퍼유저 검사를 갖췄다. 새 엔드포인트는 직접 보호해야 하고, 분류하지 않으면 `tests/test_authorization.py` 가 실패한다 |
 | 7 | 기존 MySQL 데이터가 있다면 `e5a7c9d1f3b5`(시각 UTC 전환) 적용 전에 그 시각이 Asia/Seoul 벽시계인지 확인했는가 | 리비전이 `+09:00 → UTC` 로 옮긴다. 다른 지역 시각으로 쌓인 DB 는 오프셋을 바꿔 적용해야 한다([ARCHITECTURE §12](docs/guides/ARCHITECTURE.md)) |
 
-**`/admin` 에는 인증이 없습니다.** 인증 백엔드는 붙이지 않기로 확정했고(영구 비목표), 기본값 `true` 는
+**`/admin` 에는 인증이 없습니다** — API 의 인증·권한(JWT·슈퍼유저)은 `/admin` 에 적용되지 않습니다. 인증 백엔드는 붙이지 않기로 확정했고(영구 비목표), 기본값 `true` 는
 로컬에서 바로 DB 를 들여다보기 위한 의도된 선택입니다. 켜져 있으면 도달 가능한 누구나 데이터를
 조회·수정·삭제하고 CSV 로 내보낼 수 있습니다(비밀번호 해시만 제외). 개발 서버를 네트워크에 노출할
 때는 `ADMIN=false` 를 둡니다. 배포 환경에서도 인증 없이 쓸 수 있지만, `ADMIN_ALLOW_UNAUTHENTICATED=true`
@@ -353,6 +356,35 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 모든 오류는 `{"error_code", "message", "detail"}` 형식이고, 처리되지 않은 예외는 `DEBUG` 와 무관하게
 고정 메시지의 500 입니다.
 
+### 권한 표
+
+권한은 **슈퍼유저/일반 2단계**입니다. 공개 = 토큰 없이, 인증 = 로그인한 누구나, 소유자 = 작성자 본인(사용자
+리소스는 본인) 또는 슈퍼유저, 관리자 = 슈퍼유저 전용. 토큰이 없거나 만료·위조면 401, 권한이 없으면 403
+입니다. 같은 표가 `tests/test_authorization.py` 의 `POLICY` 로 고정돼 있어 분류되지 않은 새 엔드포인트는
+테스트가 막습니다.
+
+| 엔드포인트 | 공개 | 인증 | 소유자 | 관리자 |
+|---|---|---|---|---|
+| `GET /health` · `GET /ready` | ● | | | |
+| `POST /api/v1/auth/register` · `/login` · `/refresh` · `/logout` | ● | | | |
+| `GET /api/v1/auth/me` | | ● | | |
+| `GET` blog·sns·reply 목록·단건 (`/api/v1/blog/posts[/{post_id}]` 등) | ● | | | |
+| `POST` blog·sns·reply (작성자는 로그인 사용자로 기록) | | ● | | |
+| `PATCH` · `DELETE` blog·sns·reply 단건 | | | ● | |
+| `GET /api/v1/catalog/products[/{product_id}]` | ● | | | |
+| `POST` · `PATCH` · `DELETE` catalog | | | | ● |
+| `GET /api/v1/reports/sales/daily` | | | | ● |
+| `GET /api/v1/home/access-logs*` (5개) | | | | ● |
+| `GET` · `POST /api/v1/user/users` (목록·생성 — 생성은 비밀번호 필수) | | | | ● |
+| `GET` · `PATCH /api/v1/user/users/{user_id}` (`is_active`·`is_superuser` 변경은 관리자만) | | | ● | |
+| `DELETE /api/v1/user/users/{user_id}` | | | | ● |
+
+- blog·sns·reply 의 `author`·`author_id` 는 서버가 로그인 사용자로 채웁니다. 요청 본문의 `author` 는
+  무시되고 수정할 수 없습니다. 작성자 컬럼이 생기기 전의 글(`author_id` 가 null)은 관리자만 고칩니다.
+- 사용자를 비활성화·강등·삭제하면 그 사용자의 refresh 토큰이 모두 폐기됩니다. 이미 발급된 access
+  토큰은 만료(기본 15분)까지 남습니다 — 권한은 토큰의 `su` claim 으로 판정하고 DB 를 다시 보지 않습니다.
+- `/admin`(SQLAdmin)은 이 표와 별개이며 인증이 없습니다([운영 배포](#운영-배포)).
+
 ### 인증 흐름
 
 ```bash
@@ -379,7 +411,9 @@ curl -X POST localhost:8000/api/v1/auth/logout \
 
 access 15분, refresh 7일(`ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS`), 기본 HS256
 (`JWT_ALGORITHM` 은 HS256/HS384/HS512 만)입니다. 토큰에는 `iss`·`aud`·`jti`·`nbf` 가 들어가고 검증 때
-모두 확인합니다. 토큰 종류가 섞이면 거부되고, 비활성 사용자는 로그인·재발급에서 막힙니다.
+모두 확인합니다. access 토큰에는 사용자명과 슈퍼유저 여부(`su`)가 들어가며, 보호 엔드포인트는 DB 를
+조회하지 않고 이 값으로 판정합니다. 토큰 종류가 섞이면 거부되고, 비활성 사용자는 로그인·재발급에서
+막힙니다.
 
 - **refresh 회전·재사용 탐지** — refresh 토큰은 한 번 쓰면 소비됩니다(Redis). 이미 쓴 토큰이 다시
   오면 탈취로 보고 그 로그인 세션(family)의 토큰을 모두 폐기합니다 — 정상 사용자도 다시 로그인해야
@@ -389,6 +423,27 @@ access 15분, refresh 7일(`ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_
   `TRUSTED_PROXY_HOPS` 를 맞추세요 — 0 이면 모든 사용자가 프록시 IP 하나로 함께 막힙니다.
 - **비밀번호** — Argon2(pwdlib)로 저장합니다. 이전 버전의 bcrypt 해시는 로그인에 성공할 때 Argon2 로
   바꿔 저장합니다(점진 이전).
+
+### 첫 관리자 만들기
+
+가입(`/register`)은 항상 일반 사용자를 만들고, 관리자 API 는 관리자만 쓸 수 있으므로 첫 관리자는
+운영 스크립트로 만듭니다(Django `createsuperuser` 와 같은 역할). `alembic upgrade head` 뒤에 실행합니다.
+
+```bash
+# 대화형 — 비밀번호를 두 번 묻는다(화면에 표시하지 않음)
+uv run python -m scripts.create_superuser --username admin --email admin@example.com
+
+# 자동화 — 표준 입력 한 줄에서 비밀번호를 읽는다(인자·셸 기록에 남기지 않는다)
+printf '%s' "$ADMIN_PASSWORD" | uv run python -m scripts.create_superuser \
+  --username admin --email admin@example.com --password-stdin
+
+# 이미 있는 사용자를 관리자로 승격 — 비밀번호는 --set-password 를 줄 때만 바꾼다
+uv run python -m scripts.create_superuser --username alice
+```
+
+스크립트는 API 와 같은 부품(`background_db_session`, core `get_password_hasher` 의 Argon2,
+`UserRepository`)으로 조립하고 한 번 커밋합니다. 그 뒤의 관리자는 관리자가 `POST /api/v1/user/users`
+(`"is_superuser": true`) 또는 `PATCH /api/v1/user/users/{user_id}` 로 만듭니다.
 
 ---
 

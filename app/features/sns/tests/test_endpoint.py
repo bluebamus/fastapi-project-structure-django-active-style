@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.db.session import Base
 from app.features.sns.models.models import SnsPost  # noqa: F401  (register table)
 from main import app
+from tests.auth_headers import USER_ID, user_headers
 from tests.session_overrides import session_overrides
 
 
@@ -30,7 +31,9 @@ async def client():
     # 읽기 경로가 실제 MySQL 로 새어나간다.
     app.dependency_overrides.update(session_overrides(maker))
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
+    async with AsyncClient(
+        transport=transport, base_url="http://test", headers=user_headers()
+    ) as c:
         yield c
     app.dependency_overrides.clear()
     await engine.dispose()
@@ -57,7 +60,9 @@ async def test_create_and_get_post(client):
 
     got = await client.get(f"/api/v1/sns/posts/{post_id}")
     assert got.status_code == 200
-    assert got.json()["author"] == "park"
+    # 본문의 author("park")는 무시되고 서버가 로그인 주체로 채운다(service-hardening F2).
+    assert got.json()["author"] == "alice"
+    assert got.json()["author_id"] == USER_ID
 
 
 async def test_list_posts(client):

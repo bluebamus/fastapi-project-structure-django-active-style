@@ -439,7 +439,7 @@ core 의 `UserInfoMiddleware` 가 수집하고, home 앱의 `HomeAccessLogSink` 
 | 네트워크 | `ip_address`, `forwarded_for`(X-Forwarded-For 원문), `real_ip`(X-Real-IP 원문) |
 | User-Agent | `user_agent`, `os_name`, `os_version`, `browser_name`, `browser_version`, `device_type`, `device_brand`, `device_model`, `is_bot` |
 | 요청·응답 | `request_path`, `request_method`, `query_string`(민감 키 값은 `***`), `referer`, `accept_language`, `response_status`, `response_time_ms` |
-| 식별 | `session_id`(`SESSION_COOKIE_NAME` 쿠키), `user_id`(`request.state.user_id` 가 있으면) |
+| 식별 | `session_id`(`SESSION_COOKIE_NAME` 쿠키), `user_id`(인증된 요청의 주체 id — 응답 뒤에 `request.state.user_id` 에서 읽는다) |
 
 `ip_address` 는 core 의 `ClientIPResolver` 가 `TRUSTED_PROXY_HOPS` 로 판정합니다(미들웨어 등록 시
 설정에서 한 번 만들어 생성자로 주입). 기본 `0` 은 전달 헤더를 보지 않고 직접 연결 주소를 씁니다.
@@ -447,14 +447,16 @@ core 의 `UserInfoMiddleware` 가 수집하고, home 앱의 `HomeAccessLogSink` 
 붙인 값만 채택하고, 클라이언트가 왼쪽에 써 보낸 값은 보지 않습니다. XFF 가 없으면 X-Real-IP,
 목록이 N 개보다 짧거나 값이 IP 가 아니면 직접 연결 주소입니다. `query_string` 은
 `ACCESS_LOG_SENSITIVE_QUERY_KEYS`(기본 password·token·access_token·refresh_token·secret·api_key·code,
-대소문자 무시)의 값을 `***` 로 가려 저장합니다. JWT 인증은 `request.state.user_id` 를 설정하지 않으므로
-`user_id` 는 보통 비어 있습니다. `user_access_logs` 는 `ip_address`·`created_at`·`device_type`·
+대소문자 무시)의 값을 `***` 로 가려 저장합니다. `user_id` 는 인증 의존성 `get_current_principal` 이 핸들러
+실행 중에 `request.state.user_id` 로 남긴 값이라, 미들웨어는 **응답을 받은 뒤** 읽습니다(요청 전에 읽으면
+항상 비어 있다). 익명 요청·토큰 검증 실패는 비어 있습니다. 조회 API(`/api/v1/home/access-logs*`)는
+슈퍼유저 전용입니다. `user_access_logs` 는 `ip_address`·`created_at`·`device_type`·
 `os_name`·`browser_name`·`session_id`·`user_id`·`country` 에 인덱스가 있습니다 — `country`·
 `country_code`·`city` 컬럼은 선언과 인덱스만 있고 미들웨어가 값을 채우지 않습니다(위 표에 없는
 이유).
 
 비핵심 로그라서 API 가용성을 로그 완전성보다 우선한 설계입니다. 무손실 감사 로그가 필요하면
-내구 큐·재처리·중복 제거를 따로 설계해야 합니다. 개인정보 쪽 한계는 §10.3 을 봅니다.
+내구 큐·재처리·중복 제거를 따로 설계해야 합니다. 개인정보 쪽 한계는 §10.4 를 봅니다.
 
 ---
 
@@ -573,21 +575,23 @@ Repository 의 DB 오류 변환(`DBErrorTranslator` — MySQL 오류 코드·SQL
 
 ### 10.1 JWT (`auth` 앱, `app/core/security/`)
 
-역할마다 클래스 하나이고, 협력 객체는 생성자로 받습니다. 조립은 auth 의
-`dependencies/auth_dependencies.py` provider 가 합니다.
+역할마다 클래스 하나이고, 협력 객체는 생성자로 받습니다. 여러 기능이 함께 쓰는 provider
+(해시기·토큰·refresh 저장소·소유권·인증 주체)는 core `app/core/security/dependencies.py` 에, auth 전용
+provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.py` 에 있습니다 — user 기능도
+해시기·refresh 저장소를 쓰므로 auth 를 import 하지 않도록 core 로 올렸습니다(기능끼리 import 금지).
 
 | 클래스 | 위치 | 역할 | provider |
 |---|---|---|---|
-| `PasswordHasher` | `app/features/auth/services/password_hasher.py` | Argon2 해시, 옛 bcrypt 해시 검증·재해시 | `get_password_hasher`(프로세스 단일) |
-| `TokenService` | `app/core/security/tokens.py` | JWT 발급·검증 — 검증 규칙의 유일한 정의 지점 | `get_token_service` |
-| `RefreshTokenStore` | `app/core/security/refresh_store.py` | refresh jti 기록·소비(`GETDEL`)·family 폐기 | `get_refresh_token_store`(`get_redis`) |
+| `PasswordHasher` | `app/core/security/password_hasher.py` | Argon2 해시, 옛 bcrypt 해시 검증·재해시 (가입·사용자 생성·운영 스크립트 공유) | `get_password_hasher`(core, 프로세스 단일) |
+| `TokenService` | `app/core/security/tokens.py` | JWT 발급·검증 — 검증 규칙의 유일한 정의 지점 | `get_token_service`(core) |
+| `RefreshTokenStore` | `app/core/security/refresh_store.py` | refresh jti 기록·소비(`GETDEL`)·family 폐기 | `get_refresh_token_store`(core, `get_redis`) |
 | `RateLimiter` | `app/core/security/rate_limiter.py` | Redis 고정 창(`INCR` + 첫 hit `EXPIRE NX`, MULTI) | `get_rate_limiter`(`get_redis`) |
 | `AuthService` | `app/features/auth/services/auth_service.py` | register · authenticate · issue_tokens · rotate · logout | `get_auth_service` |
 
 - OAuth2 password flow + JWT access/refresh(PyJWT). 자격증명은 `User.hashed_password` 에 있고
   `auth` 는 인증 로직만 갖습니다(모델 없는 앱).
-- **claims:** `sub, type, iat, nbf, exp, jti, iss, aud` + access 는 `username`, refresh 는 `fam`(로그인 세션
-  = family id). 검증은 허용 알고리즘 목록(설정 하나)·`audience`·`issuer`·`leeway`·필수 claim 을 모두
+- **claims:** `sub, type, iat, nbf, exp, jti, iss, aud` + access 는 `username`·`su`(발급 시점의 슈퍼유저 여부,
+  bool 이 아니면 거부), refresh 는 `fam`(로그인 세션 = family id). 검증은 허용 알고리즘 목록(설정 하나)·`audience`·`issuer`·`leeway`·필수 claim 을 모두
   지정하고, `type` 이 다르면 거부합니다. access 와 refresh 는 서로 다른 키로 서명합니다. 실패 이유와
   관계없이 `InvalidTokenException`(401 `AUTH_INVALID_TOKEN`, core) 하나로 응답합니다.
 - **refresh 회전·재사용 탐지:** 발급할 때 `auth:rt:{jti}` → `{fam, sub}`(TTL = refresh 만료)와
@@ -602,8 +606,9 @@ Repository 의 DB 오류 변환(`DBErrorTranslator` — MySQL 오류 코드·SQL
   IP 는 접속 로그와 같은 `ClientIPResolver`(`TRUSTED_PROXY_HOPS`)로 판정합니다.
 - **해시 이전:** 새 해시는 Argon2(pwdlib). `$2` 로 시작하는 옛 bcrypt 해시는 옛 규칙(UTF-8 72바이트
   절단)으로 검증하고, 맞으면 Argon2 해시로 바꿔 저장합니다 — `/login` 핸들러가 커밋합니다.
-- `get_current_user` 는 `TokenService` 로 access 토큰을 검증하고 read-only 세션으로 활성 사용자를
-  읽습니다. 이 객체를 쓰기 세션에서 직접 수정하지 말고, 쓰기 세션으로 다시 조회합니다.
+- `get_current_user`(auth)는 `get_current_principal` 이 검증한 주체로 read-only 세션에서 활성 사용자를
+  읽습니다 — 엔티티가 필요한 `/me` 만 씁니다. 이 객체를 쓰기 세션에서 직접 수정하지 말고, 쓰기
+  세션으로 다시 조회합니다.
 - **상수 시간 인증:** 사용자가 없거나 해시가 없어도 Argon2 더미 해시로 검증을 수행해 응답 시간으로
   사용자명 존재를 알아내기 어렵게 합니다(네트워크 변동까지 없애지는 못합니다).
 - **논블로킹 해싱:** 해시·검증은 `asyncio.to_thread` 로 이벤트 루프 밖에서 돕니다.
@@ -619,7 +624,37 @@ Repository 의 DB 오류 변환(`DBErrorTranslator` — MySQL 오류 코드·SQL
 | `AUTH_REGISTER_MAX_ATTEMPTS` / `AUTH_REGISTER_WINDOW_SECONDS` | 5 / 3600 |
 | `ACCESS_TOKEN_SECRET_KEY` / `REFRESH_TOKEN_SECRET_KEY` | `change-this-...` (placeholder — test 외 모든 ENV 에서 설정 검사가 거부, §4) |
 
-### 10.2 SQLAdmin
+### 10.2 인가 — 인증 주체 · 슈퍼유저 · 소유권 (`app/core/security/`)
+
+권한은 **슈퍼유저/일반 2단계**입니다(`users.is_superuser`, 기본 false). 판정 부품은 core 에 하나씩
+있고, 기능은 core 만 의존합니다.
+
+| 부품 | 위치 | 역할 |
+|---|---|---|
+| `Principal` | `authorization.py` | 검증된 access 토큰의 주체(`id`, `username`, `is_superuser`) — frozen dataclass |
+| `get_current_principal` / `CurrentPrincipal` | `dependencies.py` | Bearer access 토큰 → `TokenService.decode` → `Principal`. **DB 조회 없음.** 성공 시 `request.state.user_id` 를 남긴다(접속 로그가 응답 뒤에 읽는다). 실패 401 |
+| `require_superuser` / `SuperuserPrincipal` | `dependencies.py` | 주체가 슈퍼유저가 아니면 403 `FORBIDDEN` |
+| `OwnershipPolicy.ensure_can_modify(owner_id, principal)` | `authorization.py` | 소유자 또는 슈퍼유저만 통과, 아니면 403. `owner_id` 가 None(작성자 컬럼 도입 전의 행)이면 슈퍼유저만 |
+
+- **무상태 판정:** 보호 라우트는 토큰만 봅니다. 비활성화·강등은 refresh family 폐기(`revoke_user`)와
+  짧은 access 만료(기본 15분)로 반영됩니다 — 이미 발급된 access 토큰은 만료까지 남습니다.
+- **소유권은 서비스가 판정합니다.** blog·sns·reply·user 서비스는 생성자로 `OwnershipPolicy` 를 받고,
+  수정·삭제 메서드가 `principal` 을 인자로 받아 존재 확인(404) 뒤 판정합니다(403). user 단건 조회·
+  수정은 사용자 자신이 소유자이며, 존재 확인 **전에** 판정해 남의 id 로 존재 여부를 떠볼 수 없습니다.
+- **작성자는 서버가 채웁니다.** 생성 시 `author_id = principal.id`, `author = principal.username`.
+  요청 본문의 `author` 는 무시되고 Update 스키마에는 없습니다. `author_id` 는 FK 없는 String(36)(인덱스)
+  — 사용자를 지워도 글은 남습니다.
+- **user 의 특권 필드:** `is_active`·`is_superuser` 는 슈퍼유저만 바꿉니다(본인이면 403
+  `USER_PRIVILEGED_FIELD`). 비활성화·강등·삭제는 `RefreshTokenStore.revoke_user` 로 그 사용자의 모든
+  refresh family 를 폐기합니다. 생성(`POST /users`)은 슈퍼유저 전용이고 비밀번호가 필수입니다.
+- **첫 슈퍼유저:** API 에는 경로가 없습니다(가입은 항상 일반 사용자). `scripts/create_superuser.py` 가
+  `background_db_session` + core `get_password_hasher` + `UserRepository` 로 만들거나 승격합니다
+  (README "첫 관리자 만들기").
+- **권한 표의 단일 기준:** `tests/test_authorization.py` 의 `POLICY` 가 모든 operation 을 공개·인증·
+  소유자·슈퍼유저로 분류하고, 표에 없는 새 operation 은 테스트가 막습니다. README 권한 표와 같은
+  내용입니다.
+
+### 10.3 SQLAdmin
 
 - `/admin` 에는 **인증이 없습니다.** 인증 백엔드는 붙이지 않기로 확정한 영구 비목표입니다.
   `ADMIN` 기본값 `true` 는 개발 편의를 위한 의도된 선택입니다. staging/production 은
@@ -631,16 +666,16 @@ Repository 의 DB 오류 변환(`DBErrorTranslator` — MySQL 오류 코드·SQL
 - `User.hashed_password` 는 목록·상세·폼·내보내기 어디에도 나오지 않고, `User` 는 Admin 에서
   생성할 수 없습니다(비밀번호 없는 계정 방지). 구조 증거: `tests/core/test_admin_views.py`.
 
-### 10.3 현재 한계 — 외부 공개 전에 결정할 것
+### 10.4 현재 한계 — 외부 공개 전에 결정할 것
 
 | 항목 | 현재 상태 |
 |---|---|
-| CRUD 인가 | user·blog·reply·sns·catalog·reports·home 조회 API 에 인증·소유권 검사가 없다. `get_current_user` 를 쓰는 곳은 `/api/v1/auth/me` 뿐이다 |
-| 작성자 | 콘텐츠의 `author` 는 요청 본문의 자유 문자열이다 |
+| 권한 모델 | 슈퍼유저/일반 2단계뿐이다(세분화된 역할·그룹 없음). 강등·비활성화는 access 만료(기본 15분)까지 반영이 늦다 |
+| 작성자 | 작성자 컬럼 도입 전의 글(`author_id` NULL)은 슈퍼유저만 수정한다. `author` 표시 이름은 작성 시점의 username 이라 이름을 바꿔도 따라가지 않는다 |
 | 참조 무결성 | `Reply.post_id` 는 FK 없는 문자열 — 게시글 존재 검증·삭제 전파 정책 없음 |
 | 로그인 보호 | 고정 창 rate limit(창 경계에서 최대 2배 통과). 계정 잠금은 없다 |
 | 토큰 폐기 | refresh 는 family 단위로 폐기된다(재사용 탐지·로그아웃). access 토큰은 만료(기본 15분)까지 유효하다 |
-| 접속 로그 개인정보 | `query_string` 은 민감 키 값만 가리고 나머지와 `referer`·`session_id` 쿠키는 원문 저장한다. 보존 기간·파기 절차·조회 API 접근 통제가 없다 |
+| 접속 로그 개인정보 | `query_string` 은 민감 키 값만 가리고 나머지와 `referer`·`session_id` 쿠키는 원문 저장한다. 보존 기간·파기 절차가 없다(조회 API 는 슈퍼유저 전용) |
 | CORS | 기본 `CORS_ALLOW_ORIGINS=["*"]`, credentials false (staging/production 은 게이트가 `*` 를 거부) |
 
 ---

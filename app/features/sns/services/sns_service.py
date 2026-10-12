@@ -11,6 +11,7 @@ from collections.abc import Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security.authorization import OwnershipPolicy, Principal
 from app.core.services.services_base import BaseService
 from app.features.sns.exceptions import SnsPostNotFoundException
 from app.features.sns.models.models import SnsPost
@@ -21,14 +22,17 @@ from app.features.sns.schemas.sns_schema import SnsPostCreate, SnsPostUpdate
 class SnsService(BaseService):
     """피드 게시물 비즈니스 로직 (세션 기반)."""
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, policy: OwnershipPolicy) -> None:
         super().__init__(session)
         self.repository = SnsPostRepository(session)
+        self.policy = policy
 
-    async def create_post(self, data: SnsPostCreate) -> SnsPost:
-        """피드 게시물을 생성한다(커밋은 호출자가 수행)."""
-        self.log.debug("피드 게시물 생성: author=%s", data.author)
-        return await self.repository.create(data.model_dump())
+    async def create_post(self, data: SnsPostCreate, principal: Principal) -> SnsPost:
+        """피드 게시물을 생성한다(커밋은 호출자가 수행). 작성자는 주체에서 채운다."""
+        self.log.debug("피드 게시물 생성: author_id=%s", principal.id)
+        return await self.repository.create(
+            {**data.model_dump(), "author_id": principal.id, "author": principal.username}
+        )
 
     async def get_post(self, post_id: str) -> SnsPost:
         """피드 게시물을 조회한다. 없으면 SnsPostNotFoundException."""
@@ -49,18 +53,20 @@ class SnsService(BaseService):
         total = await self.repository.count()
         return posts, total
 
-    async def update_post(self, post_id: str, data: SnsPostUpdate) -> SnsPost:
-        """피드 게시물을 부분 수정한다. 없으면 SnsPostNotFoundException."""
+    async def update_post(self, post_id: str, data: SnsPostUpdate, principal: Principal) -> SnsPost:
+        """피드 게시물을 부분 수정한다. 없으면 404, 소유자·슈퍼유저가 아니면 403."""
         self.log.debug("피드 게시물 수정: id=%s", post_id)
         existing = await self.get_post(post_id)  # 존재 보장(없으면 404)
+        self.policy.ensure_can_modify(existing.author_id, principal)
         updated = await self.repository.update(post_id, data.model_dump(exclude_unset=True))
         # updated 가 None 이면 변경행 0(동일 값 no-op, MySQL changed-rows 의미). 존재는 이미
         # 보장됐으므로 404 가 아니라 현재 엔티티를 반환한다.
         return updated if updated is not None else existing
 
-    async def delete_post(self, post_id: str) -> None:
-        """피드 게시물을 삭제한다. 없으면 SnsPostNotFoundException."""
+    async def delete_post(self, post_id: str, principal: Principal) -> None:
+        """피드 게시물을 삭제한다. 없으면 404, 소유자·슈퍼유저가 아니면 403."""
         self.log.debug("피드 게시물 삭제: id=%s", post_id)
-        deleted = await self.repository.delete(post_id)
-        if not deleted:
+        existing = await self.get_post(post_id)  # 없으면 404
+        self.policy.ensure_can_modify(existing.author_id, principal)
+        if not await self.repository.delete(post_id):
             raise SnsPostNotFoundException(detail={"id": post_id})

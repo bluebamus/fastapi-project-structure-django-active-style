@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.db.session import Base
 from app.features.reply.models.models import Reply  # noqa: F401  (register table)
 from main import app
+from tests.auth_headers import user_headers
 from tests.session_overrides import session_overrides
 
 
@@ -30,7 +31,9 @@ async def client():
     # 읽기 경로가 실제 MySQL 로 새어나간다.
     app.dependency_overrides.update(session_overrides(maker))
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
+    async with AsyncClient(
+        transport=transport, base_url="http://test", headers=user_headers()
+    ) as c:
         yield c
     app.dependency_overrides.clear()
     await engine.dispose()

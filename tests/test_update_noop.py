@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.core.exception import NotFoundException
+from app.core.security.authorization import OwnershipPolicy, Principal
 from app.features.blog.schemas.blog_schema import PostUpdate
 from app.features.blog.services.blog_service import BlogService
 from app.features.reply.schemas.reply_schema import ReplyUpdate
@@ -52,8 +53,15 @@ class _MissingRepo:
         return None
 
 
+# 권한 판정은 이 파일의 관심사가 아니다 — 모든 판정을 통과하는 슈퍼유저로 부른다.
+_ADMIN = Principal(id="admin", username="admin", is_superuser=True)
+
+
 def _build(service_cls, repo):
-    service = service_cls(session=None)  # DB 없이 구성(트랜잭션 경계 불필요)
+    # DB 없이 구성(트랜잭션 경계 불필요). UserService 의 해시기·refresh 저장소는 이 경로
+    # (is_active=True 수정)에서 쓰이지 않는다.
+    extra = {"hasher": None, "refresh_store": None} if service_cls is UserService else {}
+    service = service_cls(session=None, policy=OwnershipPolicy(), **extra)
     service.repository = repo
     return service
 
@@ -61,9 +69,9 @@ def _build(service_cls, repo):
 @pytest.mark.parametrize("service_cls,method,payload", _CASES)
 async def test_noop_update_returns_existing_not_404(service_cls, method, payload):
     """update 가 None(no-op)이어도 존재하는 엔티티는 404 없이 그대로 반환된다."""
-    sentinel = SimpleNamespace(id="x1")
+    sentinel = SimpleNamespace(id="x1", author_id=None)
     service = _build(service_cls, _StubRepo(sentinel))
-    result = await getattr(service, method)("x1", payload)
+    result = await getattr(service, method)("x1", payload, _ADMIN)
     assert result is sentinel
 
 
@@ -72,4 +80,4 @@ async def test_missing_entity_still_raises(service_cls, method, payload):
     """실제로 존재하지 않는 엔티티는 여전히 NotFound 예외가 발생한다."""
     service = _build(service_cls, _MissingRepo())
     with pytest.raises(NotFoundException):  # 각 도메인의 *NotFoundException 은 이를 상속
-        await getattr(service, method)("missing", payload)
+        await getattr(service, method)("missing", payload, _ADMIN)

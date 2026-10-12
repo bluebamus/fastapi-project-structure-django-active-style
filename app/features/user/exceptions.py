@@ -7,7 +7,7 @@ core 의 공통 예외(NotFoundException, DuplicateException 등)를 상속하�
 
 from enum import StrEnum
 
-from app.core.exception import DuplicateException, NotFoundException
+from app.core.exception import DuplicateException, ForbiddenException, NotFoundException
 
 
 class UserErrorCode(StrEnum):
@@ -15,6 +15,7 @@ class UserErrorCode(StrEnum):
 
     USER_NOT_FOUND = "USER_NOT_FOUND"
     USERNAME_DUPLICATE = "USER_USERNAME_DUPLICATE"
+    PRIVILEGED_FIELD = "USER_PRIVILEGED_FIELD"
 
 
 class UserNotFoundException(NotFoundException):
@@ -29,3 +30,10 @@ class UsernameDuplicateException(DuplicateException):
 
     error_code = UserErrorCode.USERNAME_DUPLICATE
     message = "이미 존재하는 사용자명입니다."
+
+
+class PrivilegedFieldException(ForbiddenException):
+    """슈퍼유저가 아닌 주체가 is_active·is_superuser 를 바꾸려는 경우(403)."""
+
+    error_code = UserErrorCode.PRIVILEGED_FIELD
+    message = "활성 여부·슈퍼유저 여부는 슈퍼유저만 바꿀 수 있습니다."

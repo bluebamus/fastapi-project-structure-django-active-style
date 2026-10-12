@@ -27,6 +27,7 @@ from app.core.models.types import UTCDateTime, render_alembic_type
 from app.features.blog.models.models import Post
 from config import TimezoneSettings
 from main import app
+from tests.auth_headers import user_headers
 from tests.session_overrides import session_overrides
 
 KST = ZoneInfo("Asia/Seoul")
@@ -215,7 +216,9 @@ async def client():
     app.dependency_overrides.update(
         session_overrides(async_sessionmaker(engine, expire_on_commit=False))
     )
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers=user_headers()
+    ) as c:
         yield c
     app.dependency_overrides.clear()
     await engine.dispose()

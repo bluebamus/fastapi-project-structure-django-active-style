@@ -16,6 +16,10 @@ from pwdlib.hashers.argon2 import Argon2Hasher
 # 넘는 입력을 거부하므로 같은 규칙으로 잘라야 기존 해시가 맞는다.
 _LEGACY_BCRYPT_MAX_BYTES = 72
 
+# 새 비밀번호 길이 규칙 — 가입(auth)·사용자 생성(user)·운영 스크립트가 같은 값을 쓴다.
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_LENGTH = 128
+
 
 class PasswordHasher:
     """Argon2 해시 + 기존 bcrypt 해시 검증·이전."""

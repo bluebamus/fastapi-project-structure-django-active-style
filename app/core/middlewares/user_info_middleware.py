@@ -169,9 +169,9 @@ class UserInfoMiddleware(BaseHTTPMiddleware):
             "referer": request.headers.get("Referer"),
             # 추가 헤더
             "accept_language": request.headers.get("Accept-Language"),
-            # 사용자 정보 (인증 미들웨어에서 설정될 수 있음)
+            # 세션 정보. user_id 는 인증 의존성이 핸들러 실행 중에 정하므로 응답 뒤에
+            # `_record` 가 채운다 — 여기서 읽으면 항상 None 이다.
             "session_id": request.cookies.get(self.session_cookie_name),
-            "user_id": getattr(request.state, "user_id", None),
         }
 
     async def _save_access_log(self, data: dict) -> None:
@@ -230,14 +230,21 @@ class UserInfoMiddleware(BaseHTTPMiddleware):
         try:
             response: Response = await call_next(request)
         except Exception:
-            self._record(request_info, 500, start_time)
+            self._record(request, request_info, 500, start_time)
             raise
 
-        self._record(request_info, response.status_code, start_time)
+        self._record(request, request_info, response.status_code, start_time)
         return response
 
-    def _record(self, request_info: dict, status_code: int, start_time: float) -> None:
-        """응답 정보를 채워 백그라운드 저장을 예약한다."""
+    def _record(
+        self, request: Request, request_info: dict, status_code: int, start_time: float
+    ) -> None:
+        """응답 정보를 채워 백그라운드 저장을 예약한다.
+
+        ``user_id`` 는 인증 의존성(`get_current_principal`)이 요청 상태에 남긴 값이다.
+        요청 상태는 같은 scope 를 공유하므로 핸들러가 끝난 지금 읽어야 보인다.
+        """
+        request_info["user_id"] = getattr(request.state, "user_id", None)
         response_time_ms = int((time.perf_counter() - start_time) * 1000)
         request_info["response_status"] = status_code
         request_info["response_time_ms"] = response_time_ms

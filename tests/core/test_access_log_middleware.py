@@ -3,6 +3,7 @@
 - 처리되지 않은 예외도 500 으로 기록된다(장애 요청이 기록에서 빠지지 않는다).
 - query string 의 민감 키 값은 `***` 로 가려 저장된다.
 - session_id 는 설정 `SESSION_COOKIE_NAME` 이름의 쿠키에서 읽는다.
+- user_id 는 인증 의존성이 핸들러 실행 중에 남긴 값이다 — 응답 뒤에 읽어야 보인다(F-008, 단계 F2).
 """
 
 import httpx
@@ -13,6 +14,8 @@ from app.core.middlewares import user_info_middleware as module
 from app.core.middlewares.access_log_sink import get_access_log_sink, set_access_log_sink
 from app.core.middlewares.background_tasks import BackgroundTaskRunner
 from app.core.middlewares.client_ip import ClientIPResolver
+from app.core.security.dependencies import CurrentPrincipal
+from tests.auth_headers import USER_ID, user_headers
 
 
 @pytest.fixture
@@ -43,6 +46,10 @@ def _app() -> FastAPI:
     @app.get("/boom")
     async def boom():
         raise RuntimeError("boom")
+
+    @app.get("/whoami")
+    async def whoami(principal: CurrentPrincipal):
+        return {"id": principal.id}
 
     return app
 
@@ -115,3 +122,24 @@ async def test_session_id_is_read_from_the_configured_cookie(recorded, monkeypat
     await runner.drain()
 
     assert saved[0]["session_id"] == "abc"
+
+
+async def test_authenticated_request_records_user_id(recorded):
+    """인증 의존성(`get_current_principal`)이 정한 주체 id 가 접속 로그에 남는다."""
+    saved, runner = recorded
+
+    response = await _get("/whoami", headers=user_headers())
+    await runner.drain()
+
+    assert response.status_code == 200
+    assert saved[0]["user_id"] == USER_ID
+
+
+async def test_anonymous_request_records_no_user_id(recorded):
+    saved, runner = recorded
+
+    await _get("/ok")
+    await _get("/whoami")  # 토큰 없음 — 401, 주체 없음
+    await runner.drain()
+
+    assert [entry["user_id"] for entry in saved] == [None, None]

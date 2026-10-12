@@ -12,6 +12,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, Path, Query, status
 
 from app.core.exception import ErrorResponse
+from app.core.security.dependencies import (
+    FORBIDDEN_RESPONSES,
+    UNAUTHORIZED_RESPONSES,
+    CurrentPrincipal,
+)
 from app.features.reply.dependencies.reply_dependencies import (
     get_reply_service,
     get_reply_service_readonly,
@@ -35,15 +40,17 @@ _NOT_FOUND: dict[int | str, dict[str, Any]] = {
     "/replies",
     response_model=ReplyResponse,
     status_code=status.HTTP_201_CREATED,
+    responses=UNAUTHORIZED_RESPONSES,
     summary="댓글 생성",
-    description="새 댓글을 생성합니다.",
+    description="새 댓글을 생성합니다. 로그인이 필요하며 작성자는 로그인 사용자로 기록됩니다.",
     operation_id="createReply",
 )
 async def create_reply(
     payload: ReplyCreate,
+    principal: CurrentPrincipal,
     service: ReplyService = Depends(get_reply_service),
 ) -> ReplyResponse:
-    reply = await service.create_reply(payload)
+    reply = await service.create_reply(payload, principal)
     response = ReplyResponse.model_validate(reply)
     await service.commit()
     return response
@@ -89,17 +96,18 @@ async def get_reply(
 @router.patch(
     "/replies/{reply_id}",
     response_model=ReplyResponse,
-    responses=_NOT_FOUND,
+    responses={**_NOT_FOUND, **FORBIDDEN_RESPONSES},
     summary="댓글 수정",
-    description="댓글을 부분 수정합니다(전달한 필드만).",
+    description="댓글을 부분 수정합니다(전달한 필드만). 작성자 본인 또는 슈퍼유저만 할 수 있습니다.",
     operation_id="updateReply",
 )
 async def update_reply(
     payload: ReplyUpdate,
+    principal: CurrentPrincipal,
     reply_id: str = Path(..., description="댓글 ID(UUID)"),
     service: ReplyService = Depends(get_reply_service),
 ) -> ReplyResponse:
-    reply = await service.update_reply(reply_id, payload)
+    reply = await service.update_reply(reply_id, payload, principal)
     response = ReplyResponse.model_validate(reply)
     await service.commit()
     return response
@@ -108,14 +116,15 @@ async def update_reply(
 @router.delete(
     "/replies/{reply_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses=_NOT_FOUND,
+    responses={**_NOT_FOUND, **FORBIDDEN_RESPONSES},
     summary="댓글 삭제",
-    description="댓글을 삭제합니다.",
+    description="댓글을 삭제합니다. 작성자 본인 또는 슈퍼유저만 할 수 있습니다.",
     operation_id="deleteReply",
 )
 async def delete_reply(
+    principal: CurrentPrincipal,
     reply_id: str = Path(..., description="댓글 ID(UUID)"),
     service: ReplyService = Depends(get_reply_service),
 ) -> None:
-    await service.delete_reply(reply_id)
+    await service.delete_reply(reply_id, principal)
     await service.commit()
