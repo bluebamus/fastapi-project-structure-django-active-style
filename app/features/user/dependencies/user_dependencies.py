@@ -1,6 +1,8 @@
 """User 기능 의존성 (인터페이스 집합체).
 
-services 의 기능 클래스를 session 으로 생성·결합하여 view 에 제공한다.
+services 의 기능 클래스를 session 과 core 협력 객체(해시기·refresh 저장소·소유권 판정)로
+생성·결합하여 view 에 제공한다. 협력 객체 provider 는 core(`app.core.security.dependencies`)에
+있다 — auth 기능을 import 하지 않는다(C-2).
 커밋은 **핸들러 본문**이 `await service.commit()` 으로 수행한다(P1-3).
 예외 시에는 get_writer_db_session 의 teardown 이 롤백을 수행한다.
 """
@@ -9,11 +11,22 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.session import get_read_only_db_session, get_writer_db_session
+from app.core.security.authorization import OwnershipPolicy
+from app.core.security.dependencies import (
+    get_ownership_policy,
+    get_password_hasher,
+    get_refresh_token_store,
+)
+from app.core.security.password_hasher import PasswordHasher
+from app.core.security.refresh_store import RefreshTokenStore
 from app.features.user.services.user_service import UserService
 
 
 async def get_user_service(
     session: AsyncSession = Depends(get_writer_db_session),
+    hasher: PasswordHasher = Depends(get_password_hasher),
+    refresh_store: RefreshTokenStore = Depends(get_refresh_token_store),
+    policy: OwnershipPolicy = Depends(get_ownership_policy),
 ) -> UserService:
     """UserService 를 구성해 view 에 제공한다(쓰기용 — 커밋은 핸들러가 한다).
 
@@ -21,11 +34,14 @@ async def get_user_service(
     종료 코드가 **응답 전송 후에** 실행되도록 바뀌어 커밋 실패가 201 로 둔갑했다.
     커밋을 핸들러 본문으로 옮겨 응답 생성 전에 끝나도록 보장한다.
     """
-    return UserService(session)
+    return UserService(session, hasher, refresh_store, policy)
 
 
 async def get_user_service_readonly(
     session: AsyncSession = Depends(get_read_only_db_session),
+    hasher: PasswordHasher = Depends(get_password_hasher),
+    refresh_store: RefreshTokenStore = Depends(get_refresh_token_store),
+    policy: OwnershipPolicy = Depends(get_ownership_policy),
 ) -> UserService:
     """조회 엔드포인트용 — 커밋하지 않는다.
 
@@ -33,4 +49,4 @@ async def get_user_service_readonly(
     인증 등 다른 의존성과 함께 쓸 때 한 세션에 커밋 주체가 둘이 되는 위험이 있다
     (auth 의 get_current_user 가 같은 이유로 분리되어 있다).
     """
-    return UserService(session)
+    return UserService(session, hasher, refresh_store, policy)

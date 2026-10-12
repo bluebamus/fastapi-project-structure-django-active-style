@@ -23,8 +23,8 @@
 2. **HTTP 계약** — method·경로·입력·공개할 응답 필드·오류 응답.
 3. **데이터 소유** — 새 테이블인가, 기존 테이블의 계산 결과인가(§4 의 선택 기준).
 4. **읽기/쓰기 의도** — 조회만인가, 조회 후 쓰기인가, 잠금이 필요한가(§7).
-5. **권한** — 현재 CRUD 예제에는 인가가 없습니다([ARCHITECTURE §10.3](./ARCHITECTURE.md)). 새
-   엔드포인트는 인증·소유권 검사를 명시적으로 정합니다. 인증 성공과 수정 권한은 별개입니다.
+5. **권한** — 공개·로그인·작성자 본인(또는 슈퍼유저)·슈퍼유저 전용 중 무엇인지 정합니다(§7.1,
+   [ARCHITECTURE §10.2](./ARCHITECTURE.md)). 인증 성공과 수정 권한은 별개입니다.
 6. **동시성·멱등성** — 재고 차감·상태 전환은 "조회 후 UPDATE" 만으로 안전하지 않습니다. 조건부
    UPDATE·잠금·DB 제약 중 무엇을 쓸지 정합니다.
 
@@ -407,6 +407,42 @@ async def get_catalog_service_readonly(
 
 세션 종류·라우팅 규칙 전체는 [ARCHITECTURE §8](./ARCHITECTURE.md)에 있습니다.
 
+### 7.1 라우트 보호 — 인증 · 슈퍼유저 · 소유권
+
+권한은 슈퍼유저/일반 2단계입니다([ARCHITECTURE §10.2](./ARCHITECTURE.md)). 부품은 전부 core
+`app.core.security.dependencies` 에 있고, 기능은 이것만 import 합니다(다른 기능을 import 하지 않는다).
+
+| 원하는 것 | 쓰는 것 | 실패 |
+|---|---|---|
+| 로그인한 누구나 | 핸들러 인자 `principal: CurrentPrincipal` | 토큰 없음·만료·위조 401 |
+| 슈퍼유저만 (주체를 쓰지 않음) | 라우트 `dependencies=[Depends(require_superuser)]`, 라우터 전체면 `APIRouter(dependencies=[...])` | 401 / 403 |
+| 슈퍼유저만 (주체를 씀) | 핸들러 인자 `admin: SuperuserPrincipal` | 401 / 403 |
+| 작성자 본인 또는 슈퍼유저 | 서비스 생성자에 `OwnershipPolicy`(provider `get_ownership_policy`), 메서드가 `principal` 을 받아 `self.policy.ensure_can_modify(entity.author_id, principal)` | 403 |
+
+```python
+from app.core.security.dependencies import FORBIDDEN_RESPONSES, CurrentPrincipal
+
+@router.patch("/notes/{note_id}", responses={**_NOT_FOUND, **FORBIDDEN_RESPONSES}, ...)
+async def update_note(
+    payload: NoteUpdate,
+    principal: CurrentPrincipal,                      # 기본값 없는 인자 — 기본값 있는 인자보다 앞
+    note_id: str = Path(...),
+    service: NoteService = Depends(get_note_service),  # provider 가 OwnershipPolicy 를 주입
+) -> NoteResponse:
+    note = await service.update_note(note_id, payload, principal)  # 404 → 소유권 403
+    ...
+```
+
+- 인증 주체는 토큰에서 만들고 **DB 를 조회하지 않습니다**. 사용자 엔티티가 꼭 필요할 때만 auth 의
+  `get_current_user` 를 씁니다(`/me`).
+- 작성자 컬럼은 요청 본문에서 받지 않습니다 — 서비스가 `principal.id`·`principal.username` 으로 채우고,
+  Update 스키마에 넣지 않습니다.
+- 존재 여부 자체가 비밀이면(예: 사용자) 존재 확인 **전에** 판정해 404/403 차이로 떠볼 수 없게 합니다.
+- 새 operation 은 `tests/test_authorization.py` 의 `POLICY` 표와 README 권한 표에 분류를 더합니다 —
+  분류되지 않은 operation 은 테스트가 막고, OpenAPI `security` 표시(로그인 필요 여부)도 맞아야 합니다.
+- 테스트는 인증 의존성을 override 하지 말고 `tests/auth_headers.py`(`user_headers()`·
+  `other_user_headers()`·`superuser_headers()`)로 실제 서명된 토큰을 보냅니다.
+
 ---
 
 ## 8. 트랜잭션 경계와 오류
@@ -539,6 +575,7 @@ uv run python -m scripts.review_gate --group static structure docs
 - [ ] `services/` — 업무 규칙, Raw 결과는 여기서 DTO 로
 - [ ] `dependencies/` — 쓰기용·조회용 getter 둘 다
 - [ ] `api/routers/v1/` — `operation_id`, DTO 검증 → commit 1회 / `router.py` 의 `<name>_router`
+- [ ] 권한 — §7.1 의 부품으로 보호, `tests/test_authorization.py` 의 `POLICY`·README 권한 표에 분류
 - [ ] 필요하면 `admin.py` 의 `admin_views` (민감 필드 제외 확인), `apps.py` 의 `ready()`
 - [ ] 태그 설명(`app/core/tags_metadata.py`), `tests/test_route_inventory.py`, README API 표 갱신
 - [ ] 테스트 작성, `mysql` 마커 대상 SQL 확인, 게이트 실행
@@ -549,7 +586,7 @@ uv run python -m scripts.review_gate --group static structure docs
 | 공개 경로·메서드 | 라우터, `operation_id`, `tests/test_route_inventory.py`, README API 표 |
 | 모델 필드 | 스키마 3종(create/update/response), Repository, `admin.py` 노출, Alembic revision |
 | 트랜잭션 | 핸들러의 commit 위치, 기능별 트랜잭션 경계 테스트(예: `app/features/auth/tests/test_transaction_boundary.py`) |
-| 인증 정책 | 보호할 라우터, 오류 응답, 보안 테스트 |
+| 인증 정책 | 보호할 라우터(§7.1), 401/403 응답 문서(`UNAUTHORIZED_RESPONSES`·`FORBIDDEN_RESPONSES`), `tests/test_authorization.py` 의 `POLICY`, README 권한 표 |
 | 접속 로그 필드 | 미들웨어, sink, 모델·스키마, 개인정보 보존 정책 |
 | 설정 추가 | `config.py`, `.env.example`(테스트가 양방향 일치 강제), 필요하면 배포 게이트 |
 | 함수명·세션 이름·경로 | 이 문서, ARCHITECTURE, README (게이트 `docs` 그룹이 경로를 검사) |

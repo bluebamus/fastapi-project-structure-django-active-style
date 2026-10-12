@@ -37,6 +37,7 @@ def _forge(secret: str = "a" * 64, algorithm: str = "HS256", **overrides):
         "iss": "test-iss",
         "aud": "test-aud",
         "username": "alice",
+        "su": False,
     }
     claims.update(overrides)
     claims = {k: v for k, v in claims.items() if v is not None}
@@ -44,7 +45,7 @@ def _forge(secret: str = "a" * 64, algorithm: str = "HS256", **overrides):
 
 
 def test_access_token_carries_all_claims(tokens):
-    claims = tokens.decode(tokens.issue_access("u1", "alice"), ACCESS)
+    claims = tokens.decode(tokens.issue_access("u1", "alice", False), ACCESS)
     assert claims["sub"] == "u1"
     assert claims["type"] == "access"
     assert claims["username"] == "alice"
@@ -63,9 +64,16 @@ def test_refresh_token_carries_family_and_returns_jti(tokens):
     assert claims["type"] == "refresh"
 
 
+@pytest.mark.parametrize("is_superuser", [True, False])
+def test_access_token_carries_superuser_claim(tokens, is_superuser):
+    """``su`` 는 인가 판정(Principal.is_superuser)의 근거다 (service-hardening F2, ADR-022 ②)."""
+    claims = tokens.decode(tokens.issue_access("u1", "alice", is_superuser), ACCESS)
+    assert claims["su"] is is_superuser
+
+
 def test_each_token_has_a_unique_jti(tokens):
-    a = tokens.decode(tokens.issue_access("u1", "alice"), ACCESS)["jti"]
-    b = tokens.decode(tokens.issue_access("u1", "alice"), ACCESS)["jti"]
+    a = tokens.decode(tokens.issue_access("u1", "alice", False), ACCESS)["jti"]
+    b = tokens.decode(tokens.issue_access("u1", "alice", False), ACCESS)["jti"]
     assert a != b
 
 
@@ -83,8 +91,21 @@ def test_forged_valid_token_is_accepted(tokens):
         {"aud": "other-aud"},
         {"type": "refresh"},
         {"username": None},
+        {"su": None},
+        {"su": "true"},
+        {"su": 1},
     ],
-    ids=["expired", "not-yet-valid", "wrong-issuer", "wrong-audience", "wrong-type", "no-username"],
+    ids=[
+        "expired",
+        "not-yet-valid",
+        "wrong-issuer",
+        "wrong-audience",
+        "wrong-type",
+        "no-username",
+        "no-su",
+        "su-not-bool-str",
+        "su-not-bool-int",
+    ],
 )
 def test_rejects_invalid_claims(tokens, overrides):
     with pytest.raises(InvalidTokenException):
@@ -107,7 +128,7 @@ def test_rejects_access_token_as_refresh_even_with_shared_secret():
     """키를 같게 잘못 설정해도 `type` 검사가 종류 혼동을 막는다."""
     shared = TokenService(_SETTINGS.model_copy(update={"REFRESH_TOKEN_SECRET_KEY": "a" * 64}))
     with pytest.raises(InvalidTokenException):
-        shared.decode(shared.issue_access("u1", "alice"), REFRESH)
+        shared.decode(shared.issue_access("u1", "alice", False), REFRESH)
 
 
 def test_rejects_other_algorithm(tokens):
@@ -119,7 +140,7 @@ def test_rejects_other_algorithm(tokens):
 
 def test_rejects_tampered_token(tokens):
     with pytest.raises(InvalidTokenException):
-        tokens.decode(tokens.issue_access("u1", "alice") + "x", ACCESS)
+        tokens.decode(tokens.issue_access("u1", "alice", False) + "x", ACCESS)
 
 
 def test_leeway_tolerates_small_clock_skew():

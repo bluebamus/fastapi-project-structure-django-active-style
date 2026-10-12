@@ -4,6 +4,9 @@ Home v1 API 엔드포인트 — 접속 로그 조회/통계.
 view 는 HTTP 역할만 한다: 파라미터 수신 → 의존성으로 주입된 Service 호출 → 응답 변환.
 모든 엔드포인트가 조회 전용이라 read-only 세션을 쓰고 commit 하지 않는다. 접속 로그 저장은
 미들웨어 → HomeAccessLogSink 가 별도 background 세션으로 한다.
+
+모든 엔드포인트가 슈퍼유저 전용이다 — 라우터 의존성 `require_superuser` 가 핸들러 전에
+판정한다(service-hardening ADR-016).
 """
 
 from typing import Any
@@ -11,6 +14,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Path, Query
 
 from app.core.exception import ErrorResponse
+from app.core.security.dependencies import FORBIDDEN_RESPONSES, require_superuser
 from app.features.home.dependencies.access_log_dependencies import get_access_log_service
 from app.features.home.schemas.user_access_log_schema import (
     AccessLogStats,
@@ -19,7 +23,7 @@ from app.features.home.schemas.user_access_log_schema import (
 )
 from app.features.home.services.user_access_log_service import UserAccessLogService
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_superuser)], responses=FORBIDDEN_RESPONSES)
 
 _ERR: dict[int | str, dict[str, Any]] = {
     500: {"model": ErrorResponse, "description": "서버 내부 오류"}

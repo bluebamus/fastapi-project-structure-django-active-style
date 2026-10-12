@@ -14,6 +14,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Path, Query, status
 
 from app.core.exception import ErrorResponse, NotFoundException
+from app.core.security.dependencies import FORBIDDEN_RESPONSES, require_superuser
 from app.features.catalog.dependencies.catalog_dependencies import (
     get_catalog_service,
     get_catalog_service_readonly,
@@ -47,9 +48,11 @@ def _require(product: object | None, product_id: str) -> Any:
     "/products",
     response_model=ProductResponse,
     status_code=status.HTTP_201_CREATED,
+    responses=FORBIDDEN_RESPONSES,
     summary="상품 생성",
-    description="판매할 상품을 생성합니다.",
+    description="판매할 상품을 생성합니다. 슈퍼유저 전용입니다.",
     operation_id="createCatalogProduct",
+    dependencies=[Depends(require_superuser)],
 )
 async def create_product(
     payload: ProductCreate,
@@ -101,10 +104,14 @@ async def get_product(
 @router.patch(
     "/products/{product_id}",
     response_model=ProductResponse,
-    responses=_NOT_FOUND,
+    responses={**_NOT_FOUND, **FORBIDDEN_RESPONSES},
     summary="상품 수정",
-    description="상품을 부분 수정합니다(전달한 필드만). 빈 요청은 변경 없이 현재 상태를 돌려줍니다.",
+    description=(
+        "상품을 부분 수정합니다(전달한 필드만). 빈 요청은 변경 없이 현재 상태를 돌려줍니다. "
+        "슈퍼유저 전용입니다."
+    ),
     operation_id="updateCatalogProduct",
+    dependencies=[Depends(require_superuser)],
 )
 async def update_product(
     payload: ProductUpdate,
@@ -120,10 +127,11 @@ async def update_product(
 @router.delete(
     "/products/{product_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses=_NOT_FOUND,
+    responses={**_NOT_FOUND, **FORBIDDEN_RESPONSES},
     summary="상품 삭제",
-    description="상품을 삭제합니다.",
+    description="상품을 삭제합니다. 슈퍼유저 전용입니다.",
     operation_id="deleteCatalogProduct",
+    dependencies=[Depends(require_superuser)],
 )
 async def delete_product(
     product_id: str = Path(..., description="상품 ID(UUID)"),

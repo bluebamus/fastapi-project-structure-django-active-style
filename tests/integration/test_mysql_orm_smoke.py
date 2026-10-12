@@ -20,6 +20,8 @@ import pytest
 from sqlalchemy import select, text
 
 from app.core.exception import DuplicateException, ValidationException
+from app.core.security.authorization import OwnershipPolicy
+from app.core.security.password_hasher import PasswordHasher
 from app.features.catalog.models.models import Product
 from app.features.catalog.repositories.product_repository import ProductRepository
 from app.features.catalog.schemas.catalog_schema import ProductCreate, ProductUpdate
@@ -32,6 +34,11 @@ from app.features.user.schemas.user_schema import UserCreate
 from app.features.user.services.user_service import UserService
 
 pytestmark = pytest.mark.mysql
+
+
+def _user_service(session):
+    # 생성 경로는 refresh 저장소를 쓰지 않는다(비활성화·삭제만 쓴다) — Redis 없이 조립한다.
+    return UserService(session, PasswordHasher(), None, OwnershipPolicy())
 
 
 async def test_catalog_crud_through_service(mysql_session_maker):
@@ -103,15 +110,17 @@ async def test_username_duplicate_is_case_insensitive(mysql_session_maker):
         # 아래 단언의 전제 — compose.test.yaml 의 --collation-server 가 바뀌면 여기서 먼저 깨진다.
         assert collation == "utf8mb4_unicode_ci"
 
-        service = UserService(session)
-        await service.create_user(UserCreate(username="Kim", email="kim@example.com"))
+        service = _user_service(session)
+        await service.create_user(
+            UserCreate(username="Kim", email="kim@example.com", password="password123")
+        )
         await service.commit()
 
     async with mysql_session_maker() as session:
         # 서비스의 사전 조회가 collation 을 따라 "kim" 을 "Kim" 과 같은 것으로 찾는다.
         with pytest.raises(UsernameDuplicateException) as service_error:
-            await UserService(session).create_user(
-                UserCreate(username="kim", email="kim2@example.com")
+            await _user_service(session).create_user(
+                UserCreate(username="kim", email="kim2@example.com", password="password123")
             )
         assert service_error.value.status_code == 409
 

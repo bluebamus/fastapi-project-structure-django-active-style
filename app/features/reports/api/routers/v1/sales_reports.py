@@ -4,6 +4,9 @@
 
 View 는 HTTP 역할만 한다: 파라미터 수신 → Service 호출 → 응답 변환. 기간 검증도
 SQL 도 여기 없다.
+
+모든 엔드포인트가 슈퍼유저 전용이다 — 라우터 의존성 `require_superuser` 가 핸들러 전에
+판정한다(service-hardening ADR-016).
 """
 
 from datetime import date
@@ -12,11 +15,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 
 from app.core.exception import ErrorResponse
+from app.core.security.dependencies import FORBIDDEN_RESPONSES, require_superuser
 from app.features.reports.dependencies.report_dependencies import get_report_service_readonly
 from app.features.reports.schemas.report_schema import DailySalesReportResponse
 from app.features.reports.services.report_service import ReportService
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_superuser)], responses=FORBIDDEN_RESPONSES)
 
 _INVALID_RANGE: dict[int | str, dict[str, Any]] = {
     422: {"model": ErrorResponse, "description": "종료일이 시작일보다 빠름"}

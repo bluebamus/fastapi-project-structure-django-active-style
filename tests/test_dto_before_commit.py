@@ -24,6 +24,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.db.session import Base
 from app.core.redis import get_redis
 from main import app
+from tests.auth_headers import superuser_headers
 from tests.session_overrides import session_overrides
 
 
@@ -68,7 +69,7 @@ _CASES = {
         "UserResponse",
         "app.features.user.models.models:User",
         "/api/v1/user/users",
-        {"username": "hong", "email": "hong@example.com"},
+        {"username": "hong", "email": "hong@example.com", "password": "s3cret-pass"},
         {"email": "changed@example.com"},
     ),
     # auth 는 PATCH 가 없어 생성만 본다. CRUD 앱이 아니라고 빼 두었다가 **유일하게 순서를
@@ -133,7 +134,10 @@ async def env():
     fake_redis = FakeAsyncRedis()
     app.dependency_overrides[get_redis] = lambda: fake_redis
     transport = ASGITransport(app=app, raise_app_exceptions=False)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    # 쓰기 경로는 인증·권한이 걸려 있다(service-hardening F2) — 모든 경로를 통과하는 슈퍼유저로 부른다.
+    async with AsyncClient(
+        transport=transport, base_url="http://test", headers=superuser_headers()
+    ) as client:
         yield client, maker, calls
     app.dependency_overrides.clear()
     await engine.dispose()

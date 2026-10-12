@@ -36,6 +36,7 @@ from app.features.reports.schemas.report_schema import DailySalesItem
 from app.features.reports.services.report_service import ReportService
 from config import TimezoneSettings, timezone_settings
 from main import app
+from tests.auth_headers import superuser_headers
 from tests.session_overrides import session_overrides
 
 KST = ZoneInfo("Asia/Seoul")
@@ -77,7 +78,9 @@ async def client(stub_daily_sales):
 
     app.dependency_overrides.update(session_overrides(maker, writer=False))
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
+    async with AsyncClient(
+        transport=transport, base_url="http://test", headers=superuser_headers()
+    ) as c:
         yield c
     app.dependency_overrides.clear()
     await engine.dispose()

@@ -85,7 +85,7 @@
 
 ### Round 6 — 2026-10-12 (base SHA: `39e2b0d`) — 단계 F1
 - **트리거:** REQ-001 단계 F1(리뷰 우선 조치 9 전반 — Argon2 해시와 기존 bcrypt 점진 이전, JWT claims 강화, refresh 회전·재사용 탐지, 로그인·가입 rate limit).
-- **검수 범위:** `app/core/security/`(신규 — `tokens.py`·`refresh_store.py`·`rate_limiter.py`), `app/core/exception.py`(`headers`·`InvalidTokenException`·`TooManyRequestsException`), `main.py`(예외 헤더), `config.py`(`JWTSettings`), auth 기능 전부(`services/password_hasher.py` 신규·`auth_service.py`·`dependencies`·`api/routers/v1/auth.py`·`schemas`·`exceptions.py`), 옛 JWT·bcrypt 유틸 패키지(삭제), 관련 테스트·문서.
+- **검수 범위:** `app/core/security/`(신규 — `tokens.py`·`refresh_store.py`·`rate_limiter.py`), `app/core/exception.py`(`headers`·`InvalidTokenException`·`TooManyRequestsException`), `main.py`(예외 헤더), `config.py`(`JWTSettings`), auth 기능 전부(해시기 모듈 신규 — F2 에서 `app/core/security/password_hasher.py` 로 이동·`auth_service.py`·`dependencies`·`api/routers/v1/auth.py`·`schemas`·`exceptions.py`), 옛 JWT·bcrypt 유틸 패키지(삭제), 관련 테스트·문서.
 - **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 ☑ 4 □ 5 □
 - **신규 finding(심각도별):** CRIT 0 · HIGH 0 · MED 0 · LOW 0 (Round 0 의 F-019·F-020·F-021 을 닫았다)
 - **Fix:** F-019 · F-020 · F-021 → **Fixed**
@@ -97,6 +97,21 @@
 - **수렴 판정:** `NOT CONVERGED` (Open Fix 3: F-008(F2 부분)·F-022·F-023 — 단계 F2)
 - **잔여 위험 변화:** R-210(rate limit IP 판정의 프록시 홉 의존) 등록.
 
+### Round 7 — 2026-10-12 (base SHA: `31bd77a`) — 단계 F2 · 그룹 종료
+- **트리거:** REQ-001 단계 F2(리뷰 우선 조치 9 후반 — 인증 주체·소유권·슈퍼유저 2단계, 운영 도구 `create_superuser`).
+- **검수 범위:** `app/core/security/`(`authorization.py`·`dependencies.py` 신규, `password_hasher.py` 를 auth 에서 이동, `tokens.py` 의 `su`), `app/core/middlewares/user_info_middleware.py`, `app/core/tags_metadata.py`, blog·sns·reply(모델·스키마·서비스·provider·라우터), catalog·reports·home(라우터), user(모델·스키마·예외·서비스·provider·라우터), auth(provider·서비스·스키마), 리비전 `a7c3e9f1b2d4`, `scripts/create_superuser.py`, 스키마 골든, 관련 테스트·문서.
+- **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 ☑ 4 ☑ 5 ☑
+- **신규 finding(심각도별):** CRIT 0 · HIGH 0 · MED 1 · LOW 1 — 구현 중 발견한 F-024(접속 로그가 `user_id` 를 `call_next` 앞에서 읽어 항상 NULL), F-025(토큰 없음 401 이 FastAPI 기본 형식). 둘 다 이번 라운드에서 고쳤다.
+- **Fix:** F-008(F2 부분) · F-022 · F-023 · F-024 · F-025 → **Fixed**
+- **설계 구체화:** ADR-023 — 해시기·공유 provider 의 core 이동(auth 는 다시 내보냄), access `su` claim(ADR-022 ② 이행), `Principal`·`get_current_principal`(DB 조회 없음, `request.state.user_id`)·`require_superuser`·별칭 2개, `get_current_user` 는 주체 위의 DB 조회만, `OwnershipPolicy` 생성자 주입(글은 404 뒤 403, 사용자는 판정 먼저), 작성자 서버 기록·`author` 를 요청 스키마에서 제거, 관리 경로의 라우트·라우터 의존성, 특권 필드 403·`revoke_user`(비활성화·강등·삭제), 리비전 `a7c3e9f1b2d4`, 스크립트(getpass·`--password-stdin`, 환경변수 미사용), 접속 로그 응답 뒤 읽기.
+- **fail-on-revert:** 변이 22종을 작업 폴더 밖 사본으로 복원하며 확인했다 — 모두 실패(KILLED). blog update 소유권 판정 제거 2 실패, sns delete 판정 제거 1, reply update 판정 제거 1, 정책의 NULL 소유자 허용 4, 정책의 슈퍼유저 우회 제거 3, `require_superuser` 무력화 12, catalog 생성 라우트 의존성 제거 1, reports 라우터 의존성 제거 2(분류표 포함), home 라우터 의존성 제거 5, user 목록 의존성 제거 1, 특권 필드 검사 제거 1, user 단건 조회 판정 제거 1, 비활성화·강등 폐기 제거 1, 삭제 폐기 제거 1, 생성 해시 제거 2, 작성자를 본문에서 받기 1, `su` 필수 해제 5, 로그인 토큰의 `su` 를 상수 False 로 1, 주체의 `request.state` 기록 제거 3, 미들웨어의 응답 뒤 읽기 제거 1, 스크립트 승격 플래그 제거 1, 스크립트 신규 슈퍼유저 플래그 제거 2. 토큰 없음 401 의 오류 형식은 `test_protected_routes_reject_missing_token` 의 error_code 단언이 고정한다(분기 제거 시 `AUTH_INVALID_TOKEN` 이 나가 실패). 수정 전 코드에는 `app.core.security.authorization`·`dependencies` 와 스크립트가 없어 새 테스트는 수집 단계에서 실패한다.
+- **동작이 바뀐 기존 테스트(새 계약으로 갱신, 단언을 느슨하게 하지 않음):** ① blog·sns·reply·catalog·reports·user 엔드포인트 테스트와 blog 트랜잭션 경계 — 클라이언트에 기본 Bearer 헤더(`tests/auth_headers.py`, 실제 `TokenService` 서명)를 붙였다. 쓰기는 이제 인증이 필요하다. ② `blog::test_patch_null_on_nullable_field_clears_it` → `test_patch_cannot_change_author` — `author` 는 더 이상 수정 가능 필드가 아니다(본문 무시·작성자 유지 단언). ③ `sns::test_create_and_get_post` — 본문 `author="park"` 대신 서버 기록 `alice`·`author_id` 를 단언. ④ user 엔드포인트 — 생성 본문에 비밀번호, `get_redis` 를 fakeredis 로(비활성화·삭제가 refresh 저장소를 쓴다). ⑤ `tests/test_dto_before_commit.py` — 슈퍼유저 헤더·user 생성 비밀번호. ⑥ `tests/test_email_validation.py` — `UserCreate` 에 유효한 비밀번호를 넣어 이메일 규칙만으로 실패하게 했다(비밀번호 누락으로 우연히 통과하지 않도록). ⑦ `tests/test_update_noop.py` — 서비스 생성자에 `OwnershipPolicy`, 메서드에 슈퍼유저 주체. ⑧ `tests/core/test_token_service.py` — `issue_access` 세 번째 인자, 위조 claims 기본값에 `su`. ⑨ `tests/core/test_utc_datetime.py` 응답 시각 테스트에 사용자 헤더. ⑩ `tests/core/test_password_hasher.py` — 클래스와 함께 auth 기능 tests 에서 이동(단언 불변). ⑪ MySQL `tests/integration/test_mysql_orm_smoke.py` — 새 `UserService` 조립·비밀번호(로컬은 수집만).
+- **스키마 골든:** `docs/crp/groups/orm-raw-repository/baseline/schema.json` 에 `users.is_superuser`·`blog_posts`/`sns_posts`/`replies.author_id` 4개 항목만 추가(기존 항목 무변경). 이유: 의도한 스키마 변경(ADR-023 ⑥), 마이그레이션 드리프트 테스트·`alembic check` 가 모델과 리비전의 일치를 따로 증명한다.
+- **OpenAPI:** 경로·메서드 불변(라우트 인벤토리 22 / 37, 골든 그대로). 보호 operation 에 `security`(OAuth2PasswordBearer)·401/403 응답, 요청 스키마에서 `author` 제거, 응답에 `author_id`, `UserCreate.password`·`is_superuser`, `UserUpdate.is_superuser`, `UserResponse`·`AuthUserResponse.is_superuser`, 태그 설명(권한). 규칙 기반 계약 테스트(`tests/test_openapi_contract.py`) 통과, 새 분류표 테스트가 operation 별 `security` 표시를 권한 분류와 대조한다.
+- **검사 수치:** `pytest -m "not mysql"` 1098 passed / 42 deselected / skip 0(1001 → +97), `-m mysql --collect-only` 42 수집(41 → +1, `test_mysql_authorization_revision.py`), ruff check·format 클린(330 files), mypy 201 files 0 issues(Round 1 과 같은 순수 Python 빌드 우회), alembic head 하나(`a7c3e9f1b2d4`), 빈 SQLite 에 `upgrade head` → `alembic check` "No new upgrade operations detected" → `downgrade -1` → `upgrade head`, review_gate `structure`·`supply`·`docs` 통과(ENV=test), `uv lock --check` 통과. 새 의존성 없음.
+- **수렴 판정:** `CONVERGED` — Open Fix 0(F-001~F-025 전부 Fixed), charter §3 인수 기준 전부 충족, 잔여 위험은 residual-risk R-201~R-214 로 수용.
+- **잔여 위험 변화:** R-211(권한 변경의 access 토큰 반영 지연)·R-212(작성자 표시 이름 복사·FK 없음)·R-213(옛 글은 슈퍼유저만 수정)·R-214(스크립트의 비밀번호 입력 경로) 등록.
+
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
@@ -107,3 +122,4 @@
 | 4 | 0 | 0 | 0 | 0 | 0 (Fixed 1) | NOT CONVERGED |
 | 5 | 0 | 0 | 0 | 0 | 0 (Fixed 2) | NOT CONVERGED |
 | 6 | 0 | 0 | 0 | 0 | 0 (Fixed 3) | NOT CONVERGED |
+| 7 | 0 | 0 | 1 | 1 | 2 (Fixed 5 — F-008 잔여·F-022~F-025) | **CONVERGED** |

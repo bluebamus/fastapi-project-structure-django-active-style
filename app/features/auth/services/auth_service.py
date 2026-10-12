@@ -13,6 +13,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exception import InvalidTokenException
+from app.core.security.password_hasher import PasswordHasher
 from app.core.security.refresh_store import RefreshTokenStore
 from app.core.security.tokens import REFRESH, TokenService
 from app.core.services.services_base import BaseService
@@ -21,7 +22,6 @@ from app.features.auth.exceptions import (
     UsernameAlreadyExistsException,
 )
 from app.features.auth.schemas.auth_schema import RegisterRequest, TokenResponse
-from app.features.auth.services.password_hasher import PasswordHasher
 from app.features.user.models.models import User
 from app.features.user.repositories.user_repository import UserRepository
 
@@ -76,7 +76,7 @@ class AuthService(BaseService):
         refresh, jti = self.tokens.issue_refresh(user.id, family)
         await self.refresh_store.register(jti, user.id, family)
         return TokenResponse(
-            access_token=self.tokens.issue_access(user.id, user.username),
+            access_token=self.tokens.issue_access(user.id, user.username, user.is_superuser),
             refresh_token=refresh,
             expires_in=int(self.tokens.access_ttl.total_seconds()),
         )

@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.db.session import Base
 from app.features.blog.models.models import Post  # noqa: F401  (register table)
 from main import app
+from tests.auth_headers import USER_ID, user_headers
 from tests.session_overrides import session_overrides
 
 
@@ -30,7 +31,9 @@ async def client():
     # 읽기 경로가 실제 MySQL 로 새어나간다.
     app.dependency_overrides.update(session_overrides(maker))
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
+    async with AsyncClient(
+        transport=transport, base_url="http://test", headers=user_headers()
+    ) as c:
         yield c
     app.dependency_overrides.clear()
     await engine.dispose()
@@ -115,13 +118,20 @@ async def test_patch_null_on_required_field_returns_422(client):
     assert (await client.get(f"/api/v1/blog/posts/{post_id}")).json()["title"] == "t"
 
 
-async def test_patch_null_on_nullable_field_clears_it(client):
+async def test_patch_cannot_change_author(client):
+    """작성자는 서버가 정한다(service-hardening F2) — PATCH 본문의 author 는 반영되지 않는다.
+
+    이전 계약은 author 를 null 로 지울 수 있었다. 작성자 표시를 클라이언트가 바꾸면
+    소유권(author_id)과 표시가 어긋나므로 Update 스키마에서 뺐다.
+    """
     created = await client.post(
         "/api/v1/blog/posts", json={"title": "t", "content": "c", "author": "hong"}
     )
     post_id = created.json()["id"]
+    assert created.json()["author"] == "alice"
 
     resp = await client.patch(f"/api/v1/blog/posts/{post_id}", json={"author": None})
 
     assert resp.status_code == 200
-    assert resp.json()["author"] is None
+    assert resp.json()["author"] == "alice"
+    assert resp.json()["author_id"] == USER_ID

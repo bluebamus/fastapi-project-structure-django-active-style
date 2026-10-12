@@ -5,13 +5,16 @@ in-memory sqlite(get_writer_db_session 오버라이드)로 검증한다.
 """
 
 import pytest_asyncio
+from fakeredis import FakeAsyncRedis
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.core.db.session import Base
+from app.core.redis import get_redis
 from app.features.user.models.models import User  # noqa: F401  (register table)
 from main import app
+from tests.auth_headers import superuser_headers
 from tests.session_overrides import session_overrides
 
 
@@ -29,8 +32,13 @@ async def client():
     # 조회 엔드포인트는 get_read_only_db_session 을 쓴다 — 함께 오버라이드하지 않으면
     # 읽기 경로가 실제 MySQL 로 새어나간다.
     app.dependency_overrides.update(session_overrides(maker))
+    # 비활성화·삭제가 refresh 저장소(Redis)를 쓴다(lifespan 없이 띄우므로 가짜).
+    fake_redis = FakeAsyncRedis()
+    app.dependency_overrides[get_redis] = lambda: fake_redis
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
+    async with AsyncClient(
+        transport=transport, base_url="http://test", headers=superuser_headers()
+    ) as c:
         yield c
     app.dependency_overrides.clear()
     await engine.dispose()
@@ -47,7 +55,7 @@ def test_user_auto_registered():
 async def test_create_and_get_user(client):
     resp = await client.post(
         "/api/v1/user/users",
-        json={"username": "alice", "email": "alice@example.com"},
+        json={"username": "alice", "email": "alice@example.com", "password": "password123"},
     )
     assert resp.status_code == 201
     body = resp.json()
@@ -61,8 +69,12 @@ async def test_create_and_get_user(client):
 
 
 async def test_list_users(client):
-    await client.post("/api/v1/user/users", json={"username": "a", "email": "a@x.com"})
-    await client.post("/api/v1/user/users", json={"username": "b", "email": "b@x.com"})
+    await client.post(
+        "/api/v1/user/users", json={"username": "a", "email": "a@x.com", "password": "password123"}
+    )
+    await client.post(
+        "/api/v1/user/users", json={"username": "b", "email": "b@x.com", "password": "password123"}
+    )
 
     resp = await client.get("/api/v1/user/users")
     assert resp.status_code == 200
@@ -71,7 +83,8 @@ async def test_list_users(client):
 
 async def test_update_user_deactivate(client):
     created = await client.post(
-        "/api/v1/user/users", json={"username": "bob", "email": "bob@x.com"}
+        "/api/v1/user/users",
+        json={"username": "bob", "email": "bob@x.com", "password": "password123"},
     )
     user_id = created.json()["id"]
 
@@ -82,7 +95,8 @@ async def test_update_user_deactivate(client):
 
 async def test_delete_user(client):
     created = await client.post(
-        "/api/v1/user/users", json={"username": "carol", "email": "carol@x.com"}
+        "/api/v1/user/users",
+        json={"username": "carol", "email": "carol@x.com", "password": "password123"},
     )
     user_id = created.json()["id"]
 
@@ -94,8 +108,14 @@ async def test_delete_user(client):
 
 
 async def test_duplicate_username_returns_409(client):
-    await client.post("/api/v1/user/users", json={"username": "dup", "email": "d1@x.com"})
-    resp = await client.post("/api/v1/user/users", json={"username": "dup", "email": "d2@x.com"})
+    await client.post(
+        "/api/v1/user/users",
+        json={"username": "dup", "email": "d1@x.com", "password": "password123"},
+    )
+    resp = await client.post(
+        "/api/v1/user/users",
+        json={"username": "dup", "email": "d2@x.com", "password": "password123"},
+    )
     assert resp.status_code == 409
     assert resp.json()["error_code"] == "USER_USERNAME_DUPLICATE"
 
@@ -107,5 +127,8 @@ async def test_get_missing_user_returns_404(client):
 
 
 async def test_create_rejects_invalid_email(client):
-    resp = await client.post("/api/v1/user/users", json={"username": "x", "email": "not-an-email"})
+    resp = await client.post(
+        "/api/v1/user/users",
+        json={"username": "x", "email": "not-an-email", "password": "password123"},
+    )
     assert resp.status_code == 422

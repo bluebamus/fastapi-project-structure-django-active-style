@@ -52,9 +52,14 @@
 - [x] 라우트 인벤토리에 `/logout` 추가(ADR-018), 커밋 허용 목록 갱신
 - [x] 각 Fix fail-on-revert(변이) 확인, GATE 3 그린(1001 passed / 41 deselected / skip 0), run-log 기록
 
-## Round 7 — 단계 F2 (인가 · 소유권 · 운영 도구)
-- [ ] (F-022·F-023·F-008) `Principal`·`get_current_principal`·`OwnershipPolicy`·슈퍼유저 경로, 작성자 컬럼 리비전
-- [ ] 슈퍼유저 생성 스크립트, 문서·`.env.example`·라우트 인벤토리 갱신
-- [ ] 401·403·소유자·슈퍼유저 우회·비활성화 refresh 실패·접속 로그 user_id 테스트
+## Round 7 — 2026-10-12 단계 F2 (인가 · 소유권 · 운영 도구) — 완료
+- [x] (F-022·F-023·F-008) `Principal`·`get_current_principal`·`require_superuser`·`OwnershipPolicy`(core), access `su` claim, 슈퍼유저 경로, 작성자 서버 기록, 리비전 `a7c3e9f1b2d4`(`is_superuser`·`author_id`) (ADR-023)
+- [x] `PasswordHasher`·공유 provider 를 core 로 이동(user 가 auth 를 import 하지 않음), auth 는 다시 내보냄
+- [x] (F-024) 접속 로그 user_id 를 응답 뒤에 읽기, (F-025) 토큰 없음 401 을 저장소 오류 형식으로
+- [x] 슈퍼유저 생성 스크립트 `scripts/create_superuser.py`(getpass·`--password-stdin`·승격·`--set-password`)
+- [x] 문서 — README(특징·구조·운영 배포 2a·6·`/admin` 문구·권한 표·인증 흐름 `su`·첫 관리자 만들기), ARCHITECTURE §7.1 접속 로그 user_id·§10.1·§10.2(신규 인가)·§10.3·§10.4, DEVELOPMENT §1·§7.1(신규 라우트 보호)·§12, 기능 가이드 HTML 보안 문단, 태그 설명. `.env.example` 은 새 키 없음(스크립트는 환경변수를 읽지 않는다)
+- [x] 라우트 인벤토리 불변(22 / 37) 확인, 권한 분류표 테스트 신설, 스키마 골든에 새 컬럼 4개 추가(이유 ADR-023 ⑥), 동작이 바뀐 기존 테스트를 새 계약으로 갱신(run-log)
+- [x] 401(토큰 없음·만료·위조·su 없음·refresh 를 access 로)·403(타인 글·일반 사용자의 관리 경로·특권 필드)·소유자 성공·슈퍼유저 우회·비활성화/강등/삭제 refresh 폐기·접속 로그 user_id·스크립트 생성/승격·SQLite/MySQL 리비전 테스트
+- [x] 각 Fix fail-on-revert(변이 22종) 확인, GATE 3 그린(1098 passed / 42 deselected / skip 0), run-log 기록, 그룹 종료
 
 > 미닫힘(`[ ]`) 항목이 1개라도 있으면 그 라운드는 GATE 5 Done 이 아니다.

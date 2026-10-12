@@ -79,3 +79,52 @@ def test_migrated_schema_matches_models(tmp_path, monkeypatch):
         engine.dispose()
 
     assert diff == [], f"마이그레이션 결과와 모델이 다르다: {diff}"
+
+
+_AUTHZ_REVISION = "a7c3e9f1b2d4"
+_AUTHORED_TABLES = ("blog_posts", "sns_posts", "replies")
+
+
+def _authz_columns(engine: sa.Engine) -> dict[str, set[str]]:
+    inspector = sa.inspect(engine)
+    found = {"users": {c["name"] for c in inspector.get_columns("users")} & {"is_superuser"}}
+    for table in _AUTHORED_TABLES:
+        columns = {c["name"] for c in inspector.get_columns(table)} & {"author_id"}
+        indexed = {name for index in inspector.get_indexes(table) for name in index["column_names"]}
+        found[table] = columns | ({"ix:author_id"} if "author_id" in indexed else set())
+    return found
+
+
+def test_authorization_revision_adds_and_removes_columns(tmp_path, monkeypatch):
+    """리비전 a7c3e9f1b2d4(service-hardening F2): is_superuser·author_id(+인덱스) 추가·제거.
+
+    기존 사용자는 server default 로 일반 사용자(false)가 된다 — 승격은 운영 스크립트가 한다.
+    """
+    url = f"sqlite:///{(tmp_path / 'authz.db').as_posix()}"
+    monkeypatch.setattr(db_settings, "ALEMBIC_DATABASE_URL", url)
+    config = Config("alembic.ini")
+    command.upgrade(config, f"{_AUTHZ_REVISION}-1")
+    engine = sa.create_engine(url)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text(
+                    "INSERT INTO users (id, username, email, is_active, created_at, updated_at) "
+                    "VALUES ('u1', 'old', 'old@example.com', 1, "
+                    "'2026-01-01 00:00:00', '2026-01-01 00:00:00')"
+                )
+            )
+
+        command.upgrade(config, _AUTHZ_REVISION)
+        assert _authz_columns(engine) == {
+            "users": {"is_superuser"},
+            **{table: {"author_id", "ix:author_id"} for table in _AUTHORED_TABLES},
+        }
+        with engine.connect() as conn:
+            existing = conn.execute(sa.text("SELECT is_superuser FROM users WHERE id = 'u1'"))
+            assert existing.scalar_one() in (0, False)
+
+        command.downgrade(config, f"{_AUTHZ_REVISION}-1")
+        assert _authz_columns(engine) == {"users": set(), **{t: set() for t in _AUTHORED_TABLES}}
+    finally:
+        engine.dispose()

@@ -8,7 +8,7 @@
 from functools import lru_cache
 
 from fastapi import Depends, Request
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordRequestForm
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,41 +16,40 @@ from app.core.db.session import get_read_only_db_session, get_writer_db_session
 from app.core.exception import InvalidTokenException, TooManyRequestsException
 from app.core.middlewares.client_ip import ClientIPResolver
 from app.core.redis import get_redis
+from app.core.security.dependencies import (
+    CurrentPrincipal,
+    get_password_hasher,
+    get_refresh_token_store,
+    get_token_service,
+)
+from app.core.security.password_hasher import PasswordHasher
 from app.core.security.rate_limiter import RateLimiter
 from app.core.security.refresh_store import RefreshTokenStore
-from app.core.security.tokens import ACCESS, TokenService
+from app.core.security.tokens import TokenService
 from app.features.auth.services.auth_service import AuthService
-from app.features.auth.services.password_hasher import PasswordHasher
 from app.features.user.models.models import User
 from app.features.user.repositories.user_repository import UserRepository
 from config import jwt_settings, middleware_settings
 
-# 로그인 엔드포인트에서 access token 을 발급받는다.
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
-
-
-@lru_cache
-def get_password_hasher() -> PasswordHasher:
-    """프로세스 단일 해시기 — 생성 시 더미 해시를 한 번 계산한다."""
-    return PasswordHasher()
-
-
-@lru_cache
-def get_token_service() -> TokenService:
-    return TokenService(jwt_settings)
+# 해시기·토큰·refresh 저장소 provider 는 user 기능도 쓰므로 core 에 있다(ADR-023).
+# 여기서 다시 내보내 기존 import 경로(`...auth_dependencies import get_token_service`)를 유지한다.
+__all__ = [
+    "get_auth_service",
+    "get_client_ip_resolver",
+    "get_current_user",
+    "get_password_hasher",
+    "get_rate_limiter",
+    "get_refresh_token_store",
+    "get_token_service",
+    "login_rate_limit",
+    "register_rate_limit",
+]
 
 
 @lru_cache
 def get_client_ip_resolver() -> ClientIPResolver:
     """접속 로그 미들웨어와 같은 설정(`TRUSTED_PROXY_HOPS`)으로 IP 를 판정한다."""
     return ClientIPResolver(middleware_settings.TRUSTED_PROXY_HOPS)
-
-
-def get_refresh_token_store(
-    redis: Redis = Depends(get_redis),
-    tokens: TokenService = Depends(get_token_service),
-) -> RefreshTokenStore:
-    return RefreshTokenStore(redis, int(tokens.refresh_ttl.total_seconds()))
 
 
 def get_rate_limiter(redis: Redis = Depends(get_redis)) -> RateLimiter:
@@ -113,11 +112,13 @@ async def register_rate_limit(
 
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    tokens: TokenService = Depends(get_token_service),
+    principal: CurrentPrincipal,
     session: AsyncSession = Depends(get_read_only_db_session),
 ) -> User:
-    """Bearer access token 을 검증해 현재 사용자를 반환한다(실패 시 401).
+    """현재 사용자 **엔티티**를 반환한다(실패 시 401). `/me` 처럼 엔티티가 필요한 곳에서만 쓴다.
+
+    토큰 검증은 core ``get_current_principal`` 하나를 거친다(C-8). 그 위에 DB 조회로
+    삭제·비활성 사용자를 걸러 낸다 — 다른 보호 경로는 DB 를 보지 않는 주체만 쓴다(ADR-014).
 
     인증은 읽기 전용이므로 커밋하는 ``get_auth_service`` 를 거치지 않고 read-only 세션의
     리포지토리로 조회한다. 인증+쓰기 의존성을 함께 쓰는 엔드포인트에서 한 세션에 커밋
@@ -128,8 +129,7 @@ async def get_current_user(
     인증 단계에서 읽은 객체를 쓰기 세션에서 수정하려 들면 다른 세션의 인스턴스라
     반영되지 않는다. 그런 라우트를 만들 때는 쓰기 세션에서 다시 조회할 것.
     """
-    claims = tokens.decode(token, ACCESS)
-    user = await UserRepository(session).get_by_id(claims["sub"])
+    user = await UserRepository(session).get_by_id(principal.id)
     if user is None or not user.is_active:
         raise InvalidTokenException()
     return user

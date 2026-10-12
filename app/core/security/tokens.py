@@ -1,6 +1,7 @@
 """JWT 발급·검증 (service-hardening ADR-011).
 
-claims: ``sub, type, iat, nbf, exp, jti, iss, aud`` + access 는 ``username``, refresh 는 ``fam``.
+claims: ``sub, type, iat, nbf, exp, jti, iss, aud`` + access 는 ``username``·``su``(슈퍼유저 여부),
+refresh 는 ``fam``.
 access 와 refresh 는 서명 키가 다르고 ``type`` 도 검사한다 — 키가 같게 설정돼도 종류 혼동이
 막힌다. 검증 실패는 이유와 관계없이 ``InvalidTokenException``(401) 하나로 올린다.
 """
@@ -23,8 +24,12 @@ REFRESH: TokenType = "refresh"
 
 # 두 종류에 공통인 필수 claim. 하나라도 없으면 PyJWT 가 MissingRequiredClaimError 를 낸다.
 _REQUIRED_CLAIMS = ["exp", "iat", "nbf", "sub", "jti", "iss", "aud", "type"]
-# 종류별 추가 필수 claim — PyJWT 의 require 는 등록 claim 만 다루므로 직접 확인한다.
-_TYPE_CLAIMS: dict[TokenType, str] = {ACCESS: "username", REFRESH: "fam"}
+# 종류별 추가 필수 claim 과 그 타입 — PyJWT 의 require 는 등록 claim 만 다루므로 직접 확인한다.
+# access 의 ``su`` 는 인가 판정(`Principal.is_superuser`)의 근거라 bool 이 아니면 거부한다.
+_TYPE_CLAIMS: dict[TokenType, dict[str, type]] = {
+    ACCESS: {"username": str, "su": bool},
+    REFRESH: {"fam": str},
+}
 
 
 class TokenService:
@@ -61,9 +66,11 @@ class TokenService:
         )
         return token, jti
 
-    def issue_access(self, sub: str, username: str) -> str:
-        """access 토큰을 발급한다."""
-        token, _ = self._encode(sub, ACCESS, self.access_ttl, {"username": username})
+    def issue_access(self, sub: str, username: str, is_superuser: bool) -> str:
+        """access 토큰을 발급한다 — ``su`` 는 발급 시점의 슈퍼유저 여부다."""
+        token, _ = self._encode(
+            sub, ACCESS, self.access_ttl, {"username": username, "su": is_superuser}
+        )
         return token
 
     def issue_refresh(self, sub: str, family: str) -> tuple[str, str]:
@@ -88,8 +95,8 @@ class TokenService:
             )
         except jwt.InvalidTokenError as exc:
             raise InvalidTokenException() from exc
-        if claims["type"] != expected_type or not isinstance(
-            claims.get(_TYPE_CLAIMS[expected_type]), str
+        if claims["type"] != expected_type or not all(
+            isinstance(claims.get(name), kind) for name, kind in _TYPE_CLAIMS[expected_type].items()
         ):
             raise InvalidTokenException()
         return claims

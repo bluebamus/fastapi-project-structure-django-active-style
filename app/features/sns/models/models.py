@@ -21,7 +21,8 @@ class SnsPost(UUIDPrimaryKeyMixin, CreatedAtMixin, UpdatedAtMixin, Base):
     Attributes:
         id: UUID 기본키
         content: 게시물 본문
-        author: 작성자(선택)
+        author: 작성자 표시 이름(서버가 주체의 username 으로 채운다)
+        author_id: 작성자 사용자 id(소유권 판정 기준)
         like_count: 좋아요 수
         created_at: 생성 시각
         updated_at: 수정 시각
@@ -31,6 +32,9 @@ class SnsPost(UUIDPrimaryKeyMixin, CreatedAtMixin, UpdatedAtMixin, Base):
 
     content: Mapped[str] = mapped_column(Text, nullable=False)
     author: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # 작성자 사용자 id — 서버가 인증 주체에서 채운다(ADR-015). 작성자 컬럼 도입 전의 행은 NULL 이고
+    # 슈퍼유저만 수정한다. 사용자 삭제 뒤에도 글은 남기므로 FK 를 걸지 않는다.
+    author_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     like_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     def __repr__(self) -> str:

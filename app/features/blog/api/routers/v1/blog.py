@@ -12,6 +12,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, Path, Query, status
 
 from app.core.exception import ErrorResponse
+from app.core.security.dependencies import (
+    FORBIDDEN_RESPONSES,
+    UNAUTHORIZED_RESPONSES,
+    CurrentPrincipal,
+)
 from app.features.blog.dependencies.blog_dependencies import (
     get_blog_service,
     get_blog_service_readonly,
@@ -35,15 +40,17 @@ _NOT_FOUND: dict[int | str, dict[str, Any]] = {
     "/posts",
     response_model=PostResponse,
     status_code=status.HTTP_201_CREATED,
+    responses=UNAUTHORIZED_RESPONSES,
     summary="게시글 생성",
-    description="새 게시글을 생성합니다.",
+    description="새 게시글을 생성합니다. 로그인이 필요하며 작성자는 로그인 사용자로 기록됩니다.",
     operation_id="createPost",
 )
 async def create_post(
     payload: PostCreate,
+    principal: CurrentPrincipal,
     service: BlogService = Depends(get_blog_service),
 ) -> PostResponse:
-    post = await service.create_post(payload)
+    post = await service.create_post(payload, principal)
     response = PostResponse.model_validate(post)
     await service.commit()
     return response
@@ -89,17 +96,18 @@ async def get_post(
 @router.patch(
     "/posts/{post_id}",
     response_model=PostResponse,
-    responses=_NOT_FOUND,
+    responses={**_NOT_FOUND, **FORBIDDEN_RESPONSES},
     summary="게시글 수정",
-    description="게시글을 부분 수정합니다(전달한 필드만).",
+    description="게시글을 부분 수정합니다(전달한 필드만). 작성자 본인 또는 슈퍼유저만 할 수 있습니다.",
     operation_id="updatePost",
 )
 async def update_post(
     payload: PostUpdate,
+    principal: CurrentPrincipal,
     post_id: str = Path(..., description="게시글 ID(UUID)"),
     service: BlogService = Depends(get_blog_service),
 ) -> PostResponse:
-    post = await service.update_post(post_id, payload)
+    post = await service.update_post(post_id, payload, principal)
     response = PostResponse.model_validate(post)
     await service.commit()
     return response
@@ -108,14 +116,15 @@ async def update_post(
 @router.delete(
     "/posts/{post_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses=_NOT_FOUND,
+    responses={**_NOT_FOUND, **FORBIDDEN_RESPONSES},
     summary="게시글 삭제",
-    description="게시글을 삭제합니다.",
+    description="게시글을 삭제합니다. 작성자 본인 또는 슈퍼유저만 할 수 있습니다.",
     operation_id="deletePost",
 )
 async def delete_post(
+    principal: CurrentPrincipal,
     post_id: str = Path(..., description="게시글 ID(UUID)"),
     service: BlogService = Depends(get_blog_service),
 ) -> None:
-    await service.delete_post(post_id)
+    await service.delete_post(post_id, principal)
     await service.commit()
