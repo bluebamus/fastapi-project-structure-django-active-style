@@ -55,7 +55,7 @@ config.py          설정 단일 출처 (Pydantic Settings) + 배포 안전 게�
 app/features/      기능 앱 — 디렉터리 존재 = 등록 선언
   auth · blog · catalog(ORM 예제) · home(접속 로그) · reply · reports(Raw 예제) · sns · user
 app/core/          registry · db(세션·라우팅) · Base 모델/Repository/Service · 미들웨어 · 자원 관리
-app/celery/        중앙 Celery 앱과 태스크
+app/celery/        Celery 앱·실행 기반 (태스크는 기능별 tasks.py, registry 가 발견)
 app/utils/         로깅 · JWT/bcrypt · 페이지네이션 · 검증
 migrations/        Alembic (런타임과 같은 registry 로 모델 수집)
 scripts/           new_app.py(앱 생성기) · review_gate.py(검증 게이트)
@@ -68,7 +68,7 @@ docs/              guides(현행) · specs(고정 기준선) · crp(검수 이�
                                      └ 쓰기 핸들러가 응답 전에 await service.commit()
 ```
 
-앱 등록 규약(찾는 파일 다섯 가지, 오류 정책, `apps.py` 의 `ready()` 훅, Django 대응 범위), 기동·종료
+앱 등록 규약(찾는 파일 여섯 가지, 오류 정책, `apps.py` 의 `ready()` 훅, Django 대응 범위), 기동·종료
 순서, 세션·라우팅은 [ARCHITECTURE](docs/guides/ARCHITECTURE.md)에 있습니다.
 
 ---
@@ -144,7 +144,7 @@ Remove-Item Env:DEBUG      # 끝나면 개발 기본값으로 복원
 | 이 상태에서 | 결과 | 이유 |
 |---|---|---|
 | `GET /health` | 200 | DB 를 건드리지 않는다 |
-| `GET /ready` | 503 | writer DB 의 `SELECT 1` 이 실패한다 (Redis 는 보지 않는다) |
+| `GET /ready` | 503 | writer DB 의 `SELECT 1` 이 실패한다 (DB 와 Redis 가 모두 응답해야 200) |
 | 기능 API (`/api/v1/...`) | 500 | MySQL 이 필요하다 |
 | `/docs`, `/openapi.json` | 404 | `DEBUG=false` 가 문서를 끈다 |
 
@@ -235,7 +235,9 @@ uv run python -m scripts.review_gate --group static structure docs
 ```
 
 `mysql` 마커 테스트(`tests/integration/`)는 MySQL 8.4 가 `127.0.0.1:3310` 에 있어야 돕니다
-(`MYSQL_TEST_PORT` 로 변경).
+(`MYSQL_TEST_PORT` 로 변경). 같은 파일의 `redis-test` 는 lifespan·`/ready` 를 실물로 볼 때 쓰는
+Redis 7.4 입니다(`127.0.0.1:6381`, `REDIS_TEST_PORT` 로 변경 — 앱이 쓰게 하려면 `REDIS_PORT` 도
+같은 값으로). 단위 테스트는 가짜 클라이언트를 주입하므로 Redis 없이 돕니다.
 
 ```bash
 docker compose -f compose.test.yaml up -d --wait
@@ -304,7 +306,7 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | 2 | 트래픽 전환 전에 `alembic upgrade head` 를 적용했는가 | 서버 기동은 migration 을 하지 않는다 |
 | 3 | 외부 노출이 필요 없으면 `SERVER_HOST=127.0.0.1` 인가, 프록시·방화벽에서 `/admin` 을 막았는가 | 기본 바인딩은 `0.0.0.0` 이다 |
 | 4 | 프록시 뒤라면 `TRUSTED_PROXY_HOPS` 가 실제 프록시 수와 같은가 | 아니면 접속 로그 IP 가 위조되거나 프록시 IP 로 찍힌다 |
-| 5 | readiness 는 `/ready`, Redis 는 별도로 감시하는가 | `/health` 는 DB·Redis 를 보지 않는다 |
+| 5 | readiness 를 `/ready` 에 걸었는가 | `/ready` 는 DB 와 Redis 를 모두 본다(각 2초). `/health` 는 둘 다 보지 않는다 |
 | 6 | 공개할 CRUD 에 인가를 붙였는가 | 현재 예제 API 에는 인증·소유권 검사가 없다 |
 | 7 | 기존 MySQL 데이터가 있다면 `e5a7c9d1f3b5`(시각 UTC 전환) 적용 전에 그 시각이 Asia/Seoul 벽시계인지 확인했는가 | 리비전이 `+09:00 → UTC` 로 옮긴다. 다른 지역 시각으로 쌓인 DB 는 오프셋을 바꿔 적용해야 한다([ARCHITECTURE §12](docs/guides/ARCHITECTURE.md)) |
 
@@ -342,7 +344,7 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | | POST | `/api/v1/auth/login` (**form-urlencoded**, 200 · 불일치 401) |
 | | POST | `/api/v1/auth/refresh` (JSON `{"refresh_token": ...}`, 200 · 무효 401) |
 | | GET | `/api/v1/auth/me` (Bearer access 토큰) |
-| 공통 | GET | `/health` (liveness) · `/ready` (DB readiness, 실패 503) |
+| 공통 | GET | `/health` (liveness) · `/ready` (DB·Redis readiness, 실패 503) |
 
 `/api/v1/home/access-logs/stats` 는 `{total_count, device_types[], os_list[], browsers[]}` 를 돌려줍니다.
 모든 오류는 `{"error_code", "message", "detail"}` 형식이고, 처리되지 않은 예외는 `DEBUG` 와 무관하게
@@ -385,7 +387,8 @@ refresh 토큰은 만료까지 유효합니다.
 3. **재시작** — 라우터가 `/api` 에, 모델이 `Base.metadata` 에, `admin_views` 가 SQLAdmin 에 붙습니다.
 
 파일 순서·체크리스트·세션 선택·테스트는 [개발 가이드](docs/guides/DEVELOPMENT.md)에 있습니다.
-Celery 태스크는 기능 폴더가 아니라 `app/celery/tasks.py` 에 둡니다.
+Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워커가 registry 로 발견하므로 중앙 목록을
+고치지 않고, 앱을 지우면 그 앱의 태스크도 워커에서 빠집니다.
 
 ---
 
@@ -401,6 +404,7 @@ Celery 태스크는 기능 폴더가 아니라 `app/celery/tasks.py` 에 둡니�
 | staging/production 에서 `안전하지 않은 설정으로 기동할 수 없습니다` | 배포 게이트 | 메시지의 설정을 모두 고친다 ([운영 배포](#운영-배포)) |
 | `/docs` 가 404 | `DEBUG=false` | `DEBUG=true` (MySQL 필요) |
 | 기능 API 만 500, `/ready` 503 | 앱은 떴지만 DB 가 없다 | MySQL 준비 |
+| 기능 API 는 정상인데 `/ready` 503 | 기동 뒤 Redis 가 끊겼다(로그 `[Readiness] Redis 점검 실패`) | Redis 상태·`REDIS_*` 확인 |
 | 새 기능이 마운트되지 않음 | 디렉터리명이 식별자가 아니거나 `_` 로 시작, `__init__.py` 없음, 라우터 모듈 경로가 `api/routers/router.py` 가 아님(변수명이 틀린 경우는 아래 `AppContractError` 행) | [ARCHITECTURE §2](docs/guides/ARCHITECTURE.md). 파일 **안의** import 오류라면 조용히 넘어가지 않고 기동이 실패한다 |
 | startup 에서 `AppContractError` | `router.py`/`admin.py` 의 export 가 규약과 다르거나 두 앱이 같은 객체를 내보냄 | 오류 메시지의 앱과 export 를 고친다 |
 | 기동 INFO 로그가 안 보임 | `LOG_LEVEL`/`LOG_CONSOLE_LEVEL` 명시값이 우선 | [ARCHITECTURE §5](docs/guides/ARCHITECTURE.md) |

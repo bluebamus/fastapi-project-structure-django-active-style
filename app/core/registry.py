@@ -9,6 +9,7 @@
     api/routers/router.py   →  <name>_router: APIRouter   (있으면 prefix /api 에 마운트)
     models/                 →  import 시 Base.metadata 에 테이블 등록 (선택)
     admin.py                →  admin_views: list[type]      (선택, SQLAdmin ModelView)
+    tasks.py                →  Celery 태스크 모듈            (선택, 워커 include 에 들어간다)
 
 설계의 뼈대는 **발견과 결선의 분리**다. `discover()` 는 "어떤 앱이 있는가" 만
 확정하고, `install_routers()` / `import_models()` / `install_admin()` 은 "그 목록을
@@ -38,6 +39,7 @@ Note:
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import pkgutil
 from dataclasses import dataclass
 from types import ModuleType
@@ -197,6 +199,25 @@ class AppModule:
                 )
         return list(views)
 
+    @property
+    def tasks_module(self) -> str:
+        """컨벤션 Celery 태스크 모듈 경로 (예: app.features.home.tasks)."""
+        return f"{self.package}.tasks"
+
+    def has_tasks(self) -> bool:
+        """`<package>.tasks` 가 있는지 **import 하지 않고** 확인한다.
+
+        다른 선택 모듈과 달리 여기서 import 하지 않는 이유는 순환이다. 태스크 모듈은
+        `app.celery.app` 의 `celery_app` 을 import 하는데, 이 목록은 바로 그
+        `celery_app` 을 만드는 도중에 필요하다. 그래서 존재만 `find_spec` 으로 보고,
+        import 는 Celery 가 워커 기동 시 include 를 처리하며 한다.
+
+        "없는 것과 틀린 것을 구분" 하는 규칙은 그대로다 — 파일이 없으면 목록에서 빠지고,
+        파일 안의 import 가 틀렸으면 Celery 의 include import 가 원래 예외로 워커 기동을
+        멈춘다(조용히 빠지지 않는다).
+        """
+        return importlib.util.find_spec(self.tasks_module) is not None
+
     def import_models(self) -> None:
         """모델 모듈을 import 하여 테이블을 `Base.metadata` 에 등록한다(있으면).
 
@@ -307,6 +328,14 @@ class AppRegistry:
         """발견된 각 앱의 models 패키지를 import 한다(`Base.metadata` 등록)."""
         for module in self._apps:
             module.import_models()
+
+    def task_modules(self) -> list[str]:
+        """발견된 앱 중 `tasks.py` 가 있는 앱의 태스크 모듈 경로(발견 순).
+
+        Celery 워커의 include 목록이다. 앱 디렉터리를 지우면 그 앱의 태스크도 목록에서
+        함께 빠진다 — 중앙 목록을 고칠 일이 없다(ADR-009).
+        """
+        return [module.tasks_module for module in self._apps if module.has_tasks()]
 
     def install_admin(self, admin: Any) -> int:
         """발견된 각 앱의 `admin.py` 의 `admin_views` 를 SQLAdmin 에 등록한다.

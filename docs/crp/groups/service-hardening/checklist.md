@@ -39,9 +39,11 @@
 - [x] 문서 — ARCHITECTURE §4.2·§8.4(신규)·§11·§12, DEVELOPMENT §6, 가이드 HTML 2종, README 배포 확인 7, `.env.example` TIME_ZONE 설명, 응답 스키마 설명 "(UTC, 오프셋 포함 ISO 8601)"
 - [x] 각 Fix fail-on-revert 확인, GATE 3 그린(930 passed / 41 deselected / skip 0), run-log 기록
 
-## Round 5 — 단계 E (Redis 필수 · /ready · Celery 발견)
-- [ ] (F-017) `get_redis` provider, `/ready` DB+Redis 503
-- [ ] (F-018) 기능별 tasks 모듈 + registry 기반 include, 기능 제거 내성 테스트
+## Round 5 — 2026-10-12 단계 E (Redis 필수 · /ready · Celery 발견) — 완료
+- [x] (F-017) `get_redis` provider(`app/core/redis.py`), `/ready` DB+Redis 동시 점검·각 2초·503, `compose.test.yaml` 에 `redis-test`(digest 고정) (ADR-021)
+- [x] (F-018) 기능별 tasks 모듈 + registry 기반 include, 기능 제거 내성 테스트 — `AppModule.tasks_module`·`has_tasks()`·`AppRegistry.task_modules()`, home 태스크 이동, 중앙 태스크 모듈 삭제, 태스크는 home provider `build_user_access_log_service(session)` 로 조립
+- [x] 문서 — README(구조·`/ready`·배포 확인 5·API 표·앱 추가·막히는 지점·테스트), ARCHITECTURE §1·§2·§4·§9·§11, DEVELOPMENT §구조·이름·§9·체크리스트, 가이드 HTML 2종, `scripts/new_app.py` 독스트링
+- [x] 각 Fix fail-on-revert 확인, GATE 3 그린(948 passed / 41 deselected / skip 0), run-log 기록
 
 ## Round 6 — 단계 F1 (인증 코어)
 - [ ] (F-019·F-020·F-021) `PasswordHasher`·`TokenService`·`RefreshTokenStore`·`RateLimiter`·`AuthService` 주입, 엔드포인트 register/login/refresh/logout/me

@@ -14,6 +14,7 @@
 | R-206 | Raw SQL 경로(`RawRepositoryBase`)의 DB 오류는 `DBErrorTranslator` 를 거치지 않고 전역 500 핸들러로 간다. | LOW | REQ-001 B 의 변환 대상은 ORM `BaseRepository` 의 create·update(·delete)다. 현재 Raw 예제는 조회뿐이다. | 2026-10-12 | Raw 쓰기 경로가 생기면 `_observed` 에서 같은 변환기를 쓴다. |
 | R-207 | 리포트의 지역 날짜 묶기는 쿼리당 고정 오프셋(기간 시작 시점)이다 — DST 가 있는 `TIME_ZONE` 에서는 전환일 전후 주문이 한 시간 어긋난 날짜로 묶일 수 있다. | LOW | 기본·운영 지역 Asia/Seoul 은 DST 가 없다. 행별 변환은 MySQL 타임존 테이블 적재가 필요해 운영 의존이 늘어난다(ADR-020 ⑤, 코드의 `ponytail:` 주석). | 2026-10-12 | DST 지역으로 운영하면 타임존 테이블을 적재해 `CONVERT_TZ(created_at, '+00:00', '<지역 이름>')` 로 바꾸거나 경계별로 나눠 조회한다. |
 | R-208 | 리비전 `e5a7c9d1f3b5` 는 기존 MySQL 값이 Asia/Seoul 벽시계라고 가정한다. downgrade 는 `DATETIME` 으로 좁히며 소수 초를 반올림한다. | LOW | 이전 기본 `TIME_ZONE` 과 모델 default(`timezone_settings.now()`)가 KST 였다. 다른 지역으로 운영한 DB 를 자동 판별할 근거가 DB 에 없다(오프셋이 저장되지 않았다). | 2026-10-12 | 다른 `TIME_ZONE` 으로 쌓인 DB 에 적용해야 하면 리비전의 `_LOCAL_OFFSET` 을 그 지역 값으로 바꿔 적용한다(README 배포 확인 7). |
+| R-209 | 앱 디렉터리를 지우면 큐에 이미 들어간 그 앱의 태스크 메시지는 워커가 "등록되지 않은 태스크" 로 버린다. | LOW | ADR-021 ④. 워커 include 는 현재 디렉터리에서 만들어지며, 지운 앱의 코드를 실행할 방법이 없다. 절차(발행 중단 → 큐 비움 → 삭제)는 ARCHITECTURE §2.6 에 적었다. | 2026-10-12 | 태스크가 내구성이 필요한 업무(결제·발송)를 맡게 되면 배포 전 큐 잔량 확인을 배포 절차·게이트로 승격한다. |
 
 <!--
 규칙:

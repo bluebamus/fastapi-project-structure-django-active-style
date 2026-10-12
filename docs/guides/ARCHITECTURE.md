@@ -21,7 +21,7 @@ fastapi-project-structure-django-active-style/
 ├── .python-version         # 3.14 (requires-python 은 >=3.13 — TypeVar default 사용)
 ├── .env.example            # 설정 전체 목록 (config.py 와 양방향 일치를 테스트가 강제)
 ├── alembic.ini             # script_location = migrations
-├── compose.test.yaml       # MySQL 8.4 통합 테스트 전용 컨테이너 (호스트 포트 3310)
+├── compose.test.yaml       # 테스트 전용 컨테이너: MySQL 8.4 (호스트 3310) · Redis 7.4 (호스트 6381)
 ├── app/
 │   ├── features/           # 기능 앱 — 디렉터리 존재 = 등록 선언
 │   │   ├── admin.py        # SQLAdmin 조립 진입점 register_admin() (앱이 아닌 파일)
@@ -36,7 +36,7 @@ fastapi-project-structure-django-active-style/
 │   │   ├── repositories/   # repository_base.py·crud_base.py (ORM) / raw_repository_base.py·raw_crud_base.py (Raw)
 │   │   ├── services/services_base.py     # BaseService (commit/rollback 헬퍼)
 │   │   └── middlewares/    # cors · user_info(접속 로그 수집) · background_tasks · access_log_sink
-│   ├── celery/             # 중앙 Celery: app.py · tasks.py · task.py(run_async) · worker_lifecycle.py
+│   ├── celery/             # Celery 앱: app.py(registry 로 include) · task.py(run_async) · worker_lifecycle.py
 │   └── utils/              # 순수 유틸: logs · authenticator(JWT·bcrypt) · pagination · validators
 ├── migrations/             # env.py 가 런타임과 같은 AppRegistry 로 모델 수집 / versions/
 ├── scripts/                # new_app.py(앱 생성기) · review_gate.py(로컬·CI 공용 게이트)
@@ -80,6 +80,7 @@ AppRegistry.discover()            "어떤 앱이 있는가" — 부작용 0
       ├─ install_hooks()   ──→ 각 앱 apps.py 의 ready()
       ├─ import_models()   ──→ Base.metadata ──→ DEBUG create_all / Alembic
       ├─ install_routers() ──→ app.include_router(<name>_router, prefix="/api")
+      ├─ task_modules()    ──→ Celery include (워커 — 각 앱 tasks.py)
       └─ install_admin()   ──→ Admin.add_view(...)   (ADMIN=true 일 때만)
 ```
 
@@ -88,7 +89,7 @@ AppRegistry.discover()            "어떤 앱이 있는가" — 부작용 0
 없다" 로 드러납니다. 요구사항 ID(`FR-*`·`NFR-*`·`SEC-*` 등, 코드 주석이 인용)와 설계 근거는
 [`docs/specs/django-style-app-automation.md`](../specs/django-style-app-automation.md)에 있습니다.
 
-### 2.1 규약 — registry 가 찾는 다섯 가지
+### 2.1 규약 — registry 가 찾는 여섯 가지
 
 | 경로 | 계약 | 없으면 |
 |---|---|---|
@@ -97,6 +98,7 @@ AppRegistry.discover()            "어떤 앱이 있는가" — 부작용 0
 | `<name>/api/routers/router.py` | `<name>_router: APIRouter` | 라우터 없는 앱 |
 | `<name>/models/` | import 시 ORM 모델이 `Base.metadata` 에 등록. 패키지와 `models.models` 모듈을 **둘 다** import 한다 | 모델 없는 앱 (실제 `auth`) |
 | `<name>/admin.py` | `admin_views: list[type]` (SQLAdmin `ModelView`) | 관리 화면 없는 앱 |
+| `<name>/tasks.py` | Celery 태스크(`@celery_app.task(name="<name>.<action>")`). 워커 include 에 들어간다 | 태스크 없는 앱 |
 
 발견 규칙:
 
@@ -116,11 +118,12 @@ AppRegistry.discover()            "어떤 앱이 있는가" — 부작용 0
 
 | 상황 | 동작 |
 |---|---|
-| 선택 모듈(`apps.py`·`router.py`·`models`·`admin.py`) 자체가 없다 | 건너뛴다 |
+| 선택 모듈(`apps.py`·`router.py`·`models`·`admin.py`·`tasks.py`) 자체가 없다 | 건너뛴다 |
 | 선택 모듈 **안의** import 가 틀렸다 | 원래 `ModuleNotFoundError` 를 그대로 올려 기동 실패 |
 | `router.py` 에 `<name>_router` 가 없거나 `APIRouter` 가 아니다 | `AppContractError` 로 기동 실패 |
 | `admin.py` 에 `admin_views` 가 없다 / list 가 아니다 / `ModelView` 가 아니다 | `AppContractError` 로 기동 실패 |
 | 두 앱이 같은 `APIRouter` 객체나 같은 `ModelView` 를 내보낸다 | `AppContractError` 로 기동 실패 |
+| `tasks.py` **안의** import 가 틀렸다 | 발견은 `find_spec` 으로 존재만 본다(태스크 모듈이 `celery_app` 을 import 해 순환이 되므로). 워커 기동 시 Celery 가 include 를 import 하며 원래 예외로 실패 |
 
 판정은 `AppModule._import_optional()` 이 `ModuleNotFoundError.name` 이 **찾던 그 모듈(또는 상위
 패키지)** 일 때만 "부재" 로 봅니다. method+path 단위의 라우트 충돌은 registry 가 검사하지
@@ -153,6 +156,7 @@ def ready() -> None:
 |---|---|
 | `main.py` | 한 `AppRegistry` 인스턴스로 훅·모델·라우터·Admin 을 모두 결선 |
 | `migrations/env.py` | 새 `AppRegistry` 로 `discover()` + `import_models()` (같은 발견 규칙, 훅 없음) |
+| `app/celery/app.py` | 새 `AppRegistry` 로 `discover()` + `import_models()` + `task_modules()` → `include` (훅 없음) |
 | `app/core/db/models_registry.py` | `import_all_models()` — registry 에 위임하는 호환 facade (테스트가 사용) |
 | `app/features/admin.py` | `register_admin(app, engine, registry)` → `create_admin_interface()`(Admin 생성, `/admin` 마운트) → `registry.install_admin()`(뷰 등록) |
 
@@ -179,8 +183,11 @@ Django 호환 계층도 Django 기반도 아닙니다. Django 의 앱 단위 응
 
 ### 2.6 앱 제거·이름 변경·진단
 
-- 디렉터리를 지우면 다음 기동에서 라우터·모델·Admin 에서 빠집니다. **DB 테이블과 데이터는
-  남습니다** — 보존·이관과 삭제 revision 을 따로 설계합니다.
+- 디렉터리를 지우면 다음 기동에서 라우터·모델·Admin, 그리고 **워커의 Celery 태스크**(include)에서
+  빠집니다. 중앙 Celery 패키지는 기능을 import 하지 않으므로 워커도 import 오류 없이 뜹니다. 다만
+  큐에 이미 들어간 그 앱의 태스크 메시지는 워커가 "등록되지 않은 태스크" 로 버립니다 — 발행을 먼저
+  멈추고 큐를 비운 뒤 지웁니다. **DB 테이블과 데이터는 남습니다** — 보존·이관과 삭제 revision 을
+  따로 설계합니다.
 - 이름을 바꾸면 공개 URL prefix, `<name>_router`, import 경로, Celery 태스크 이름
   (`home.aggregate_access_stats` 형태), migration 참조가 함께 바뀝니다.
 
@@ -194,7 +201,8 @@ Django 호환 계층도 Django 기반도 아닙니다. Django 의 앱 단위 응
 
 회귀 가드: `tests/test_app_autowiring.py`(임시 앱 결선 + 중앙 파일 해시 불변),
 `tests/test_router_registration.py`, `tests/test_admin_wiring.py`(모델을 가진 기능은 자기
-`admin.py` 를 가진다), `tests/core/test_registry_*.py`.
+`admin.py` 를 가진다), `tests/core/test_registry_*.py`(태스크 발견·앱 제거 포함),
+`tests/core/test_celery_app.py`(include 출처·Celery 패키지의 기능 import 금지).
 
 ---
 
@@ -365,9 +373,10 @@ finally: resources.close(); app.state.redis = None; app.state.resources = None
 
 **Redis 는 필수입니다.** `Redis.from_url(REDIS_URL, socket_connect_timeout=5, socket_timeout=5)`
 후 `ping()` 이 실패하면 오류 타입만 ERROR 로 남기고 다시 올려 서버 시작을 멈춥니다. `DEBUG` 와
-무관하고 끄는 설정은 없습니다. 성공해야 `app.state.redis` 에 client 가 들어갑니다. 기동 순간의
-도달 가능성만 확인할 뿐 이후 Redis 상태를 감시하지 않고, `/ready` 도 Redis 를 보지 않습니다.
-공통 Redis Dependency 는 없습니다.
+무관하고 끄는 설정은 없습니다. 성공해야 `app.state.redis` 에 client 가 들어갑니다. 기동 이후
+상태는 `/ready` 가 호출마다 `PING`(2초 상한)으로 확인합니다(§9). 요청 쪽은 core provider
+`get_redis`(`app/core/redis.py`) 하나를 `Depends` 로 받습니다 — client 가 없으면(기동 전·종료 후)
+503 `SERVICE_UNAVAILABLE` 이고, 테스트는 `app.dependency_overrides[get_redis]` 로 가짜를 넣습니다.
 
 **개발용 DDL.** `create_db_tables()` 는 writer 엔진에서 `Base.metadata.create_all` 을 실행합니다.
 없는 테이블만 만들고(checkfirst) 컬럼 변경·삭제는 하지 않습니다. 모델 발견은 하지 않으며,
@@ -547,7 +556,7 @@ Repository 의 DB 오류 변환(`DBErrorTranslator` — MySQL 오류 코드·SQL
 | 경로 / 지점 | 의미 | 결과 |
 |---|---|---|
 | `GET /health` | 프로세스 생존·버전 (DB·Redis 검사 없음) | `{"status":"healthy","version":...}` |
-| `GET /ready` | writer 로 `SELECT 1`, 2초 guard | 성공 `status="ready"`, 실패 503 `NOT_READY` (예외 메시지·DSN 없음) |
+| `GET /ready` | writer 로 `SELECT 1` 과 Redis `PING` 을 동시에, 각 2초 guard | 둘 다 성공 `status="ready"`, 하나라도 실패 503 `NOT_READY` (예외 메시지·DSN 없음, 로그는 대상과 예외 타입만) |
 | `/docs`, `/openapi.json` | `DEBUG=true` 일 때만 | 아니면 404 |
 | 설정·registry 오류 | lifespan 이전 조립 실패 | 프로세스 기동 실패 |
 | Redis ping·개발 DDL 실패 | startup 실패 | 등록된 자원 정리 후 중단 |
@@ -555,7 +564,7 @@ Repository 의 DB 오류 변환(`DBErrorTranslator` — MySQL 오류 코드·SQL
 | 접속 로그 포화·저장 실패 | 응답과 분리 | 로그 경고, `dropped` 증가 |
 
 `/health` 만으로 DB·Redis 준비를 판단하지 않습니다. 오케스트레이터의 readiness 는 `/ready` 에
-걸되, Redis 는 따로 감시합니다.
+겁니다 — DB 와 Redis 를 모두 봅니다.
 
 ---
 
@@ -610,10 +619,18 @@ Repository 의 DB 오류 변환(`DBErrorTranslator` — MySQL 오류 코드·SQL
 
 ## 11. Celery (요청 밖 작업)
 
-- `app/celery/app.py` 의 `celery_app` 은 `REDIS_URL` 을 broker/backend 로 쓰고
-  `include=["app.celery.tasks"]` 하나만 포함합니다. 기능별 `worker/` 는 두지 않고 모든 태스크를
-  `app/celery/tasks.py` 에 `@celery_app.task(name="<app>.<action>")` 로 정의합니다
-  (예: `home.aggregate_access_stats`).
+- `app/celery/app.py` 의 `celery_app` 은 `REDIS_URL` 을 broker/backend 로 씁니다. `include` 는 API 와
+  같은 `AppRegistry` 발견 결과(`task_modules()`)로 만들고, 같은 경로로 모델도 등록합니다
+  (`import_models()` — 태스크가 쓰는 모델의 relationship 이 다른 앱을 가리켜도 매퍼가 구성된다).
+  `app/celery/` 는 기능을 import 하지 않습니다(`tests/core/test_celery_app.py` 의 AST 계약).
+- 태스크는 기능 폴더의 선택 모듈 `app/features/<name>/tasks.py` 에
+  `@celery_app.task(name="<app>.<action>")` 로 정의합니다(예: `home.aggregate_access_stats`).
+  기능별 `worker/` 는 두지 않습니다.
+- **앱을 지우면 그 앱의 태스크도 include 에서 빠집니다.** 고칠 중앙 목록이 없고 워커는 그대로
+  뜹니다(큐에 남은 메시지는 §2.6).
+- 태스크 본문의 서비스 조립은 그 기능의 provider 함수(세션을 받는 일반 함수, 예:
+  `build_user_access_log_service(session)`)를 재사용합니다. 요청용 `Depends` provider 도 같은
+  함수를 부르므로 조립 경로가 하나입니다.
 - 동기 태스크 안에서 코루틴은 `app/celery/task.py` 의 `run_async(coro)` 로 실행합니다. 워커 프로세스마다
   영속 이벤트 루프 하나를 재사용해, 닫힌 루프에 묶인 async 풀 연결 문제를 피합니다(prefork 순차
   실행 전제 — 다른 pool 을 쓰면 재검증).

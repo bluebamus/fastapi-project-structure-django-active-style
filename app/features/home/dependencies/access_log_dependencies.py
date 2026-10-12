@@ -15,8 +15,17 @@ from app.core.db.session import get_read_only_db_session
 from app.features.home.services.user_access_log_service import UserAccessLogService
 
 
+def build_user_access_log_service(session: AsyncSession) -> UserAccessLogService:
+    """세션 하나로 UserAccessLogService 를 조립한다 — 요청 밖(Celery 태스크)도 같은 조립을 쓴다.
+
+    `Depends` 가 없는 일반 함수라 요청 밖에서 바로 부를 수 있다. 조립이 바뀌면(협력 객체
+    추가 등) 이 함수 하나만 고치면 API 와 태스크가 함께 따라온다.
+    """
+    return UserAccessLogService(session)
+
+
 async def get_access_log_service(
     session: AsyncSession = Depends(get_read_only_db_session),
 ) -> UserAccessLogService:
     """UserAccessLogService 를 구성해 view 에 제공한다(읽기 전용 — 커밋하지 않는다)."""
-    return UserAccessLogService(session)
+    return build_user_access_log_service(session)

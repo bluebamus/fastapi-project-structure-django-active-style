@@ -1,7 +1,7 @@
-"""`/ready` readiness 엔드포인트 (Phase 1).
+"""`/ready` readiness 엔드포인트 (Phase 1, service-hardening 단계 E).
 
 `/health` 는 프로세스가 살아있는지만 답한다(liveness). `/ready` 는 의존 자원인
-DB 까지 확인해 트래픽을 받아도 되는지 답한다(readiness). DB 가 죽었을 때 200 을
+DB 와 Redis 까지 확인해 트래픽을 받아도 되는지 답한다(readiness). DB 가 죽었을 때 200 을
 돌려주면 로드밸런서가 죽은 인스턴스로 트래픽을 계속 보낸다.
 
 DB 왕복 자체는 `app/core/db/session.py` 의 `ping_writer_db()` **하나**가 소유한다.
@@ -12,6 +12,7 @@ DB 왕복 자체는 `app/core/db/session.py` 의 `ping_writer_db()` **하나**�
 """
 
 import asyncio
+import functools
 import inspect
 
 import pytest
@@ -19,6 +20,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 import main
+from app.core import redis as redis_module
 from app.core.db import session as db_session_module
 from main import app
 
@@ -38,6 +40,31 @@ def reachable_db(monkeypatch):
         return None
 
     monkeypatch.setattr(main, "ping_writer_db", _ok)
+
+
+class _FakeRedis:
+    """`ping()` 만 가진 가짜 클라이언트 — lifespan 없이 `app.state.redis` 에 둔다."""
+
+    def __init__(self, error: Exception | None = None, hang: bool = False):
+        self.error = error
+        self.hang = hang
+        self.pings = 0
+
+    async def ping(self):
+        self.pings += 1
+        if self.hang:
+            await asyncio.sleep(10)
+        if self.error is not None:
+            raise self.error
+        return True
+
+
+@pytest.fixture(autouse=True)
+def reachable_redis(monkeypatch):
+    """기본은 Redis 정상. 테스트 클라이언트는 lifespan 을 돌리지 않으므로 직접 둔다."""
+    fake = _FakeRedis()
+    monkeypatch.setattr(app.state, "redis", fake, raising=False)
+    return fake
 
 
 @pytest.fixture
@@ -174,3 +201,77 @@ async def test_ping_writer_db_times_out(monkeypatch):
 
     with pytest.raises(TimeoutError):
         await db_session_module.ping_writer_db(timeout=0.05)
+
+
+# --------------------------------------------------------------------------- Redis (단계 E)
+
+
+async def test_ready_pings_both_db_and_redis(client, reachable_db, reachable_redis):
+    """Redis 는 필수다(ADR-008) — 200 은 Redis 왕복까지 성공했다는 뜻이어야 한다."""
+    response = await client.get("/ready")
+
+    assert response.status_code == 200
+    assert reachable_redis.pings == 1
+
+
+async def test_ready_returns_503_when_redis_ping_fails(client, reachable_db, monkeypatch):
+    fake = _FakeRedis(error=ConnectionError("redis://:r3d1s-s3cret@cache:6379/0 접속 실패"))
+    monkeypatch.setattr(app.state, "redis", fake, raising=False)
+
+    response = await client.get("/ready")
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["error_code"] == "NOT_READY"
+    assert body["detail"] is None
+    for leaked in ("r3d1s-s3cret", "6379", "cache"):
+        assert leaked not in response.text, f"응답에 '{leaked}' 가 노출됐습니다."
+
+
+async def test_ready_returns_503_when_redis_times_out(client, reachable_db, monkeypatch):
+    """Redis 가 응답하지 않으면 상한에서 끊고 503 — 무한정 매달리지 않는다."""
+    monkeypatch.setattr(app.state, "redis", _FakeRedis(hang=True), raising=False)
+    monkeypatch.setattr(
+        main, "ping_redis", functools.partial(redis_module.ping_redis, timeout=0.05)
+    )
+
+    response = await asyncio.wait_for(client.get("/ready"), timeout=5)
+
+    assert response.status_code == 503
+
+
+async def test_ready_returns_503_when_redis_client_is_missing(client, reachable_db, monkeypatch):
+    """lifespan 밖(클라이언트 없음)을 준비 완료로 착각하지 않는다."""
+    monkeypatch.setattr(app.state, "redis", None, raising=False)
+
+    assert (await client.get("/ready")).status_code == 503
+
+
+async def test_ready_logs_only_the_failure_type(client, reachable_db, monkeypatch, caplog):
+    fake = _FakeRedis(error=ConnectionError("r3d1s-s3cret"))
+    monkeypatch.setattr(app.state, "redis", fake, raising=False)
+
+    with caplog.at_level("WARNING", logger=main.logger.name):
+        await client.get("/ready")
+
+    assert "r3d1s-s3cret" not in caplog.text
+    assert "ConnectionError" in caplog.text
+
+
+async def test_ping_redis_times_out():
+    request = _request_with(_FakeRedis(hang=True))
+
+    with pytest.raises(TimeoutError):
+        await redis_module.ping_redis(request, timeout=0.05)
+
+
+def test_redis_readiness_uses_the_same_bound_as_the_db():
+    """DB 와 Redis 의 상한이 두 숫자로 갈라지지 않는다."""
+    default = inspect.signature(redis_module.ping_redis).parameters["timeout"].default
+    assert default == db_session_module.READINESS_TIMEOUT_SECONDS
+
+
+def _request_with(redis):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(redis=redis)))
