@@ -33,6 +33,7 @@ C-8, service-hardening ADR-017)을 유지해, 배포 환경에서는 확인 플�
 |---|---|---|---|---|---|
 | REQ-001 | 2026-10-12 | "배포 전에 해야 할 일 에 대해 관련한 모든 문서와 주석에 업데이트를 수행해줘. bootstrap 기반으로 로그인 화면을 만들고 scripts/create_superuser.py로 생성자를 임의로 만들어 /admin에 로그인을 붙여 테스트를 수행해줘. 이후 로그인 페이지 구현 및 연동은 그대로 유지해줘." (이전 원칙 유지: 같은 목적은 하나의 모듈 클래스, 조합·데이터 전달·인증은 주입, 모든 단계 단위 테스트) | ① 배포 전 확인 4항목(`TRUSTED_PROXY_HOPS`·KST→UTC 리비전·첫 관리자·`/admin` 로그인)을 README·`.env.example`·config·가이드·리비전·`ClientIPResolver`·스크립트·조립 지점 docstring 에 반영 ② `AdminAuthBackend` 하나로 로그인·인증·로그아웃(주입) ③ Bootstrap 로그인 화면 ④ create_superuser 로 만든 계정으로 통합·MySQL·기동 스모크 ⑤ 무인증 확인 플래그 제거 ⑥ Celery include import 테스트 | Active | ADR-001~ADR-005, ADR-009, ADR-010 |
 | REQ-002 | 2026-10-12 | "이 작업과 관련하여 차후 설계 및 동작을 이해할 수 있게 별도의 admin 인증 가이드 문서를 만들어줘. 세션과 관련한 인증이 admin에만 적용되고 다른 api 인증 및 별도 작업에는 사용하지 않는것인지 확인하고 맞다면 이에 관련한 정보와 워크플로우 흐름도 등 상세한 설명을 정리해줘. 필요한 모든 도식화를 구현해 설명에 추가해줘. admin 페이지 자체를 사용하지 않는 설정이 존재해야 한다. 이 설정이 true이면, admin 페이지에 대한 링크 자체가 존재하지 않아야 한다. 이는 보안을 위해서 존재해야 한다." + "관련하여 모든 문서도 내용을 업데이트 하여 반영해줘." 사용자 결정: 기존 `ADMIN`(false=끔)을 `ADMIN_DISABLED`(true=끔)로 교체 | ① `ADMIN` 제거·`ADMIN_DISABLED` 신설, 잔존 시 기동 거부 ② true 면 마운트·응답·로그·미들웨어 어디에도 관리 흔적 없음 ③ 세션 범위(관리 전용) 확인과 테스트 ④ HTML 가이드(도식 포함) ⑤ 모든 문서·생성 템플릿 반영 | Active | ADR-006~ADR-008, ADR-010 |
+| REQ-003 | 2026-10-12 | 감독자 결정: "F-006/R-305 를 고친다 — 로그인이 붙은 관리 화면의 목록 페이지가 500 이면 사용자 요청(\"/admin 로그인 테스트\")이 성립하지 않는다." + "R-309: ARCHITECTURE §12 리비전 체인 head 를 실제 head 로 고친다." | ① 모든 ModelView 의 `column_filters` 를 sqladmin 0.32 필터 클래스로 ② 모든 목록(필터 쿼리 포함)·상세 1건 200 테스트 ③ 생성기 템플릿 안내 ④ 리비전 체인 문서 | Active | ADR-011 |
 
 ## 3. 설계 결정 기록 (ADR — 확정 후 불변)
 
@@ -48,6 +49,7 @@ C-8, service-hardening ADR-017)을 유지해, 배포 환경에서는 확인 플�
 | ADR-008 | 2026-10-12 | **세션 인증은 `/admin` 전용이다(확인 결과).** API 인증은 Bearer JWT(`get_current_principal`)뿐이고 메인 앱에 `SessionMiddleware` 가 없다. `SESSION_COOKIE_NAME` 은 접속 로그 미들웨어가 session_id 를 기록용으로 읽을 뿐이다. `SESSION_SECRET_KEY` 소비처는 관리 세션 서명(`app/features/admin.py`)과 config 의 설정 검사뿐이다. 고정 테스트: 메인 앱 미들웨어에 세션 없음·하위 앱에만 있음, 유효한 `admin_session` 쿠키로 API 보호 경로 401, `/admin` 밖 응답은 그 쿠키를 설정하지 않음. API 에 세션 인증을 섞지 않는다(C-3). | 감독자 사전 확인과 코드가 일치했다. 쿠키 인증을 API 에 섞으면 CSRF 방어가 필요해지고 토큰 폐기 모델이 둘로 갈라진다. | Active | — |
 | ADR-009 | 2026-10-12 | Celery include 모듈을 실제로 import 해 각 모듈이 태스크를 등록하는지 보는 테스트를 둔다(`celery_app.loader.import_default_modules()` — 워커 기동과 같은 경로). | `tasks.py` 의 import 오류가 워커 기동 때가 아니라 CI 에서 드러나게(명세 §4). | Active | — |
 | ADR-010 | 2026-10-12 | "배포 전 확인" 은 README 운영 배포 체크리스트가 소유하고(항목 2a 첫 관리자·2b 관리 화면/`ADMIN_DISABLED`/`SESSION_SECRET_KEY`·4 `TRUSTED_PROXY_HOPS`·7 KST→UTC 백업·`_LOCAL_OFFSET`), `.env.example`·config Field 주석·`ClientIPResolver`·리비전 docstring(맨 위 경고)·스크립트·조립 지점 docstring 은 같은 내용을 그 자리의 맥락으로 적는다. 관리 인증의 설계·흐름·위협 모델은 새 HTML 가이드 `docs/guides/admin-auth-guide.html` 이 소유하고 README 문서 표·ARCHITECTURE §10.3 이 링크한다. | 한 주제는 한 문서가 소유한다(README 문서 유지 규칙). | Active | — |
+| ADR-011 | 2026-10-12 | ModelView 필터는 sqladmin 0.32 의 `sqladmin.filters` 클래스로 준다 — bool 은 `BooleanFilter`, 문자열·숫자는 `OperationColumnFilter`. `created_at`(`UTCDateTime`) 필터는 뺀다 — `OperationColumnFilter` 는 `TypeDecorator` 를 날짜 타입으로 보지 않아 문자열을 그대로 바인딩하고, `UTCDateTime` 이 naive·문자열을 거부해 500 이 난다. 목록은 `created_at` 정렬로 본다. 생성기 템플릿(`scripts/new_app.py`)은 필터를 만들지 않으므로 예시 주석만 더했다. | 감독자 결정(REQ-003). 날짜 필터를 살리려면 `UTCDateTime` 용 필터 클래스를 새로 써야 해 범위를 넘는다(R-310). | Active | — |
 
 ## 4. 불가침 제약 (INVARIANT REQUIREMENTS)
 
@@ -61,3 +63,4 @@ C-8, service-hardening ADR-017)을 유지해, 배포 환경에서는 확인 플�
 
 ## 5. 변경 이력
 - v0.1 (2026-10-12): 최초 작성. REQ-001·REQ-002, ADR-001~ADR-010, C-1~C-7. service-hardening ADR-017·C-9·R-203 과 orm-raw-repository C-8 에 상태 주석 append.
+- v0.2 (2026-10-12): REQ-003 · ADR-011 — 관리 목록 필터 호환·문서 리비전 체인.

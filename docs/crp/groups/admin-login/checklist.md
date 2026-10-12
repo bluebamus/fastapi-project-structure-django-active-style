@@ -24,4 +24,11 @@
 - [x] `docs/guides/admin-auth-guide.html`(12절·도식 8개) + 문서 계약 테스트 등록 + README 문서 표·ARCHITECTURE §10.3 링크
 - [x] (F-007) 모든 문서 반영 — README·`.env.example`·ARCHITECTURE·HTML 가이드 2종·CRP(이 그룹, service-hardening, orm-raw-repository 상태 주석)
 - [x] 실제 기동 스모크, 낡은 서술 grep 확인(run-log)
-- [ ] (F-006) 기존 ModelView `column_filters` 의 sqladmin 0.32 비호환 — 감독자 결정 대기(범위 밖)
+- [x] (F-006) 기존 ModelView `column_filters` 의 sqladmin 0.32 비호환 — Round 3 에서 처리
+
+## Round 3 — 2026-10-12 REQ-003 (감독자 결정: 목록 필터·리비전 체인) — 완료
+- [x] (F-006) 5개 ModelView 필터를 `sqladmin.filters` 클래스로, `created_at` 필터 제외(ADR-011)
+- [x] 등록된 모든 ModelView 목록(필터마다 쿼리 1건)·상세 1건 200 테스트 + 대조군(필터 14개 실행), fail-on-revert
+- [x] 생성기 템플릿에 필터 예시 주석(템플릿은 필터를 생성하지 않는다)
+- [x] (F-008) ARCHITECTURE §12 revision 체인 head
+- [x] 기동 스모크로 7개 목록·필터 3건·상세 200 확인

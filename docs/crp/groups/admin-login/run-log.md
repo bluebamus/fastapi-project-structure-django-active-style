@@ -55,3 +55,13 @@
 - `scripts/review_gate.py`: structure·supply·docs·deps 통과(static 은 같은 도구를 위처럼 개별 실행 — 로컬 정책으로 컴파일된 mypy 가 막힌다). alembic heads `a7c3e9f1b2d4` 단일 — 리비전 추가 없음(`e5a7c9d1f3b5` 는 docstring 만).
 - **수렴 판정:** `CONVERGED` — Open Fix 0(F-006 은 범위 밖, 감독자 결정 대기).
 - **잔여 위험 변화:** R-301~R-309 등록. service-hardening R-203 해소, orm-raw-repository R-005 부분 해소.
+
+### Round 3 — 2026-10-12 — REQ-003 (감독자 결정: 목록 필터·리비전 체인)
+- **Fix:** F-006 · F-008 → **Fixed**. R-305·R-309 해소, R-310(날짜 필터 없음) 등록.
+- **원인:** sqladmin 0.32 는 `column_filters` 항목에 `parameter_name` 을 가진 필터 객체를 기대한다. 모델 컬럼을 그대로 넣은 5개 뷰(blog·home·reply·sns·user)의 목록이 `AttributeError` 로 500 이었다. `OperationColumnFilter` 는 `UTCDateTime`(TypeDecorator)을 날짜로 보지 않아 `created_at` 에 문자열을 바인딩하므로 그 필터는 뺐다(ADR-011).
+- **테스트:** `test_every_admin_list_page_and_filter_returns_200`(registry 가 등록하는 뷰 7개 전부, 필터가 있는 5개 뷰는 필터 14개 각각 쿼리 1건), `test_filter_queries_are_actually_exercised`(대조군, 필터 14개), `test_admin_detail_page_returns_200`. 테스트 앱이 registry 로 모든 뷰를 등록하도록 `build_admin_app` 을 고쳤다.
+- **fail-on-revert:** 5개 `admin.py` 를 직전 커밋 판으로 되돌리면 6 failed(필터 있는 목록 5·대조군 1) · 3 passed(필터 없는 catalog·reports 목록, 상세 — 상세는 필터와 무관한 확인 테스트).
+- **생성기:** `scripts/new_app.py` 템플릿은 `column_filters` 를 생성하지 않는다 — 예시 주석에 필터 클래스 사용법만 더했다.
+- **기동 스모크(재실행):** 로그인 뒤 `/admin/{post,product,user-access-log,reply,sales-order,sns-post,user}/list` 7개 모두 200, 필터 쿼리 3건(`user?is_active=true`, `user-access-log?response_status=200&response_status_op=equals`, `post?author=a&author_op=contains`) 200, `/admin/user/details/<id>` 200, 앱 로그 ERROR 0.
+- **검사 수치:** `pytest -m "not mysql"` 1140 passed / 43 deselected / skip 0(+9). ruff 클린, mypy 0 issues, 게이트 structure·supply·docs 통과.
+- **수렴 판정:** `CONVERGED` — Open Fix 0.

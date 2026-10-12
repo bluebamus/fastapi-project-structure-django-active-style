@@ -31,6 +31,7 @@ from starlette.requests import Request
 
 from app.core.db.session import Base
 from app.core.middlewares.client_ip import ClientIPResolver
+from app.core.registry import AppRegistry
 from app.core.security.dependencies import get_password_hasher
 from app.core.security.rate_limiter import RateLimiter
 from app.features.admin import create_admin_interface
@@ -53,6 +54,11 @@ SECRET = "test-admin-session-secret-key-0123456789"
 
 SessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
 
+# main.py 와 같은 발견 목록 — 모든 모델이 metadata 에 오르고(테이블 생성), 모든 ModelView 를 등록한다.
+REGISTRY = AppRegistry()
+REGISTRY.discover()
+REGISTRY.import_models()
+
 
 def build_admin_app(
     engine: AsyncEngine, session_factory: SessionFactory, redis: FakeAsyncRedis
@@ -67,7 +73,8 @@ def build_admin_app(
         secret_key=SECRET,
         https_only=False,
     )
-    create_admin_interface(app, engine, authentication_backend=backend)
+    admin = create_admin_interface(app, engine, authentication_backend=backend)
+    REGISTRY.install_admin(admin)
     return app
 
 
@@ -483,3 +490,63 @@ async def test_admin_session_cookie_is_never_set_outside_admin():
         ]
 
     assert all(ADMIN_SESSION_COOKIE not in _set_cookie(r) for r in responses)
+
+
+# =============================================================================
+# 등록된 모든 관리 화면 — 로그인한 슈퍼유저의 목록·필터·상세 (admin-login F-006)
+# =============================================================================
+def _filter_params(view) -> list[dict[str, str]]:
+    """뷰의 필터마다 쿼리 1건 — bool 은 true, 연산 필터는 equals 1(문자열·숫자 모두 유효)."""
+    from sqladmin.filters import BooleanFilter
+
+    params = []
+    for flt in view.column_filters:
+        if isinstance(flt, BooleanFilter):
+            params.append({flt.parameter_name: "true"})
+        else:
+            params.append({flt.parameter_name: "1", f"{flt.parameter_name}_op": "equals"})
+    return params
+
+
+def _admin_views() -> list:
+    from app.features.admin import ADMIN_TEMPLATES_DIR  # noqa: F401 - 조립 모듈 로드 확인
+
+    class _Collect:
+        def __init__(self) -> None:
+            self.views: list = []
+
+        def add_view(self, view) -> None:
+            self.views.append(view)
+
+    collector = _Collect()
+    REGISTRY.install_admin(collector)
+    return collector.views
+
+
+@pytest.mark.parametrize("view", _admin_views(), ids=lambda v: v.identity)
+async def test_every_admin_list_page_and_filter_returns_200(env, view):
+    client, maker, *_ = env
+    await _add_user(maker, "root")
+    assert (await _login(client, "root")).status_code == 302
+
+    assert (await client.get(f"/admin/{view.identity}/list")).status_code == 200
+    # 필터가 없는 뷰(catalog·reports)는 목록만 본다. 필터가 있는 뷰는 필터마다 쿼리 1건.
+    for params in _filter_params(view):
+        response = await client.get(f"/admin/{view.identity}/list", params=params)
+        assert response.status_code == 200, (view.identity, params)
+
+
+async def test_admin_detail_page_returns_200(env):
+    client, maker, *_ = env
+    user_id = await _add_user(maker, "root")
+    await _login(client, "root")
+
+    response = await client.get(f"/admin/user/details/{user_id}")
+
+    assert response.status_code == 200
+    assert "root" in response.text
+
+
+def test_filter_queries_are_actually_exercised():
+    """대조군 — 목록 테스트가 필터를 하나도 돌리지 않는 헛통과가 아니다(5개 뷰 14개 필터)."""
+    assert sum(len(_filter_params(v)) for v in _admin_views()) == 14

@@ -100,6 +100,8 @@ _ADMIN_TMPL = '''\
 
     class {Class}Admin(ModelView, model={Class}Model):
         column_list = "__all__"
+        # 필터는 sqladmin.filters 의 클래스로 준다(컬럼을 그대로 넣으면 목록이 500):
+        # column_filters = [OperationColumnFilter({Class}Model.name), BooleanFilter({Class}Model.is_active)]
 
     admin_views = [{Class}Admin]
 """

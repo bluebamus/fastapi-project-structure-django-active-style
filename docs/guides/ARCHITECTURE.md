@@ -746,7 +746,8 @@ config.set_main_option(
 - DSN 은 문자열로 이어 붙이지 않고 `URL.create(...)` 로 만듭니다 — 비밀번호의 `@ / : #` 는 렌더링 때
   인코딩되고, `%` 는 ConfigParser 보간을 피하려고 `%%` 로 넘깁니다. 회귀 가드: `tests/core/test_dsn_urls.py`.
 - revision 체인: `f4adf0ae24ea`(baseline) → `b2f1a9c0d3e4`(user 비밀번호) →
-  `c3d5e7a91b02`(catalog_products) → `d4e6f8b12c34`(sales_orders) → `e5a7c9d1f3b5`(시각 컬럼 UTC·`DATETIME(6)`, head).
+  `c3d5e7a91b02`(catalog_products) → `d4e6f8b12c34`(sales_orders) → `e5a7c9d1f3b5`(시각 컬럼 UTC·`DATETIME(6)`) →
+  `a7c3e9f1b2d4`(슈퍼유저·작성자 id 컬럼, head).
 - `e5a7c9d1f3b5` 는 MySQL 에서만 동작합니다(SQLite no-op). 기존 값을 `CONVERT_TZ(col, '+09:00', '+00:00')` 로
   옮기므로 **기존 데이터가 `+09:00`(Asia/Seoul 벽시계)으로 저장됐다는 가정**입니다 — 적용 전에 백업하고,
   다른 시간대로 운영하던 DB 는 적용 전에 리비전의 `_LOCAL_OFFSET` 상수를 그 오프셋으로 바꿔야 합니다(README

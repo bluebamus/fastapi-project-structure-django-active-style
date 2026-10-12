@@ -50,11 +50,12 @@
 - INV-5: `ADMIN_DISABLED=true` 면 관리 경로 404·응답·로그·미들웨어에 흔적이 없다. (검사: `tests/test_admin_disabled.py`, `tests/core/test_admin_lazy_import.py`, `tests/test_admin_wiring.py::test_admin_layer_is_not_loaded_when_disabled`)
 - INV-6: 예전 `ADMIN` 이 남으면 기동하지 않고, 예전 확인 플래그는 코드·현행 문서에 없다. (검사: `tests/core/test_deployment_safety.py` 의 `test_leftover_admin_*`·`test_import_fails_with_leftover_admin`·`test_deployed_admin_starts_with_login_required`, `tests/test_admin_login.py::test_unauthenticated_admin_flag_is_gone_from_code_and_current_docs`)
 - INV-7: 로그인 화면은 Bootstrap 5.3.8 + SRI 독립 페이지이고 오류는 이스케이프된다. (검사: `test_login_page_is_the_bootstrap_override`·`test_error_message_is_html_escaped`)
+- INV-9: 로그인한 슈퍼유저에게 등록된 모든 ModelView 의 목록(필터 쿼리 포함)과 상세가 200 이다. (검사: `tests/test_admin_login.py` 의 `test_every_admin_list_page_and_filter_returns_200`·`test_filter_queries_are_actually_exercised`·`test_admin_detail_page_returns_200`)
 - INV-8: Celery include 모듈은 import 되고 태스크를 등록한다. (검사: `tests/core/test_celery_app.py::test_celery_include_modules_import_and_register_their_tasks`)
 
 ### 2-4. 비목표
 - 관리 화면의 역할별 권한(sqladmin `AuthorizationBackend`), 2FA, 계정 잠금, 서버측 세션 저장소.
-- 기존 ModelView 정의의 sqladmin 0.32 호환 수정(목록 필터 — ledger F-006, residual-risk R-305).
+- ~~기존 ModelView 정의의 sqladmin 0.32 호환 수정~~ — REQ-003 으로 범위에 들어왔다(INV-9). 날짜 필터는 비목표(R-310).
 - 문서 중 이번 변경과 무관한 낡은 서술 정리(R-310).
 
 ## 3. 인수 기준 (Acceptance Criteria) — GATE 3
@@ -64,8 +65,9 @@
 - [x] `pytest -m "not mysql"` 전량 통과, skip/xfail 0. `mysql` 마커는 로컬에서 수집만 확인.
 - [x] `scripts/review_gate.py` 의 structure · supply · docs · deps 통과(static 은 같은 도구를 개별 실행).
 - [x] alembic 리비전 추가 없음(head `a7c3e9f1b2d4` 단일).
-- [x] INV-1~INV-8 에 실행 테스트 연결.
+- [x] INV-1~INV-9 에 실행 테스트 연결.
 - [x] 실제 기동 스모크(uvicorn + SQLite 파일 + fakeredis TCP)로 로그인 흐름 확인(run-log Round 2).
 
 ## 4. 변경 이력
 - v0.1 (2026-10-12): 최초 작성. REQ-001·REQ-002 구현 완료 기준으로 기록(1131 passed / 43 deselected / skip 0).
+- v0.2 (2026-10-12): REQ-003 — INV-9, 비목표 정정(1140 passed / 43 deselected / skip 0).

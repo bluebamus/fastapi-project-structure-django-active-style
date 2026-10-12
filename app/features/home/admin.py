@@ -20,6 +20,7 @@ Note:
 from typing import Any
 
 from sqladmin import ModelView
+from sqladmin.filters import BooleanFilter, OperationColumnFilter
 
 from app.features.home.models.models import UserAccessLog
 
@@ -91,16 +92,19 @@ class UserAccessLogAdmin(ModelView, model=UserAccessLog):
     ]
 
     # 필터 가능한 컬럼
+    # 필터는 sqladmin 0.32 의 필터 클래스로 준다 — 모델 컬럼을 그대로 넣으면 목록 페이지가
+    # 500 이다(`parameter_name` 없음, admin-login F-006). 문자열·숫자는 OperationColumnFilter,
+    # bool 은 BooleanFilter. created_at(UTCDateTime)은 OperationColumnFilter 가 문자열을 그대로
+    # 바인딩해 naive/문자열 거부에 걸리므로 필터에서 뺐다 — 정렬로 본다(residual-risk R-310).
     column_filters = [
-        UserAccessLog.ip_address,
-        UserAccessLog.os_name,
-        UserAccessLog.browser_name,
-        UserAccessLog.device_type,
-        UserAccessLog.is_bot,
-        UserAccessLog.response_status,
-        UserAccessLog.request_method,
-        UserAccessLog.country,
-        UserAccessLog.created_at,
+        OperationColumnFilter(UserAccessLog.ip_address),
+        OperationColumnFilter(UserAccessLog.os_name),
+        OperationColumnFilter(UserAccessLog.browser_name),
+        OperationColumnFilter(UserAccessLog.device_type),
+        BooleanFilter(UserAccessLog.is_bot),
+        OperationColumnFilter(UserAccessLog.response_status),
+        OperationColumnFilter(UserAccessLog.request_method),
+        OperationColumnFilter(UserAccessLog.country),
     ]
 
     # =========================================================================

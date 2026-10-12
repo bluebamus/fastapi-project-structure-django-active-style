@@ -11,6 +11,7 @@ Note:
 """
 
 from sqladmin import ModelView
+from sqladmin.filters import OperationColumnFilter
 
 from app.features.sns.models.models import SnsPost
 
@@ -56,10 +57,13 @@ class SnsPostAdmin(ModelView, model=SnsPost):
         SnsPost.author,
     ]
 
+    # 필터는 sqladmin 0.32 의 필터 클래스로 준다 — 모델 컬럼을 그대로 넣으면 목록 페이지가
+    # 500 이다(`parameter_name` 없음, admin-login F-006). 문자열·숫자는 OperationColumnFilter,
+    # bool 은 BooleanFilter. created_at(UTCDateTime)은 OperationColumnFilter 가 문자열을 그대로
+    # 바인딩해 naive/문자열 거부에 걸리므로 필터에서 뺐다 — 정렬로 본다(residual-risk R-310).
     column_filters = [
-        SnsPost.author,
-        SnsPost.like_count,
-        SnsPost.created_at,
+        OperationColumnFilter(SnsPost.author),
+        OperationColumnFilter(SnsPost.like_count),
     ]
 
     # =========================================================================
