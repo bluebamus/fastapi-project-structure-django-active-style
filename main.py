@@ -10,6 +10,7 @@ lifespan·Admin 활성화 분기).
 앱 규약과 한계는 ``app/core/registry.py`` 와 README 참고.
 """
 
+import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -25,6 +26,7 @@ from app.core.db.session import engine, ping_writer_db
 from app.core.exception import AppException, ErrorResponse, ValidationException
 from app.core.middlewares.cors_middleware import CustomCORSMiddleware
 from app.core.middlewares.user_info_middleware import setup_user_info_middleware
+from app.core.redis import ping_redis
 from app.core.registry import AppRegistry
 from app.core.resources import manage_application_resources
 from app.core.tags_metadata import tags_metadata
@@ -209,7 +211,8 @@ class HealthResponse(BaseModel):
 
 # readiness 는 별도 스키마를 두지 않고 HealthResponse 계약을 재사용한다.
 # 실패는 프로젝트 표준 오류 응답(ErrorResponse)으로 내려간다.
-# DB 왕복과 timeout 은 app/core/db/session.py 의 ping_writer_db() 가 소유한다.
+# DB 왕복과 timeout 은 app/core/db/session.py 의 ping_writer_db() 가, Redis 왕복은
+# app/core/redis.py 의 ping_redis() 가 소유한다(같은 2초 상한).
 
 
 def _add_health_and_docs(app: FastAPI) -> None:
@@ -240,24 +243,31 @@ def _add_health_and_docs(app: FastAPI) -> None:
         response_model=HealthResponse,
         tags=["Health"],
         summary="readiness 점검",
-        description="DB 등 의존 자원까지 확인해 트래픽 수용 가능 여부를 알립니다.",
+        description="DB 와 Redis 까지 확인해 트래픽 수용 가능 여부를 알립니다.",
         operation_id="getReadiness",
         responses={503: {"model": ErrorResponse, "description": "의존 자원이 준비되지 않음"}},
     )
-    async def readiness_check() -> HealthResponse | JSONResponse:
-        """writer 로 `SELECT 1` 왕복 1회를 돌려 준비 상태를 확인한다.
+    async def readiness_check(request: Request) -> HealthResponse | JSONResponse:
+        """writer DB 와 Redis 를 동시에 한 번씩 확인해 준비 상태를 답한다(ADR-008).
 
         writer 를 쓰는 이유는 replica 가 살아 있어도 primary 가 죽으면 쓰기 트래픽을
-        받을 수 없기 때문이다. 왕복과 timeout 은 ping_writer_db() 가 맡는다 — 같은
-        점검을 여기서 한 번 더 적으면 대상 엔진·상한이 두 곳으로 갈라진다.
+        받을 수 없기 때문이다. Redis 는 필수 자원이라(C-4) 같은 무게로 본다. 왕복과
+        timeout(각 2초)은 ping_writer_db()·ping_redis() 가 맡는다 — 같은 점검을 여기서
+        한 번 더 적으면 대상·상한이 두 곳으로 갈라진다. 동시에 돌려 최악 지연을
+        합이 아니라 상한 하나로 묶는다.
 
-        실패해도 예외를 그대로 올리지 않고 503 으로 낮춘다. 오류 응답에는 예외
+        하나라도 실패하면 예외를 올리지 않고 503 으로 낮춘다. 오류 응답에는 예외
         메시지·DSN·SQL 을 담지 않으며(C-5) 로그에도 예외 타입만 남긴다.
         """
-        try:
-            await ping_writer_db()
-        except Exception as exc:
-            logger.warning("[Readiness] DB 점검 실패: %s", type(exc).__name__)
+        results = await asyncio.gather(
+            ping_writer_db(), ping_redis(request), return_exceptions=True
+        )
+        failed = False
+        for name, result in zip(("DB", "Redis"), results, strict=True):
+            if isinstance(result, Exception):
+                failed = True
+                logger.warning("[Readiness] %s 점검 실패: %s", name, type(result).__name__)
+        if failed:
             return JSONResponse(
                 status_code=503,
                 content=ErrorResponse(

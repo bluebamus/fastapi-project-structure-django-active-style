@@ -12,6 +12,7 @@ Django-style ``startapp`` equivalent. 앱은 별도 선언(config.py) 없이 디
         schemas/ services/ repositories/ dependencies/ tests/
         admin.py (선택)         →  admin_views: list[type]
         apps.py (선택, 수동)    →  ready(): 부팅 초기화 훅. install_hooks() 가 호출
+        tasks.py (선택, 수동)   →  Celery 태스크. 워커 include 에 자동 포함(task_modules())
 
 Usage (CLI):
     python -m scripts.new_app <name> [--with-admin]

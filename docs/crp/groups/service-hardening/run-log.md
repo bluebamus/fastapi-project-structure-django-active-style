@@ -69,6 +69,20 @@
 - **수렴 판정:** `NOT CONVERGED` (Open Fix 8: F-008(F2 부분)·F-017~F-023 — 다음 단계)
 - **잔여 위험 변화:** R-207(리포트 고정 오프셋 — DST 지역), R-208(리비전의 KST 가정·downgrade 소수 초 반올림) 등록.
 
+### Round 5 — 2026-10-12 (base SHA: `d00c7e8`) — 단계 E
+- **트리거:** REQ-001 단계 E(리뷰 우선 조치 8 — 결정: Redis 필수 유지, `/ready` 에 Redis, Celery 태스크를 기능별로 두고 registry 로 발견).
+- **검수 범위:** `app/core/redis.py`(신규), `main.py` `/ready`, `app/core/registry.py`, `app/celery/app.py`·중앙 태스크 모듈(삭제), `app/features/home/tasks.py`(신규)·home `dependencies`, `compose.test.yaml`, 관련 문서·`scripts/new_app.py` 독스트링.
+- **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 ☑ 4 □ 5 □
+- **신규 finding(심각도별):** CRIT 0 · HIGH 0 · MED 0 · LOW 0 (Round 0 의 F-017·F-018 을 닫았다)
+- **Fix:** F-017 · F-018 → **Fixed**
+- **설계 구체화:** ADR-021 — `get_redis`(없으면 503)·`ping_redis`(DB 와 같은 상한), `/ready` 동시 점검, 태스크 발견은 `find_spec`(순환 방지 — 모듈 안 오류는 워커의 include import 가 드러냄), Celery 는 모듈 수준 `discover()`·`import_models()`·`task_modules()`, provider 를 "세션을 받는 일반 함수 + `Depends` provider" 로 분리, `redis-test` 이미지는 레지스트리 API 로 얻은 index digest 로 고정.
+- **fail-on-revert:** 수정 전 파일을 작업 폴더 밖 사본으로 하나씩 되돌려 새 테스트를 돌렸다 — main.py 5 실패(Redis 503·200 의 Redis 왕복), registry.py 4 실패(그리고 celery app 이 `task_modules` 없이 import 실패), celery app + 중앙 태스크 모듈 2 실패(include 출처·AST 계약). 신규 코드는 변이로 확인 — `get_redis` 가 None 을 돌려주는 변이 2 실패, home 태스크가 서비스를 직접 만드는 변이 1 실패. 복원 후 전부 통과. 워커 경로는 `celery_app.loader.import_default_modules()` 로 include import 를 실행해 `home.aggregate_access_stats` 등록을 확인했다(브로커 접속 없음).
+- **동작이 바뀐 기존 테스트:** ① `tests/test_ready.py` — 테스트 클라이언트는 lifespan 을 돌리지 않으므로 autouse 픽스처가 `app.state.redis` 에 정상 가짜 client 를 둔다(이전 테스트의 단언은 그대로). ② `tests/core/test_celery_app.py` — `"app.celery.tasks" in include` 단언을 "include = registry 발견 결과, home tasks 포함, 중앙 모듈 없음" 으로 바꿨다(중앙 모듈 삭제가 새 계약). ③ home `test_home_tasks.py` — 중앙 모듈 import 대신 home 태스크 모듈을 쓰고 태스크 이름 불변을 단언한다.
+- **OpenAPI:** `/ready` 설명 문구만 바뀌었다("DB 와 Redis 까지 확인…"). 구조 변화 없음.
+- **검사 수치:** `pytest -m "not mysql"` 948 passed / 41 deselected / skip 0(930 → +18), `-m mysql --collect-only` 41 수집(변화 없음), ruff check·format 클린, mypy 195 files 0 issues(Round 1 과 같은 순수 Python 빌드 우회), review_gate `structure`·`supply`·`docs` 통과.
+- **수렴 판정:** `NOT CONVERGED` (Open Fix 6: F-008(F2 부분)·F-019~F-023 — 다음 단계)
+- **잔여 위험 변화:** R-209(앱 삭제 시 큐에 남은 태스크 메시지) 등록.
+
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
@@ -77,3 +91,4 @@
 | 2 | 0 | 0 | 0 | 0 | 0 (Fixed 7, 부분 1) | NOT CONVERGED |
 | 3 | 0 | 0 | 0 | 0 | 0 (Fixed 2) | NOT CONVERGED |
 | 4 | 0 | 0 | 0 | 0 | 0 (Fixed 1) | NOT CONVERGED |
+| 5 | 0 | 0 | 0 | 0 | 0 (Fixed 2) | NOT CONVERGED |

@@ -95,6 +95,7 @@ app/features/<name>/
 ├── dependencies/<name>_dependencies.py   # get_<name>_service / get_<name>_service_readonly
 ├── exceptions.py               # 기능 예외 (선택)
 ├── admin.py                    # ModelView + admin_views (모델이 있으면 사실상 필수)
+├── tasks.py                    # Celery 태스크 — 필요할 때만 (워커가 registry 로 발견)
 └── tests/                      # 이 기능의 테스트
 ```
 
@@ -103,7 +104,7 @@ app/features/<name>/
 | 기능 예외 | `exceptions.py` | `<name>_exception.py` |
 | 기능 의존성 | `dependencies/` 패키지 (단일 `dependencies.py` 도 허용) | `dependency.py` |
 | SQLAdmin 뷰 | `admin.py` | `api/<name>_admin.py` |
-| Celery 태스크 | 중앙 `app/celery/tasks.py` | 기능별 `worker/` |
+| Celery 태스크 | 기능 폴더의 `tasks.py` (선택) | `app/celery/` 에 기능 태스크, 기능별 `worker/` |
 | 초기화 | `apps.py` 의 `ready()` | `__init__.py` 의 import 부수효과 |
 
 **최종 URL 은 prefix 의 합**입니다. 디렉터리 이름으로 계산되지 않습니다.
@@ -443,16 +444,18 @@ async with background_db_session() as session:     # 별도 풀, 예외 시 roll
 - `Depends` 는 요청 밖에서 자동 해석되지 않습니다. 위처럼 컨텍스트를 열고 Service 를 직접 조립합니다.
 - 요청의 세션·Service·`Request` 를 background 나 Celery payload 로 넘기지 않습니다. JSON 직렬화
   가능한 id·값만 넘기고, 작업이 자기 세션을 엽니다.
-- Celery 태스크는 `app/celery/tasks.py` 에 두고 코루틴은 `run_async()` 로 실행합니다
-  ([ARCHITECTURE §11](./ARCHITECTURE.md)). 재시도·중복·"commit 과 enqueue 사이 실패" 를 테스트합니다.
+- Celery 태스크는 기능 폴더의 `tasks.py` 에 두고(워커가 registry 로 발견) 코루틴은 `run_async()` 로
+  실행합니다. 서비스는 그 기능의 provider 함수(세션을 받는 일반 함수 — 요청용 `Depends` provider 도
+  이 함수를 부른다)로 조립합니다 ([ARCHITECTURE §11](./ARCHITECTURE.md)). 재시도·중복·"commit 과 enqueue 사이 실패" 를 테스트합니다.
 - 접속 로그용 `access_log_tasks` 러너는 넘치면 버리는 비핵심 경로입니다. 결제·발송 같은 중요한
   작업을 넣지 않습니다.
 - `async def` 안에서 `time.sleep`·동기 HTTP·큰 파일 처리·무거운 CPU 루프를 돌리면 이벤트 루프가
   멈춥니다. blocking I/O 는 `asyncio.to_thread`, 무겁거나 내구성이 필요한 작업은 Celery 로 보냅니다.
 - 같은 `AsyncSession` 으로 `asyncio.gather` 를 돌리지 않습니다. 한 트랜잭션의 SQL 은 순차 await,
   독립 병렬 작업은 작업마다 세션을 엽니다.
-- 공유 Redis 가 필요하면 `app.state.redis` 를 읽는 작은 Dependency 를 만들되, Redis 장애 시의 오류
-  계약을 함께 정합니다(공통 Redis Dependency 는 아직 없습니다).
+- 공유 Redis 가 필요하면 core provider `get_redis`(`app/core/redis.py`)를 `Depends` 로 받습니다.
+  client 가 없으면 503 이고, 테스트는 `app.dependency_overrides[get_redis]` 로 가짜를 넣습니다. Redis
+  명령 실패 시의 오류 계약은 쓰는 기능이 정합니다.
 
 ---
 
@@ -534,7 +537,7 @@ uv run python -m scripts.review_gate --group static structure docs
 - [ ] 필요하면 `admin.py` 의 `admin_views` (민감 필드 제외 확인), `apps.py` 의 `ready()`
 - [ ] 태그 설명(`app/core/tags_metadata.py`), `tests/test_route_inventory.py`, README API 표 갱신
 - [ ] 테스트 작성, `mysql` 마커 대상 SQL 확인, 게이트 실행
-- [ ] Celery 태스크가 필요하면 `app/celery/tasks.py` 에 추가
+- [ ] Celery 태스크가 필요하면 기능 폴더의 `tasks.py` 에 추가 (중앙 파일 수정 없음)
 
 | 바꾼 것 | 함께 확인할 곳 |
 |---|---|
