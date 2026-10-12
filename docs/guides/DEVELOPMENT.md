@@ -234,16 +234,17 @@ async def create_product(
 ```python
 # app/features/reports/repositories/sales_report_repository.py
 _DAILY_SALES = text("""
-    SELECT DATE(o.created_at) AS sales_date, COUNT(*) AS order_count, ...
-    WHERE o.created_at >= :start_date
-      AND o.created_at < DATE_ADD(:end_date, INTERVAL 1 DAY)
-""")
+    SELECT DATE(CONVERT_TZ(o.created_at, '+00:00', :tz_offset)) AS sales_date, COUNT(*) AS order_count, ...
+    WHERE o.created_at >= :start_at
+      AND o.created_at < :end_at
+    GROUP BY sales_date
+""").bindparams(bindparam("start_at", type_=UTCDateTime()), bindparam("end_at", type_=UTCDateTime()))
 
 class SalesReportRawRepository(RawRepositoryBase):
-    async def daily_sales(self, *, start_date, end_date):
+    async def daily_sales(self, *, start_at, end_at, tz_offset):
         rows = await self.fetch_all(
             _DAILY_SALES,
-            {"start_date": start_date, "end_date": end_date},
+            {"start_at": start_at, "end_at": end_at, "tz_offset": tz_offset},
             query_name="sales_report.daily_sales",
         )
         return list(rows)
@@ -252,8 +253,10 @@ class SalesReportRawRepository(RawRepositoryBase):
 흐름: View(`get_daily_sales_report`, read-only 세션) → `ReportService.get_daily_sales()`(시작일이
 종료일보다 뒤거나, 날짜가 1970-01-01~9998-12-31 밖이거나, 기간이 366일을 넘으면 422
 `InvalidDateRangeException`) → `SalesReportRawRepository.daily_sales()` →
-`RawRepositoryBase.fetch_all()` → `RowMapping` → `DailySalesItem` DTO. 집계 기준은 `created_at` 이고
-종료일 당일 전체를 포함합니다. 날짜 상한은 SQL 의 `종료일 + 1일` 이 넘치지 않게 하려는 것입니다.
+`RawRepositoryBase.fetch_all()` → `RowMapping` → `DailySalesItem` DTO. 집계 기준은 `created_at`(UTC 저장)이고
+날짜는 설정 `TIME_ZONE` 의 영업일입니다 — Service 가 `timezone_settings.local_dates_to_utc()` 로 지역 날짜 범위를
+UTC 반열린 구간 `[시작일 00:00, 종료일 다음 날 00:00)` 으로 바꾸고 `utc_offset()` 으로 묶을 오프셋을 정합니다
+(종료일 당일 전체 포함). 날짜 상한은 `종료일 + 1일` 계산이 넘치지 않게 하려는 것입니다.
 
 ### 6.1 지켜야 하는 5가지
 
@@ -300,7 +303,7 @@ DTO 필드와 SQL alias 가 어긋나면 **그 자리에서 실패**합니다. �
 
 ### 6.3 DB 방언은 실제 DB 에서 검증합니다
 
-reports 의 SQL 은 MySQL 문법(`DATE_ADD(..., INTERVAL 1 DAY)`)입니다. **SQLite 통과는 MySQL 승인
+reports 의 SQL 은 MySQL 문법(`CONVERT_TZ(...)`)입니다. **SQLite 통과는 MySQL 승인
 근거가 아닙니다.** 기능 테스트는 MySQL 에 의존하는 한 지점만 대체하고, 실제 SQL 은
 `tests/integration/test_sales_report_mysql.py` 가 MySQL 8.4 에 대고 확인합니다. 운영 SQL 을 테스트
 편의로 문자열 치환하지 않습니다.

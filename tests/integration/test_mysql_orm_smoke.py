@@ -13,7 +13,7 @@
 5. 컬럼보다 긴 접속 로그 값은 잘려서 **저장된다**(strict 모드는 자르지 않고 INSERT 를 거부한다).
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -70,7 +70,8 @@ async def test_catalog_crud_through_service(mysql_session_maker):
 
 
 async def test_same_created_at_rows_page_deterministically(mysql_session_maker):
-    same_moment = datetime(2026, 1, 1, 9, 0, 0)
+    # UTCDateTime 는 naive 값을 거부한다(ADR-007).
+    same_moment = datetime(2026, 1, 1, 9, 0, 0, tzinfo=UTC)
     async with mysql_session_maker() as session:
         repository = ProductRepository(session)
         for index in range(5):

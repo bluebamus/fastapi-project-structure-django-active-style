@@ -20,9 +20,10 @@ celery_app.conf.update(
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
-    # 앱 전역 타임존 설정(TIME_ZONE)을 따른다(하드코딩 대신 설정 일원화).
+    # 내부 시각(ETA·만료·결과 date_done)은 UTC 로 다룬다 — DB 와 같은 정본(ADR-007).
+    # timezone 은 beat crontab 을 지역 시각으로 해석·표시하는 데만 쓴다.
     timezone=timezone_settings.TIME_ZONE,
-    enable_utc=False,
+    enable_utc=True,
     beat_schedule={},
 )
 

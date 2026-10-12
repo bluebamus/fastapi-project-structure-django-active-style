@@ -17,7 +17,7 @@
 
 import os
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, date, datetime, time, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -58,8 +58,29 @@ class TimezoneSettings(BaseSettings):
         return ZoneInfo(self.TIME_ZONE)
 
     def now(self) -> datetime:
-        """현재 시간을 설정된 타임존으로 반환"""
+        """현재 시간을 설정된 타임존으로 반환(로그 파일 날짜 등 지역 시각이 필요한 곳)."""
         return datetime.now(self.tz)
+
+    def utc_now(self) -> datetime:
+        """현재 시각(UTC aware). DB 에 저장하는 시각은 모두 여기서 만든다(ADR-007)."""
+        return datetime.now(UTC)
+
+    def local_dates_to_utc(self, start: date, end: date) -> tuple[datetime, datetime]:
+        """지역 영업일 [start, end] 를 UTC 순간의 반열린 구간 [시작, 끝) 으로 바꾼다.
+
+        시작 = start 의 지역 00:00, 끝 = end 다음 날의 지역 00:00. 둘 다 UTC aware.
+        """
+        lower = datetime.combine(start, time.min, self.tz).astimezone(UTC)
+        upper = datetime.combine(end + timedelta(days=1), time.min, self.tz).astimezone(UTC)
+        return lower, upper
+
+    def utc_offset(self, at: datetime) -> str:
+        """`at` 순간의 설정 타임존 오프셋을 MySQL `CONVERT_TZ` 형식(`+09:00`)으로 돌려준다."""
+        offset = at.astimezone(self.tz).utcoffset() or timedelta(0)
+        minutes = int(offset.total_seconds()) // 60
+        sign = "-" if minutes < 0 else "+"
+        hours, minutes = divmod(abs(minutes), 60)
+        return f"{sign}{hours:02d}:{minutes:02d}"
 
     def localize(self, dt: datetime) -> datetime:
         """naive datetime을 설정된 타임존으로 변환"""

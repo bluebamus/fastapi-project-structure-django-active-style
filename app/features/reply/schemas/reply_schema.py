@@ -40,8 +40,8 @@ class ReplyResponse(ReplyBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: str = Field(description="댓글 UUID")
-    created_at: datetime = Field(description="생성 시각")
-    updated_at: datetime = Field(description="수정 시각")
+    created_at: datetime = Field(description="생성 시각(UTC, 오프셋 포함 ISO 8601)")
+    updated_at: datetime = Field(description="수정 시각(UTC, 오프셋 포함 ISO 8601)")
 
 
 class ReplyListResponse(BaseModel):

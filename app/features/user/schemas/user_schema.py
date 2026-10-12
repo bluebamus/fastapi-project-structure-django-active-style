@@ -39,8 +39,8 @@ class UserResponse(UserBase):
 
     id: str = Field(description="사용자 UUID")
     is_active: bool = Field(description="활성 여부")
-    created_at: datetime = Field(description="생성 시각")
-    updated_at: datetime = Field(description="수정 시각")
+    created_at: datetime = Field(description="생성 시각(UTC, 오프셋 포함 ISO 8601)")
+    updated_at: datetime = Field(description="수정 시각(UTC, 오프셋 포함 ISO 8601)")
 
 
 class UserListResponse(BaseModel):

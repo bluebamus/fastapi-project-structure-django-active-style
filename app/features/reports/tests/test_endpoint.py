@@ -8,7 +8,7 @@
 - Raw 행이 DTO 경계에서 검증되는가 — SQL alias 가 어긋나면 200 이 아니라 실패인가
 - 기간 규칙이 Service 에 있는가 (SQL 도 View 도 아닌)
 
-**집계 SQL 자체는 여기서 검증하지 않는다.** `DATE_ADD(..., INTERVAL 1 DAY)` 는 MySQL
+**집계 SQL 자체는 여기서 검증하지 않는다.** `CONVERT_TZ()` 는 MySQL
 문법이고, SQLite 통과는 MySQL 방언의 승인 근거가 되지 못한다(RAW-REP-006). 그래서
 MySQL 에 의존하는 **그 한 지점만** 대체하고, 실제 SQL 은
 `tests/integration/test_sales_report_mysql.py` 가 MySQL 8.4 에 대고 확인한다.
@@ -16,8 +16,9 @@ MySQL 에 의존하는 **그 한 지점만** 대체하고, 실제 SQL 은
 """
 
 import inspect
-from datetime import date
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_asyncio
@@ -33,8 +34,11 @@ from app.features.reports.models.models import SalesOrder  # noqa: F401  (regist
 from app.features.reports.repositories.sales_report_repository import SalesReportRawRepository
 from app.features.reports.schemas.report_schema import DailySalesItem
 from app.features.reports.services.report_service import ReportService
+from config import TimezoneSettings, timezone_settings
 from main import app
 from tests.session_overrides import session_overrides
+
+KST = ZoneInfo("Asia/Seoul")
 
 _ROWS = [
     {"sales_date": date(2026, 8, 1), "order_count": 2, "gross_amount": Decimal("30.00")},
@@ -47,8 +51,8 @@ def stub_daily_sales(monkeypatch):
     """MySQL 방언에 의존하는 한 지점만 대체한다. 호출 인자는 그대로 기록한다."""
     calls: list[dict] = []
 
-    async def _fake(self, *, start_date, end_date):
-        calls.append({"start_date": start_date, "end_date": end_date})
+    async def _fake(self, *, start_at, end_at, tz_offset):
+        calls.append({"start_at": start_at, "end_at": end_at, "tz_offset": tz_offset})
         return list(_ROWS)
 
     monkeypatch.setattr(SalesReportRawRepository, "daily_sales", _fake)
@@ -115,18 +119,26 @@ async def test_returns_aggregated_items(client):
     assert Decimal(str(body["items"][0]["gross_amount"])) == Decimal("30.00")
 
 
-async def test_query_params_reach_repository_as_dates(client, stub_daily_sales):
-    """View 가 문자열을 date 로 파싱해 Service 를 거쳐 그대로 전달한다."""
+async def test_query_params_reach_repository_as_utc_bounds(client, stub_daily_sales, monkeypatch):
+    """View 가 파싱한 지역 날짜를 Service 가 UTC 반열린 구간과 오프셋으로 바꿔 넘긴다 (ADR-007)."""
+    monkeypatch.setattr(timezone_settings, "TIME_ZONE", "Asia/Seoul")
+
     await client.get(
         "/api/v1/reports/sales/daily",
         params={"start_date": "2026-08-01", "end_date": "2026-08-07"},
     )
 
-    assert stub_daily_sales == [{"start_date": date(2026, 8, 1), "end_date": date(2026, 8, 7)}]
+    assert stub_daily_sales == [
+        {
+            "start_at": datetime(2026, 7, 31, 15, 0, tzinfo=UTC),
+            "end_at": datetime(2026, 8, 7, 15, 0, tzinfo=UTC),
+            "tz_offset": "+09:00",
+        }
+    ]
 
 
 async def test_empty_period_returns_empty_items(client, monkeypatch):
-    async def _empty(self, *, start_date, end_date):
+    async def _empty(self, *, start_at, end_at, tz_offset):
         return []
 
     monkeypatch.setattr(SalesReportRawRepository, "daily_sales", _empty)
@@ -261,11 +273,65 @@ async def test_service_rejects_out_of_bounds_period(start, end):
     ids=["366-days", "min-date", "max-date"],
 )
 async def test_service_accepts_boundary_periods(stub_daily_sales, start, end):
-    service = ReportService(session=None)
+    service = ReportService(session=None, timezone=TimezoneSettings(TIME_ZONE="Asia/Seoul"))
 
     await service.get_daily_sales(start_date=start, end_date=end)
 
-    assert stub_daily_sales == [{"start_date": start, "end_date": end}]
+    # 지역 시작일 00:00 ~ 종료일 다음 날 00:00 (aware 비교는 순간 비교다).
+    assert stub_daily_sales == [
+        {
+            "start_at": datetime.combine(start, time.min, KST),
+            "end_at": datetime.combine(end, time.min, KST) + timedelta(days=1),
+            "tz_offset": "+09:00",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("zone", "day", "start_at", "end_at", "offset"),
+    [
+        (
+            "Asia/Seoul",
+            date(2026, 1, 2),
+            datetime(2026, 1, 1, 15, 0, tzinfo=UTC),
+            datetime(2026, 1, 2, 15, 0, tzinfo=UTC),
+            "+09:00",
+        ),
+        (
+            "UTC",
+            date(2026, 1, 2),
+            datetime(2026, 1, 2, tzinfo=UTC),
+            datetime(2026, 1, 3, tzinfo=UTC),
+            "+00:00",
+        ),
+        (
+            "Asia/Kolkata",
+            date(2026, 1, 2),
+            datetime(2026, 1, 1, 18, 30, tzinfo=UTC),
+            datetime(2026, 1, 2, 18, 30, tzinfo=UTC),
+            "+05:30",
+        ),
+        (
+            "America/New_York",
+            date(2026, 7, 4),
+            datetime(2026, 7, 4, 4, 0, tzinfo=UTC),
+            datetime(2026, 7, 5, 4, 0, tzinfo=UTC),
+            "-04:00",
+        ),
+    ],
+    ids=["seoul", "utc", "kolkata-half-hour", "new-york-dst"],
+)
+async def test_service_converts_local_day_to_utc_bounds(
+    stub_daily_sales, zone, day, start_at, end_at, offset
+):
+    """지역 영업일 하루 = UTC 의 [그날 지역 00:00, 다음 날 지역 00:00). 경계는 UTC aware 다."""
+    service = ReportService(session=None, timezone=TimezoneSettings(TIME_ZONE=zone))
+
+    await service.get_daily_sales(start_date=day, end_date=day)
+
+    (call,) = stub_daily_sales
+    assert call == {"start_at": start_at, "end_at": end_at, "tz_offset": offset}
+    assert call["start_at"].utcoffset() == call["end_at"].utcoffset() == UTC.utcoffset(None)
 
 
 async def test_overflowing_end_date_returns_422(client):

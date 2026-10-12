@@ -11,48 +11,64 @@
 
 ## MySQL 방언
 
-`DATE()`, `DATE_ADD(..., INTERVAL 1 DAY)` 는 MySQL 문법이다 (RAW-REP-006). SQLite 로
-이 SQL 을 검증하지 않으며, 테스트 편의를 위해 운영 SQL 을 문자열 치환하지도 않는다.
-실제 검증은 `compose.test.yaml` 의 MySQL 8.4 에 대고 하는
-`tests/integration/test_sales_report_mysql.py` 가 담당한다.
+`DATE()`, `CONVERT_TZ()` 는 MySQL 문법이다 (RAW-REP-006). SQLite 로 이 SQL 을 검증하지
+않으며, 테스트 편의를 위해 운영 SQL 을 문자열 치환하지도 않는다. 실제 검증은
+`compose.test.yaml` 의 MySQL 8.4 에 대고 하는 `tests/integration/test_sales_report_mysql.py` 가
+담당한다.
 
-## 기간 경계
+## 기간 경계와 시간대 (ADR-007)
 
-`created_at` 은 시각(DATETIME)이고 파라미터는 날짜다. 그래서 종료일을 `<=` 로 비교하면
-그날 00:00:00 만 걸려 하루가 통째로 빠진다. `< end_date + 1일` 의 반열린 구간으로
-비교해 종료일 전체를 포함시킨다.
+`created_at` 은 UTC 로 저장된 순간이고, 리포트의 "날짜" 는 설정 `TIME_ZONE` 의 영업일이다.
+그래서 Service 가 지역 날짜 범위를 UTC 순간의 반열린 구간 `[start_at, end_at)` 으로 바꿔 넘기고
+(종료일 하루 전체 포함), 여기서는 `CONVERT_TZ` 로 지역 시각으로 옮긴 뒤 날짜로 묶는다.
+두 경계는 `UTCDateTime` 으로 bind 되어 naive 값이 섞이면 실행 전에 거부된다.
 """
 
-from datetime import date
+from datetime import datetime
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.engine import RowMapping
 
+from app.core.models.types import UTCDateTime
 from app.core.repositories.raw_repository_base import RawRepositoryBase
 
+# ponytail: 오프셋은 쿼리마다 하나(기간 시작 시점의 값)다. DST 가 있는 TIME_ZONE 이면 전환일 전후
+# 행이 한 시간 어긋난다 — 그때는 MySQL 타임존 테이블을 적재해 `CONVERT_TZ(created_at, '+00:00',
+# 'America/New_York')` 처럼 지역 이름으로 행마다 변환하거나, 날짜 경계별 오프셋을 나눠 조회한다.
 _DAILY_SALES = text(
     """
     SELECT
-        DATE(o.created_at) AS sales_date,
+        DATE(CONVERT_TZ(o.created_at, '+00:00', :tz_offset)) AS sales_date,
         COUNT(*) AS order_count,
         COALESCE(SUM(o.total_amount), 0) AS gross_amount
     FROM sales_orders AS o
-    WHERE o.created_at >= :start_date
-      AND o.created_at < DATE_ADD(:end_date, INTERVAL 1 DAY)
-    GROUP BY DATE(o.created_at)
+    WHERE o.created_at >= :start_at
+      AND o.created_at < :end_at
+    GROUP BY sales_date
     ORDER BY sales_date ASC
     """
+).bindparams(
+    bindparam("start_at", type_=UTCDateTime()),
+    bindparam("end_at", type_=UTCDateTime()),
 )
 
 
 class SalesReportRawRepository(RawRepositoryBase):
     """일별 매출 집계 조회."""
 
-    async def daily_sales(self, *, start_date: date, end_date: date) -> list[RowMapping]:
-        """기간 내 일자별 주문 수와 총 매출을 돌려준다(주문 없는 날은 행이 없다)."""
+    async def daily_sales(
+        self, *, start_at: datetime, end_at: datetime, tz_offset: str
+    ) -> list[RowMapping]:
+        """`[start_at, end_at)` 의 주문을 `tz_offset` 지역 날짜별로 센다(주문 없는 날은 행이 없다).
+
+        Args:
+            start_at: 구간 시작(포함, aware).
+            end_at: 구간 끝(제외, aware).
+            tz_offset: 날짜를 가를 지역 오프셋(`+09:00` 형식).
+        """
         rows = await self.fetch_all(
             _DAILY_SALES,
-            {"start_date": start_date, "end_date": end_date},
+            {"start_at": start_at, "end_at": end_at, "tz_offset": tz_offset},
             query_name="sales_report.daily_sales",
         )
         return list(rows)

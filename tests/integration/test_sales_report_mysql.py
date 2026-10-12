@@ -1,7 +1,7 @@
 """일별 매출 리포트를 실제 MySQL 8.4 에 대고 검증한다 (계획서 §7, Phase 8).
 
 기능 테스트(`app/features/reports/tests/`)는 View→Service→DTO 계약을 빠르게 못박지만
-**집계 SQL 자체는 검증하지 못한다**. `DATE()`, `DATE_ADD(..., INTERVAL 1 DAY)` 는 MySQL
+**집계 SQL 자체는 검증하지 못한다**. `DATE()`, `CONVERT_TZ()` 는 MySQL
 문법이고, SQLite 통과는 MySQL 방언의 승인 근거가 되지 못한다(RAW-REP-006).
 
 여기서 확인하는 것:
@@ -14,13 +14,18 @@
 4. read-only 세션에서 리포트가 돌아가는가 (조회이므로 통과해야 한다)
 5. SCN-RAW-002 — Raw DML 의 rowcount·commit 1회·실패 시 rollback·read-only 차단
 
+시각은 UTC 로 저장된다(ADR-007). 아래 시드의 주문 시각은 **KST 영업 시각**으로 적고 `_seed` 가
+UTC 로 바꿔 넣는다 — 리포트의 날짜는 KST 영업일이다. 지역 자정 경계는
+`tests/integration/test_mysql_utc_datetime.py` 가 따로 본다.
+
 5번의 쓰기 경로는 **운영 HTTP endpoint 를 만들지 않는다**(계획서 §7). 테스트 전용
 Service/UoW 가 writer session 의 commit/rollback 을 소유하고, Repository 는 rowcount 와
 예외만 돌려준다. 실패는 HTTP 응답이 아니라 예외 전파와 DB 상태 불변으로 확인한다.
 """
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_asyncio
@@ -32,6 +37,10 @@ from app.core.services.services_base import BaseService
 from app.features.reports.repositories.sales_report_repository import SalesReportRawRepository
 from app.features.reports.schemas.report_schema import DailySalesItem
 from app.features.reports.services.report_service import ReportService
+from config import TimezoneSettings
+
+SEOUL = TimezoneSettings(TIME_ZONE="Asia/Seoul")
+KST = ZoneInfo("Asia/Seoul")
 
 pytestmark = pytest.mark.mysql
 
@@ -44,7 +53,7 @@ _INSERT_ORDER = text(
 
 
 async def _seed(session, orders: list[tuple[str, str, datetime]]) -> None:
-    """(주문번호, 금액, 주문시각) 목록을 넣는다. 이메일은 고정값이면 충분하다."""
+    """(주문번호, 금액, KST 주문시각) 목록을 UTC 로 바꿔 넣는다. 이메일은 고정값이면 충분하다."""
     for index, (order_no, amount, created_at) in enumerate(orders):
         await session.execute(
             _INSERT_ORDER,
@@ -53,10 +62,18 @@ async def _seed(session, orders: list[tuple[str, str, datetime]]) -> None:
                 "order_no": order_no,
                 "customer_email": "buyer@example.com",
                 "total_amount": Decimal(amount),
-                "created_at": created_at,
+                "created_at": created_at.replace(tzinfo=KST).astimezone(UTC).replace(tzinfo=None),
             },
         )
     await session.commit()
+
+
+async def _daily(session, start: date, end: date):
+    """KST 영업일 [start, end] 로 Repository 를 부른다 — Service 와 같은 경계 계산."""
+    start_at, end_at = SEOUL.local_dates_to_utc(start, end)
+    return await SalesReportRawRepository(session).daily_sales(
+        start_at=start_at, end_at=end_at, tz_offset=SEOUL.utc_offset(start_at)
+    )
 
 
 @pytest_asyncio.fixture
@@ -85,9 +102,7 @@ async def seeded(mysql_session_maker):
 
 async def test_daily_sales_groups_by_day_on_mysql(seeded):
     async with seeded() as session:
-        rows = await SalesReportRawRepository(session).daily_sales(
-            start_date=date(2026, 8, 1), end_date=date(2026, 8, 2)
-        )
+        rows = await _daily(session, date(2026, 8, 1), date(2026, 8, 2))
 
     assert [dict(row) for row in rows] == [
         {"sales_date": date(2026, 8, 1), "order_count": 3, "gross_amount": Decimal("31.00")},
@@ -98,9 +113,7 @@ async def test_daily_sales_groups_by_day_on_mysql(seeded):
 async def test_end_date_includes_the_whole_day_on_mysql(seeded):
     """종료일 하루가 통째로 포함된다 — 23:59:59 주문이 빠지면 안 된다."""
     async with seeded() as session:
-        rows = await SalesReportRawRepository(session).daily_sales(
-            start_date=date(2026, 8, 1), end_date=date(2026, 8, 1)
-        )
+        rows = await _daily(session, date(2026, 8, 1), date(2026, 8, 1))
 
     assert len(rows) == 1
     assert rows[0]["order_count"] == 3, "종료일 후반부 주문이 누락됐습니다."
@@ -110,18 +123,14 @@ async def test_end_date_includes_the_whole_day_on_mysql(seeded):
 async def test_period_excludes_orders_outside_range_on_mysql(seeded):
     """다음 날 00:00 주문은 포함되지 않는다(반열린 구간의 반대쪽 경계)."""
     async with seeded() as session:
-        rows = await SalesReportRawRepository(session).daily_sales(
-            start_date=date(2026, 8, 2), end_date=date(2026, 8, 2)
-        )
+        rows = await _daily(session, date(2026, 8, 2), date(2026, 8, 2))
 
     assert [row["sales_date"] for row in rows] == [date(2026, 8, 2)]
 
 
 async def test_empty_period_returns_no_rows_on_mysql(seeded):
     async with seeded() as session:
-        rows = await SalesReportRawRepository(session).daily_sales(
-            start_date=date(2026, 7, 1), end_date=date(2026, 7, 31)
-        )
+        rows = await _daily(session, date(2026, 7, 1), date(2026, 7, 31))
 
     assert rows == []
 
@@ -129,9 +138,7 @@ async def test_empty_period_returns_no_rows_on_mysql(seeded):
 async def test_amount_sum_is_exact_on_mysql(seeded):
     """금액은 Decimal 로 정확히 더해진다 — float 였다면 31.000000000000004 가 된다."""
     async with seeded() as session:
-        rows = await SalesReportRawRepository(session).daily_sales(
-            start_date=date(2026, 8, 1), end_date=date(2026, 8, 1)
-        )
+        rows = await _daily(session, date(2026, 8, 1), date(2026, 8, 1))
 
     assert isinstance(rows[0]["gross_amount"], Decimal)
     assert rows[0]["gross_amount"] == Decimal("31.00")
@@ -143,7 +150,7 @@ async def test_amount_sum_is_exact_on_mysql(seeded):
 async def test_row_aliases_match_dto_fields_on_mysql(seeded):
     """SQL 컬럼 alias 와 DTO 필드가 실제 드라이버 타입까지 일치한다 (RAW-REP-005)."""
     async with seeded() as session:
-        items = await ReportService(session).get_daily_sales(
+        items = await ReportService(session, SEOUL).get_daily_sales(
             start_date=date(2026, 8, 1), end_date=date(2026, 8, 3)
         )
 
@@ -162,7 +169,7 @@ async def test_report_runs_on_read_only_session_on_mysql(seeded):
     async with seeded() as session:
         mark_read_only(session)
 
-        items = await ReportService(session).get_daily_sales(
+        items = await ReportService(session, SEOUL).get_daily_sales(
             start_date=date(2026, 8, 1), end_date=date(2026, 8, 3)
         )
 
@@ -178,7 +185,10 @@ class _SalesOrderRawWriteRepository(RawRepositoryBase):
     _UPDATE_AMOUNT = text(
         "UPDATE sales_orders SET total_amount = :total_amount WHERE order_no = :order_no"
     )
-    _DELETE_BY_DAY = text("DELETE FROM sales_orders WHERE DATE(created_at) = :day")
+    # created_at 은 UTC 다 — KST 영업일로 지우려면 지역 시각으로 옮겨 비교한다.
+    _DELETE_BY_DAY = text(
+        "DELETE FROM sales_orders WHERE DATE(CONVERT_TZ(created_at, '+00:00', '+09:00')) = :day"
+    )
 
     async def set_amount(self, *, order_no: str, total_amount: Decimal) -> int | None:
         return await self.execute(

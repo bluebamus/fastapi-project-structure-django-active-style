@@ -55,6 +55,20 @@
 - **수렴 판정:** `NOT CONVERGED` (Open Fix 9: F-008(F2 부분)·F-016~F-023 — 다음 단계)
 - **잔여 위험 변화:** 없음.
 
+### Round 4 — 2026-10-12 (base SHA: `0223722`) — 단계 D
+- **트리거:** REQ-001 단계 D(리뷰 우선 조치 7 — 시각 정책, 결정: DB 는 UTC·마이크로초, 응답은 오프셋 포함 ISO 8601).
+- **검수 범위:** `app/core/models/`(models_base·새 types), `config.py` `TimezoneSettings`, `migrations/env.py`·새 리비전, reports Service·Raw Repository, `app/celery/app.py`, 응답 스키마 설명 5개, `tests/integration/`(시각 왕복·리포트 시드), 관련 문서.
+- **GATE 통과:** 0 ☑ 1 ☑ 2 ☑ 3 ☑ 4 □ 5 □
+- **신규 finding(심각도별):** CRIT 0 · HIGH 0 · MED 0 · LOW 0 (Round 0 의 F-016 을 닫았다)
+- **Fix:** F-016 → **Fixed**
+- **설계 구체화:** ADR-020 — 단일 시각 클래스(`TimezoneSettings.utc_now`·`local_dates_to_utc`·`utc_offset`), `UTCDateTime`(`load_dialect_impl` 로 MySQL `DATETIME(6)`), Alembic `render_item` 훅(비교는 컴파일 DDL 이라 `compare_type` 훅 불필요 — 단 정밀도 차이는 Alembic 이 못 잡아 MySQL `DATETIME_PRECISION` 단언 추가), 리비전은 `op.get_context().dialect`·Core UPDATE, 리포트는 Service 가 경계·오프셋을 계산하고 Repository 는 타입 건 bind + `GROUP BY` 별칭. 새 head `e5a7c9d1f3b5`.
+- **fail-on-revert:** 수정 전 파일을 작업 폴더 밖 사본으로 하나씩 되돌려 새 테스트를 돌렸다 — models_base 7 실패 · env.py 1 실패 · celery app 1 실패 · report_service 10 실패. `UTCDateTime` 은 신규 클래스라 변이로 확인 — UTC 변환 제거 2 실패, naive 허용 2 실패, 결과 UTC 부착 제거 5 실패, MySQL fsp 제거 1 실패. `utc_offset` 부호 변이 1 실패(New York). 복원 후 전부 통과. MySQL 테스트(`tests/integration/test_mysql_utc_datetime.py` 4건)는 로컬 실행 금지라 수집만 확인했다 — 리비전 SQL 은 오프라인 `alembic upgrade d4e6f8b12c34:head --sql`(MySQL 방언)로 `ALTER ... DATETIME(6) NOT NULL` + `UPDATE ... convert_tz(...)` 를 눈으로 확인했다.
+- **동작이 바뀐 기존 테스트:** ① reports 기능 테스트의 Repository 대역은 새 시그니처(`start_at, end_at, tz_offset`)를 받는다 — `test_query_params_reach_repository_as_dates` 는 같은 계약을 UTC 경계로 단언하는 `test_query_params_reach_repository_as_utc_bounds` 로, 경계 허용 테스트는 지역 00:00 경계로 단언을 옮겼다(단언 강도 동일 이상 — 날짜 대신 순간·오프셋까지 비교). ② `tests/integration/test_sales_report_mysql.py` 는 시드를 KST 영업 시각으로 적고 UTC 로 넣으며, Repository 호출은 Service 와 같은 경계 계산을 거친다. 테스트 전용 일 단위 DELETE 도 KST 영업일로 비교한다. 기대 집계 값은 그대로다. ③ `tests/integration/test_mysql_orm_smoke.py` 의 같은 시각 시드를 aware UTC 로 바꿨다(naive 거부가 새 계약). 응답 직렬화 바이트 고정(`tests/test_response_serialization.py`)은 이미 aware UTC 를 `Z` 로 고정하고 있어 바꿀 필요가 없었다. 스키마 골든은 서명 `type` 이 그대로(`DATETIME`)라 바꾸지 않았다(ADR-020 ⑥).
+- **OpenAPI:** 시각 필드 설명이 "생성/수정 시각(UTC, 오프셋 포함 ISO 8601)" 으로 바뀌었다. 구조 변화 없음.
+- **검사 수치:** `pytest -m "not mysql"` 930 passed / 41 deselected / skip 0(910 → +20), `-m mysql --collect-only` 41 수집(37 → +4), ruff check·format 클린, mypy 194 files 0 issues(Round 1 과 같은 순수 Python 빌드 우회), `alembic heads` 단일 head `e5a7c9d1f3b5`, SQLite 빈 DB `upgrade head` 후 `alembic check` "No new upgrade operations detected", review_gate `structure`·`supply`·`docs` 통과.
+- **수렴 판정:** `NOT CONVERGED` (Open Fix 8: F-008(F2 부분)·F-017~F-023 — 다음 단계)
+- **잔여 위험 변화:** R-207(리포트 고정 오프셋 — DST 지역), R-208(리비전의 KST 가정·downgrade 소수 초 반올림) 등록.
+
 ## 심각도 추세 (수렴이 보이게)
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
@@ -62,3 +76,4 @@
 | 1 | 0 | 0 | 0 | 0 | 0 (Fixed 5) | NOT CONVERGED |
 | 2 | 0 | 0 | 0 | 0 | 0 (Fixed 7, 부분 1) | NOT CONVERGED |
 | 3 | 0 | 0 | 0 | 0 | 0 (Fixed 2) | NOT CONVERGED |
+| 4 | 0 | 0 | 0 | 0 | 0 (Fixed 1) | NOT CONVERGED |

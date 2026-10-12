@@ -23,6 +23,7 @@ if config.config_file_name is not None:
 # 손대지 않는다 (FR-03, FR-08, NFR-05).
 # ---------------------------------------------------------------------------
 from app.core.db.session import Base  # noqa: E402
+from app.core.models.types import render_alembic_type  # noqa: E402
 from app.core.registry import AppRegistry  # noqa: E402
 from config import db_settings  # noqa: E402
 
@@ -66,6 +67,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        render_item=render_alembic_type,
     )
 
     with context.begin_transaction():
@@ -86,8 +88,12 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        # render_item: autogenerate 가 UTCDateTime 을 밑바탕 타입(DATETIME(6) variant)으로 적는다.
+        # 비교(check)는 방언이 컴파일한 DDL 로 하므로 별도 compare_type 훅이 필요 없다.
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            render_item=render_alembic_type,
         )
 
         with context.begin_transaction():

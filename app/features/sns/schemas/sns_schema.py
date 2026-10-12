@@ -40,8 +40,8 @@ class SnsPostResponse(SnsPostBase):
 
     id: str = Field(description="게시물 UUID")
     like_count: int = Field(ge=0, description="좋아요 수")
-    created_at: datetime = Field(description="생성 시각")
-    updated_at: datetime = Field(description="수정 시각")
+    created_at: datetime = Field(description="생성 시각(UTC, 오프셋 포함 ISO 8601)")
+    updated_at: datetime = Field(description="수정 시각(UTC, 오프셋 포함 ISO 8601)")
 
 
 class SnsPostListResponse(BaseModel):
