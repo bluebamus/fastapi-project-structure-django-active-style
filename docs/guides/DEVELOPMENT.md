@@ -209,12 +209,12 @@ async def create_product(
 | `create(data)` | flush·refresh 까지, commit 없음. 제약 위반은 `DuplicateException`, 그 밖의 DB 오류는 `DatabaseException` |
 | `get_by_id(pk)` | 없으면 `None` |
 | `get_by_id_or_raise(pk)` | 없으면 `NotFoundException` |
-| `get_all(skip=0, limit=100)` | 단순 페이지 조회 — **정렬 없음** |
+| `get_all(skip=0, limit=100)` | 페이지 조회 — 기본 정렬 **`created_at DESC, PK DESC`**(모델에 `created_at` 이 없으면 PK 만). 같은 시각의 행도 순서가 정해져 offset 페이지가 겹치지 않는다 |
 | `count(**filters)` / `exists(pk)` | 총 개수(`filter_by`) / 존재 여부 |
 | `update(pk, data)` | 없으면 `None`. **빈 dict 는 no-op** 으로 현재 객체 반환. 모델에 없는 필드·PK 변경은 `ValidationException`, 제약 위반은 `DuplicateException`. flush·refresh 까지 |
 | `delete(pk)` | 삭제 여부(`bool`), commit 없음 |
 
-- 목록에 순서가 필요하면 기능 Repository 에 `order_by`(동률은 PK)를 명시한 메서드를 추가하고,
+- 다른 순서가 필요하면 기능 Repository 에 `order_by`(마지막 동률은 PK)를 명시한 메서드를 추가하고,
   같은 필터로 `count` 를 계산합니다.
 - 도메인 조회는 문자열 컬럼명을 받는 범용 필터 대신 모델 속성을 쓰는 명시적 메서드로 추가합니다
   (예: `ProductRepository.list_active()`).
@@ -331,7 +331,7 @@ Repository(`execute()` 로 rowcount 반환) 순서를 지키고 **View 가 응�
 | 단계 | 위치 |
 |---|---|
 | 집행 지점 | `app/core/db/router.py` — `_block_read_only_execute`(`do_orm_execute` 이벤트), `_block_read_only_flush`(`before_flush` 이벤트) |
-| 구문 분류 | `app/core/db/router.py::_statement_is_readable` — Core `UpdateBase` 거부, `Select` 허용, `TextClause` 는 아래로 |
+| 구문 분류 | `app/core/db/router.py::_statement_is_readable` — Core `UpdateBase` 거부, `Select` 허용(단 `with_for_update()` 잠금 조회는 거부), `TextClause` 는 아래로 |
 | Raw SQL 판정 | `app/core/db/router.py::_text_is_readable` — 주석 제거 → multi-statement 거부 → 잠금 조회 거부 → 깊이 0 스캔 |
 | 깊이 0 스캔 | `app/core/db/router.py::_depth0_words` — 따옴표·역따옴표 안을 건너뛰고, 스캔이 무너지면 `None` |
 

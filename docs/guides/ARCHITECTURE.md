@@ -485,14 +485,13 @@ core 의 `UserInfoMiddleware` 가 수집하고, home 앱의 `HomeAccessLogSink` 
 기본값 `false` — 모든 세션이 writer 엔진 하나에 붙습니다. `DB_ROUTER_ENABLED=true` 이고
 `DB_REPLICATION_ENABLED=true` + `MYSQL_REPLICA_HOSTS` 가 있으면 라우팅 세션이 다음을 따릅니다.
 
-1. ORM flush·Core DML → writer
+1. ORM flush·Core DML·ORM 잠금 조회(`select(...).with_for_update()`) → writer
 2. 그 밖의 SELECT → reader (라운드로빈). 한 세션이 고른 reader 는 세션 끝까지 유지(pin)
 3. `DB_READ_STICKY_AFTER_WRITE=true`(기본) 면 쓰기 뒤 같은 세션의 SELECT → writer
 4. reader 가 없으면 writer
-5. 그 밖의 모든 것(잠금 조회 `SELECT ... FOR UPDATE/SHARE`, `text()` Raw SQL)은 **1~3 규칙만**
-   따릅니다 — 라우터는 ORM flush 와 Core `UpdateBase` 만 쓰기로 보므로 잠금 조회도 reader 로
-   나갈 수 있습니다. 잠금이 필요하면 `get_writer_db_session` 을 쓰거나 `using_writer(session)`
-   으로 직접 고정합니다(§8.2, 개발 가이드 §7)
+5. `text()` Raw SQL 은 **1~3 규칙만** 따릅니다 — 라우터는 문자열을 해석하지 않으므로
+   `text("SELECT ... FOR UPDATE")` 는 reader 로 나갈 수 있습니다. Raw SQL 로 잠금이 필요하면
+   `get_writer_db_session` 을 쓰거나 `using_writer(session)` 으로 직접 고정합니다(§8.2, 개발 가이드 §7)
 
 복제 지연을 허용할 수 없는 읽기는 writer 세션을 쓰거나 `using_writer(session)` 으로 고정합니다.
 sticky 는 세션 내부 정책이라 다음 요청의 read-only 세션까지 지연을 없애지 않습니다.
@@ -615,11 +614,16 @@ _registry = AppRegistry()
 _registry.discover()
 _registry.import_models()
 target_metadata = Base.metadata
-config.set_main_option("sqlalchemy.url", db_settings.ALEMBIC_URL)
+config.set_main_option(
+    "sqlalchemy.url",
+    db_settings.ALEMBIC_URL.render_as_string(hide_password=False).replace("%", "%%"),
+)
 ```
 
-- URL 우선순위(`DatabaseSettings.ALEMBIC_URL`): `ALEMBIC_DATABASE_URL` 설정값 → primary DSN 의
-  `+aiomysql` 을 `+pymysql` 로 바꾼 값. `env.py` 는 환경변수를 직접 읽지 않습니다.
+- URL 우선순위(`DatabaseSettings.ALEMBIC_URL`, `URL` 객체): `ALEMBIC_DATABASE_URL` 설정값(`make_url`) →
+  primary URL 의 드라이버만 `mysql+pymysql` 로 바꾼 값. `env.py` 는 환경변수를 직접 읽지 않습니다.
+- DSN 은 문자열로 이어 붙이지 않고 `URL.create(...)` 로 만듭니다 — 비밀번호의 `@ / : #` 는 렌더링 때
+  인코딩되고, `%` 는 ConfigParser 보간을 피하려고 `%%` 로 넘깁니다. 회귀 가드: `tests/core/test_dsn_urls.py`.
 - revision 체인: `f4adf0ae24ea`(baseline) → `b2f1a9c0d3e4`(user 비밀번호) →
   `c3d5e7a91b02`(catalog_products) → `d4e6f8b12c34`(sales_orders, head).
 - 서버 기동은 upgrade 를 하지 않습니다. 운영은 트래픽 전환 전에 `alembic upgrade head` 를 적용합니다.

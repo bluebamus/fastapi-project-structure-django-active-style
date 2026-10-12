@@ -18,11 +18,11 @@ class ProductRepository(BaseRepository[Product, str]):
     model = Product
 
     async def list_active(self, *, skip: int = 0, limit: int = 100) -> Sequence[Product]:
-        """판매 중인 상품만 최신순으로 조회한다."""
+        """판매 중인 상품만 최신순으로 조회한다(같은 시각은 PK 역순 — offset 페이지가 겹치지 않는다)."""
         stmt = (
             select(Product)
             .where(Product.is_active.is_(True))
-            .order_by(Product.created_at.desc())
+            .order_by(Product.created_at.desc(), Product.id.desc())
             .offset(skip)
             .limit(limit)
         )
