@@ -162,6 +162,9 @@ def _register_exception_handlers(app: FastAPI) -> None:
                 message=str(exc.detail) if exc.detail else "HTTP 오류가 발생했습니다.",
                 detail=None,
             ).model_dump(mode="json"),
+            # 405 의 `Allow`, 401 의 `WWW-Authenticate` 처럼 예외가 실어 온 헤더는 HTTP 계약의
+            # 일부다. 본문 형식만 바꾸고 헤더는 그대로 넘긴다.
+            headers=exc.headers,
         )
 
     @app.exception_handler(Exception)
