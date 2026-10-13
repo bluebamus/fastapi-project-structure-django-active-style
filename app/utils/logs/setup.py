@@ -10,9 +10,13 @@ import logging
 from logging.config import dictConfig
 
 from app.utils.logs.config import LOG_FORMAT, _env, _level, build_dictconfig
+from app.utils.logs.filters import redact_handlers
 from app.utils.logs.queue_logging import BoundedQueueHandler, start_queue_listener
 
 _configured = False
+
+# uvicorn 이 자기 핸들러를 붙이는 로거(propagate=False).
+UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
 
 def configure_logging(force: bool = False) -> None:
@@ -27,6 +31,11 @@ def configure_logging(force: bool = False) -> None:
     if _configured and not force:
         return
     dictConfig(build_dictconfig())
+    # `uvicorn main:app`(CLI) 은 앱 import **전에** 자기 기본 핸들러를 uvicorn 로거에 붙인다
+    # (propagate=False). 그 핸들러에도 같은 마스킹을 단다 — 안 그러면 "Exception in ASGI
+    # application" traceback 이 가려지지 않은 채 찍힌다. `python main.py` 경로는
+    # setup_uvicorn_logging() 이 이미 필터를 달아 두므로 아무 일도 하지 않는다(멱등).
+    redact_handlers(*(logging.getLogger(name) for name in UVICORN_LOGGERS))
     _configured = True
     start_queue_listener(_queue_handler())
 

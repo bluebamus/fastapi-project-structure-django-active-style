@@ -92,6 +92,12 @@ _KEYWORD_SECRET = re.compile(
     r"(?i)\b(secret[_-]?key|api[_-]?key|password|passwd|pwd|secret|token)\b"
     r"(\s*[:=]\s*)([\"']?)([^\s\"',;)]+)\3"
 )
+# `Authorization: Bearer <토큰>` — 키워드 규칙은 `키=값` 꼴만 보므로 헤더 값의 토큰을 놓친다.
+_BEARER_TOKEN = re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9\-._~+/]+=*")
+
+# traceback 을 미리 렌더할 때 쓰는 기본 포매터. 이 저장소의 포매터(TzFormatter)는
+# formatException 을 바꾸지 않으므로 결과가 핸들러의 포매터와 같다.
+_EXC_FORMATTER = logging.Formatter()
 
 
 def redact(text: str) -> str:
@@ -101,20 +107,25 @@ def redact(text: str) -> str:
     쓸모없어져서 결국 아무도 안 켠다.
     """
     text = _DSN_CREDENTIALS.sub(r"\1\2:***@", text)
+    text = _BEARER_TOKEN.sub(r"\1***", text)
     return _KEYWORD_SECRET.sub(r"\1\2\3***\3", text)
 
 
 class RedactingFilter(logging.Filter):
-    """포매팅된 메시지에서 비밀정보를 지운다.
+    """메시지·traceback·stack 에서 비밀정보를 지운다.
 
     치환이 일어나면 ``args`` 를 비운다 — 포매터가 이미 전개된 문자열을 다시
     전개하려다 깨지지 않게 하기 위해서다.
+
+    예외(``exc_info``)는 여기서 traceback 문자열로 **미리 렌더해 ``exc_text`` 에 고정한 뒤**
+    가린다. ``logging.Formatter.format`` 은 ``exc_text`` 가 있으면 다시 만들지 않으므로
+    핸들러의 포매터는 가린 본문을 찍는다. 체인 예외(``raise ... from``·암묵 체인)는
+    ``formatException`` 이 한 문자열로 펼치므로 함께 가려진다. ``stack_info`` 도 같다.
+    예외 타입·파일·줄 번호는 남는다(규칙이 값만 지운다).
     """
 
     # ponytail: record 마다 getMessage() 를 한 번 더 호출한다(문자열 포매팅 1회분).
     # 로깅이 병목으로 측정되면 레벨/로거 이름으로 사전 선별해 좁힌다.
-    # exc_info 로 실려오는 traceback 본문은 검사하지 않는다 — 필요해지면 포매터
-    # 단계에서 exc_text 를 한 번 더 통과시킨다.
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             message = record.getMessage()
@@ -124,7 +135,26 @@ class RedactingFilter(logging.Filter):
         if redacted != message:
             record.msg = redacted
             record.args = ()
+        if record.exc_info and not record.exc_text:
+            record.exc_text = _EXC_FORMATTER.formatException(record.exc_info)
+        if record.exc_text:
+            record.exc_text = redact(record.exc_text)
+        if record.stack_info:
+            record.stack_info = redact(record.stack_info)
         return True
+
+
+def redact_handlers(*loggers: logging.Logger) -> None:
+    """로거에 **이미 붙어 있는** 핸들러에 ``RedactingFilter`` 를 단다(멱등).
+
+    우리 dictConfig 밖에서 만들어진 핸들러용이다 — ``uvicorn main:app`` 이 앱 import 전에
+    세운 uvicorn 기본 핸들러, Celery 워커가 root 를 가로채며 붙인 핸들러. 이 핸들러들은
+    ``propagate=False`` 이거나 root 를 대체해서 우리 핸들러의 필터를 거치지 않는다.
+    """
+    for logger in loggers:
+        for handler in logger.handlers:
+            if not any(isinstance(f, RedactingFilter) for f in handler.filters):
+                handler.addFilter(RedactingFilter())
 
 
 class SQLNoiseFilter(logging.Filter):
