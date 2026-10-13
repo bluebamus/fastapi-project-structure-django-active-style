@@ -7,7 +7,7 @@ Django-style ``startapp`` equivalent. 앱은 별도 선언(config.py) 없이 디
 컨벤션 (생성되는 구조):
     app/features/<name>/
         api/routers/router.py   →  <name>_router: APIRouter   (/api 에 자동 마운트)
-        api/routers/v1/         →  버전별 서브라우터 위치
+        api/routers/v1/         →  버전별 서브라우터 위치 (<name>.py: 접근 수준을 선언한 예시 뷰)
         models/                 →  ORM 모델 (Base.metadata 자동 등록)
         schemas/ services/ repositories/ dependencies/ tests/
         admin.py (선택)         →  admin_views: list[type]
@@ -39,14 +39,46 @@ _ROUTER_TMPL = '''\
 {name} module router aggregator.
 
 컨벤션: AppRegistry 가 이 모듈의 ``{name}_router`` 를 발견해 /api 에 마운트한다.
-버전별 서브라우터를 여기에 include 한다. 예:
+버전별 서브라우터를 여기에 include 한다(예시 뷰는 api/routers/v1/{name}.py). 예:
     from app.features.{name}.api.routers.v1 import {name} as {name}_v1
     {name}_router.include_router({name}_v1.router, prefix="/v1/{name}", tags=["{Class}"])
+include 할 때 tags_metadata 와 라우트 인벤토리 골든(tests/test_route_inventory.py)도 함께 갱신한다.
 """
 
 from fastapi import APIRouter
 
 {name}_router = APIRouter()
+'''
+
+_V1_TMPL = '''\
+"""
+{Class} v1 API — 예시 뷰. router.py 에서 include 하기 전까지는 서빙되지 않는다.
+
+모든 뷰는 경로 데코레이터의 ``dependencies=[...]`` 에 접근 수준 하나를 선언한다
+(``app/core/security/access.py``):
+    Public             인증 없음 — GET·HEAD·OPTIONS 에만
+    PublicWrite        인증 없는 쓰기(가입·로그인처럼 의도적으로 열 때만)
+    LoginRequired      로그인 필요(401)
+    SuperuserRequired  슈퍼유저 전용(401/403)
+사용자 정보가 필요하면 인자 ``principal: CurrentPrincipal`` 로 받는다 — 그것도 LoginRequired 선언이다.
+**선언하지 않으면 서버가 기동하지 않는다**(AccessPolicyGuard 가 기동 시 거부한다).
+"""
+
+from fastapi import APIRouter
+
+from app.core.security.access import Public
+
+router = APIRouter()
+
+
+@router.get(
+    "/ping",
+    dependencies=[Public],
+    summary="{Class} 동작 확인",
+    description="예시 뷰입니다. 실제 엔드포인트로 바꾸세요.",
+)
+async def ping() -> dict[str, str]:
+    return {{"app": "{name}"}}
 '''
 
 _DEPS_TMPL = '''\
@@ -207,6 +239,10 @@ def scaffold(
         _ROUTER_TMPL.format(name=name, Class=class_name),
         encoding="utf-8",
     )
+    (base / "api" / "routers" / "v1" / f"{name}.py").write_text(
+        _V1_TMPL.format(name=name, Class=class_name),
+        encoding="utf-8",
+    )
     (base / "dependencies" / f"{name}_dependencies.py").write_text(
         _DEPS_TMPL.format(name=name, Class=class_name),
         encoding="utf-8",
@@ -282,6 +318,8 @@ def main() -> None:
     print()
     print("이 앱은 디렉터리 컨벤션으로 자동 발견됩니다 — 중앙 파일 수정 불필요.")
     print(f"  - router: api/routers/router.py 의 {name}_router 가 /api 에 자동 마운트")
+    print(f"  - 뷰: api/routers/v1/{name}.py 처럼 뷰마다 접근 수준(Public 등)을 선언하세요")
+    print("    (선언하지 않은 뷰가 있으면 서버가 기동하지 않습니다)")
     print("  - models: models/ 에 ORM 모델을 두면 Base.metadata 에 자동 등록")
     print("  - 초기화 훅이 필요하면 apps.py 에 ready() 를 두세요 (__init__.py 부수효과 금지)")
     if args.with_admin:
