@@ -10,11 +10,17 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 
 import main
 from app.core import resources
+from app.core.redis import RedisVersionError
 
 
 class _FakeRedis:
+    redis_version = "7.4.0"
+
     async def ping(self) -> bool:
         return True
+
+    async def info(self, section: str) -> dict:
+        return {"redis_version": self.redis_version}
 
     async def aclose(self) -> None:
         return None
@@ -121,3 +127,32 @@ async def test_redis_connection_failure_stops_startup(recorded, monkeypatch):
     assert recorded == ["redis_close", "dispose"]
     assert main.app.state.redis is None
     assert main.app.state.resources is None
+
+
+async def test_redis_below_the_minimum_version_stops_startup(recorded, monkeypatch):
+    """연결 직후 버전 확인이 최소 버전 미만이면 기동을 멈추고 자원을 정리한다."""
+
+    class _OldRedis(_FakeRedis):
+        redis_version = "6.2.14"
+
+        async def aclose(self) -> None:
+            recorded.append("redis_close")
+
+    class _OldRedisFactory:
+        @staticmethod
+        def from_url(*args, **kwargs) -> _OldRedis:
+            return _OldRedis()
+
+    async def noop_create():
+        recorded.append("create")
+
+    # 확인이 빠진 회귀에서도 실제 DB 에 닿지 않게 DDL 을 가짜로 둔다.
+    monkeypatch.setattr(resources, "create_db_tables", noop_create)
+    monkeypatch.setattr(resources, "Redis", _OldRedisFactory)
+
+    with pytest.raises(RedisVersionError, match="6.2.14"):
+        async with main.lifespan(main.app):
+            pytest.fail("최소 버전 미만 Redis 로 애플리케이션이 시작됐다")
+
+    assert recorded == ["redis_close", "dispose"]
+    assert main.app.state.redis is None
