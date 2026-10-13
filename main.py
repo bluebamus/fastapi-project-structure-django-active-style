@@ -29,6 +29,7 @@ from app.core.middlewares.user_info_middleware import setup_user_info_middleware
 from app.core.redis import ping_redis
 from app.core.registry import AppRegistry
 from app.core.resources import manage_application_resources
+from app.core.security.access import AccessPolicyGuard, Public
 from app.core.tags_metadata import tags_metadata
 from app.utils.logs import get_logger
 from config import app_settings
@@ -224,6 +225,7 @@ def _add_health_and_docs(app: FastAPI) -> None:
 
     @app.get(
         "/health",
+        dependencies=[Public],
         response_model=HealthResponse,
         tags=["Health"],
         summary="헬스체크",
@@ -244,6 +246,7 @@ def _add_health_and_docs(app: FastAPI) -> None:
 
     @app.get(
         "/ready",
+        dependencies=[Public],
         response_model=HealthResponse,
         tags=["Health"],
         summary="readiness 점검",
@@ -285,7 +288,7 @@ def _add_health_and_docs(app: FastAPI) -> None:
     # Scalar API 문서 (DEBUG 모드에서만 활성화)
     if app_settings.DEBUG:
 
-        @app.get("/docs", include_in_schema=False)
+        @app.get("/docs", include_in_schema=False, dependencies=[Public])
         async def scalar_docs():
             """
             Scalar API 문서 페이지
@@ -353,6 +356,11 @@ if not app_settings.ADMIN_DISABLED:
 else:
     # 끈 상태에서는 관리 경로를 로그에도 싣지 않는다(admin-login ADR-007).
     logger.info("관리 화면 비활성화 (ADMIN_DISABLED=true)")
+
+# 기본 거부 — 조립이 끝난 앱의 모든 API 뷰가 접근 수준(Public·PublicWrite·LoginRequired·
+# SuperuserRequired)을 선언했는지 확인한다. 하나라도 없거나 모순이면 위반 목록 전체를 담은
+# AppContractError 로 기동을 멈춘다. 라우트를 붙이는 코드는 모두 이 줄보다 위에 둔다.
+AccessPolicyGuard().verify(app)
 
 
 if __name__ == "__main__":

@@ -14,7 +14,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, Path, Query, status
 
 from app.core.exception import ErrorResponse, NotFoundException
-from app.core.security.dependencies import FORBIDDEN_RESPONSES, require_superuser
+from app.core.security.access import Public, SuperuserRequired
+from app.core.security.dependencies import FORBIDDEN_RESPONSES
 from app.features.catalog.dependencies.catalog_dependencies import (
     get_catalog_service,
     get_catalog_service_readonly,
@@ -52,7 +53,7 @@ def _require(product: object | None, product_id: str) -> Any:
     summary="상품 생성",
     description="판매할 상품을 생성합니다. 슈퍼유저 전용입니다.",
     operation_id="createCatalogProduct",
-    dependencies=[Depends(require_superuser)],
+    dependencies=[SuperuserRequired],
 )
 async def create_product(
     payload: ProductCreate,
@@ -66,6 +67,7 @@ async def create_product(
 
 @router.get(
     "/products",
+    dependencies=[Public],
     response_model=ProductListResponse,
     summary="상품 목록 조회",
     description="상품을 페이지 단위로 조회합니다.",
@@ -87,6 +89,7 @@ async def list_products(
 
 @router.get(
     "/products/{product_id}",
+    dependencies=[Public],
     response_model=ProductResponse,
     responses=_NOT_FOUND,
     summary="상품 단건 조회",
@@ -111,7 +114,7 @@ async def get_product(
         "슈퍼유저 전용입니다."
     ),
     operation_id="updateCatalogProduct",
-    dependencies=[Depends(require_superuser)],
+    dependencies=[SuperuserRequired],
 )
 async def update_product(
     payload: ProductUpdate,
@@ -131,7 +134,7 @@ async def update_product(
     summary="상품 삭제",
     description="상품을 삭제합니다. 슈퍼유저 전용입니다.",
     operation_id="deleteCatalogProduct",
-    dependencies=[Depends(require_superuser)],
+    dependencies=[SuperuserRequired],
 )
 async def delete_product(
     product_id: str = Path(..., description="상품 ID(UUID)"),

@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Path, Query, status
 
 from app.core.exception import ErrorResponse
+from app.core.security.access import Public
 from app.core.security.dependencies import (
     FORBIDDEN_RESPONSES,
     UNAUTHORIZED_RESPONSES,
@@ -58,6 +59,7 @@ async def create_post(
 
 @router.get(
     "/posts",
+    dependencies=[Public],
     response_model=PostListResponse,
     summary="게시글 목록 조회",
     description="게시글 목록을 페이지네이션하여 조회합니다.",
@@ -79,6 +81,7 @@ async def list_posts(
 
 @router.get(
     "/posts/{post_id}",
+    dependencies=[Public],
     response_model=PostResponse,
     responses=_NOT_FOUND,
     summary="게시글 단건 조회",

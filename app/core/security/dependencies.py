@@ -1,10 +1,10 @@
 """인증·인가 provider — 모든 기능이 core 하나만 의존해 같은 규칙을 쓴다 (ADR-014).
 
-라우트는 이렇게 보호한다:
+라우트는 이렇게 보호한다(접근 수준 선언·기동 시 기본 거부는 ``access.py``):
 
     async def create(principal: CurrentPrincipal, ...)          # 로그인 필요(401)
     async def purge(admin: SuperuserPrincipal, ...)             # 슈퍼유저 전용(401/403)
-    @router.post(..., dependencies=[Depends(require_superuser)]) # 주체를 쓰지 않는 관리 경로
+    @router.post(..., dependencies=[SuperuserRequired])          # 주체를 쓰지 않는 관리 경로
 
 소유권(소유자 또는 슈퍼유저)은 서비스가 ``OwnershipPolicy`` 를 생성자로 받아 판정한다.
 테스트는 ``app.dependency_overrides`` 로 provider 를 바꾼다(C-1).

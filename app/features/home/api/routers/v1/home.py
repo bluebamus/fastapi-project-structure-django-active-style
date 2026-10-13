@@ -14,7 +14,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, Path, Query
 
 from app.core.exception import ErrorResponse
-from app.core.security.dependencies import FORBIDDEN_RESPONSES, require_superuser
+from app.core.security.access import SuperuserRequired
+from app.core.security.dependencies import FORBIDDEN_RESPONSES
 from app.features.home.dependencies.access_log_dependencies import get_access_log_service
 from app.features.home.schemas.user_access_log_schema import (
     AccessLogStats,
@@ -23,7 +24,7 @@ from app.features.home.schemas.user_access_log_schema import (
 )
 from app.features.home.services.user_access_log_service import UserAccessLogService
 
-router = APIRouter(dependencies=[Depends(require_superuser)], responses=FORBIDDEN_RESPONSES)
+router = APIRouter(responses=FORBIDDEN_RESPONSES)
 
 _ERR: dict[int | str, dict[str, Any]] = {
     500: {"model": ErrorResponse, "description": "서버 내부 오류"}
@@ -32,6 +33,7 @@ _ERR: dict[int | str, dict[str, Any]] = {
 
 @router.get(
     "/access-logs",
+    dependencies=[SuperuserRequired],
     response_model=UserAccessLogListResponse,
     responses=_ERR,
     summary="접속 로그 목록 조회",
@@ -54,6 +56,7 @@ async def get_access_logs(
 
 @router.get(
     "/access-logs/recent",
+    dependencies=[SuperuserRequired],
     response_model=list[UserAccessLogResponse],
     responses=_ERR,
     summary="최근 접속 로그 조회",
@@ -70,6 +73,7 @@ async def get_recent_access_logs(
 
 @router.get(
     "/access-logs/by-ip/{ip_address}",
+    dependencies=[SuperuserRequired],
     response_model=list[UserAccessLogResponse],
     responses=_ERR,
     summary="IP별 접속 로그 조회",
@@ -88,6 +92,7 @@ async def get_access_logs_by_ip(
 
 @router.get(
     "/access-logs/by-user/{user_id}",
+    dependencies=[SuperuserRequired],
     response_model=list[UserAccessLogResponse],
     responses=_ERR,
     summary="사용자별 접속 로그 조회",
@@ -106,6 +111,7 @@ async def get_access_logs_by_user(
 
 @router.get(
     "/access-logs/stats",
+    dependencies=[SuperuserRequired],
     response_model=AccessLogStats,
     responses=_ERR,
     summary="접속 로그 통계",

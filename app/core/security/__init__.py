@@ -9,6 +9,7 @@
 - ``authorization.Principal``        검증된 access 토큰의 주체(단계 F2)
 - ``authorization.OwnershipPolicy``  소유자 또는 슈퍼유저 판정(단계 F2)
 - ``dependencies``                   위 클래스들의 provider 와 ``CurrentPrincipal``·``SuperuserPrincipal``
+- ``access``                         뷰 접근 수준 선언(``Public`` 등)과 기동 시 기본 거부(``AccessPolicyGuard``)
 
 모두 협력 객체(설정·Redis 클라이언트)를 생성자로 받는다. 기능이 함께 쓰는 provider 는
 ``dependencies.py`` 에, auth 전용 provider(rate limit·AuthService)는 auth 기능의

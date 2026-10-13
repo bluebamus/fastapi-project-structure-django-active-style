@@ -1,13 +1,12 @@
 """라우트 권한 정책 (service-hardening 단계 F2 — ADR-014·ADR-015·ADR-016, INV-11).
 
-README 의 권한 표와 같은 분류를 여기서 코드로 고정한다.
+접근 수준의 정본은 각 뷰의 선언(``dependencies=[Public]`` 등, ``app/core/security/access.py``)이다.
+선언이 없는 뷰는 ``AccessPolicyGuard`` 가 기동 시 막으므로 "모든 operation 이 분류됐는가" 는
+여기서 다시 묻지 않는다. 이 파일은 **예시 정책이 의도대로인가** 를 고정한다.
 
-- PUBLIC     토큰 없이 된다.
-- AUTH       로그인한 누구나(토큰 없으면 401).
-- OWNER      작성자 본인(사용자 리소스는 본인) 또는 슈퍼유저 — 남이면 403.
-- SUPERUSER  슈퍼유저 전용 — 일반 사용자는 403.
-
-새 엔드포인트는 이 표에 분류되기 전까지 `test_every_operation_is_classified` 에서 막힌다.
+- ``EXPECTED`` 표(README "권한 표" 와 같은 내용)와 가드의 실제 판정을 대조한다.
+- 실제 요청으로 401·403·소유권 동작을 확인한다. 소유자 판정(LoginRequired 위의 서비스
+  ``OwnershipPolicy``)은 선언이 아니라 동작이라 아래 소유권 테스트가 맡는다.
 토큰은 실제 ``TokenService`` 로 서명한다(``tests.auth_headers``) — 인증 의존성을 override 하지
 않아야 서명·claims·``su`` 검사가 함께 시험된다.
 """
@@ -24,6 +23,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.db.session import Base
 from app.core.redis import get_redis
+from app.core.security.access import AccessLevel, AccessPolicyGuard
 from app.core.security.dependencies import get_token_service
 from app.features.blog.models.models import Post
 from app.features.reply.models.models import Reply
@@ -39,35 +39,37 @@ from tests.auth_headers import (
 )
 from tests.session_overrides import session_overrides
 
-PUBLIC = "public"
-AUTH = "auth"
-OWNER = "owner"
-SUPERUSER = "superuser"
+PUBLIC = AccessLevel.PUBLIC
+PUBLIC_WRITE = AccessLevel.PUBLIC_WRITE
+LOGIN = AccessLevel.LOGIN
+SUPERUSER = AccessLevel.SUPERUSER
 
-# (메서드, 경로 템플릿) → 분류. README "권한 표" 와 같은 내용이다.
-POLICY: dict[tuple[str, str], str] = {
+# (메서드, 경로 템플릿) → 기대 접근 수준. README "권한 표" 와 같은 내용이다.
+# 수정·삭제의 소유자 판정은 LOGIN 위에서 서비스가 한다(아래 소유권 테스트).
+EXPECTED: dict[tuple[str, str], AccessLevel] = {
     ("GET", "/health"): PUBLIC,
     ("GET", "/ready"): PUBLIC,
-    ("POST", "/api/v1/auth/register"): PUBLIC,
-    ("POST", "/api/v1/auth/login"): PUBLIC,
-    ("POST", "/api/v1/auth/refresh"): PUBLIC,
-    ("POST", "/api/v1/auth/logout"): PUBLIC,
-    ("GET", "/api/v1/auth/me"): AUTH,
+    ("GET", "/docs"): PUBLIC,
+    ("POST", "/api/v1/auth/register"): PUBLIC_WRITE,
+    ("POST", "/api/v1/auth/login"): PUBLIC_WRITE,
+    ("POST", "/api/v1/auth/refresh"): PUBLIC_WRITE,
+    ("POST", "/api/v1/auth/logout"): PUBLIC_WRITE,
+    ("GET", "/api/v1/auth/me"): LOGIN,
     ("GET", "/api/v1/blog/posts"): PUBLIC,
     ("GET", "/api/v1/blog/posts/{post_id}"): PUBLIC,
-    ("POST", "/api/v1/blog/posts"): AUTH,
-    ("PATCH", "/api/v1/blog/posts/{post_id}"): OWNER,
-    ("DELETE", "/api/v1/blog/posts/{post_id}"): OWNER,
+    ("POST", "/api/v1/blog/posts"): LOGIN,
+    ("PATCH", "/api/v1/blog/posts/{post_id}"): LOGIN,
+    ("DELETE", "/api/v1/blog/posts/{post_id}"): LOGIN,
     ("GET", "/api/v1/sns/posts"): PUBLIC,
     ("GET", "/api/v1/sns/posts/{post_id}"): PUBLIC,
-    ("POST", "/api/v1/sns/posts"): AUTH,
-    ("PATCH", "/api/v1/sns/posts/{post_id}"): OWNER,
-    ("DELETE", "/api/v1/sns/posts/{post_id}"): OWNER,
+    ("POST", "/api/v1/sns/posts"): LOGIN,
+    ("PATCH", "/api/v1/sns/posts/{post_id}"): LOGIN,
+    ("DELETE", "/api/v1/sns/posts/{post_id}"): LOGIN,
     ("GET", "/api/v1/reply/replies"): PUBLIC,
     ("GET", "/api/v1/reply/replies/{reply_id}"): PUBLIC,
-    ("POST", "/api/v1/reply/replies"): AUTH,
-    ("PATCH", "/api/v1/reply/replies/{reply_id}"): OWNER,
-    ("DELETE", "/api/v1/reply/replies/{reply_id}"): OWNER,
+    ("POST", "/api/v1/reply/replies"): LOGIN,
+    ("PATCH", "/api/v1/reply/replies/{reply_id}"): LOGIN,
+    ("DELETE", "/api/v1/reply/replies/{reply_id}"): LOGIN,
     ("GET", "/api/v1/catalog/products"): PUBLIC,
     ("GET", "/api/v1/catalog/products/{product_id}"): PUBLIC,
     ("POST", "/api/v1/catalog/products"): SUPERUSER,
@@ -81,8 +83,8 @@ POLICY: dict[tuple[str, str], str] = {
     ("GET", "/api/v1/home/access-logs/stats"): SUPERUSER,
     ("GET", "/api/v1/user/users"): SUPERUSER,
     ("POST", "/api/v1/user/users"): SUPERUSER,
-    ("GET", "/api/v1/user/users/{user_id}"): OWNER,
-    ("PATCH", "/api/v1/user/users/{user_id}"): OWNER,
+    ("GET", "/api/v1/user/users/{user_id}"): LOGIN,
+    ("PATCH", "/api/v1/user/users/{user_id}"): LOGIN,
     ("DELETE", "/api/v1/user/users/{user_id}"): SUPERUSER,
 }
 
@@ -182,19 +184,24 @@ def _forge_access(**overrides) -> dict[str, str]:
 # ------------------------------------------------------------------ 분류표
 
 
-def test_every_operation_is_classified():
-    """모든 공개 operation 이 권한 표에 있고, 로그인 필요 여부가 OpenAPI security 와 맞는다."""
-    spec = app.openapi()
-    seen: dict[tuple[str, str], bool] = {}
-    for path, item in spec["paths"].items():
-        if not (path.startswith("/api") or path in ("/health", "/ready")):
-            continue
-        for method, operation in item.items():
-            seen[(method.upper(), path)] = bool(operation.get("security"))
+def test_example_routes_declare_expected_access_levels():
+    """뷰 선언에서 가드가 판정한 수준이 예시 정책 표와 같고, OpenAPI security 표시와도 맞는다."""
+    declared = AccessPolicyGuard().operations(app)
+    actual = {key: next(iter(levels)) for key, levels in declared.items() if len(levels) == 1}
 
-    assert set(seen) == set(POLICY), "권한 표와 실제 operation 이 다릅니다 — README 권한 표도 함께"
-    wrong = [key for key, secured in seen.items() if secured != (POLICY[key] != PUBLIC)]
-    assert not wrong, f"OpenAPI security 표시가 분류와 다른 operation: {wrong}"
+    assert actual == EXPECTED, "예시 정책이 바뀌었습니다 — 의도라면 README 권한 표도 함께"
+
+    secured = {
+        (method.upper(), path): bool(operation.get("security"))
+        for path, item in app.openapi()["paths"].items()
+        for method, operation in item.items()
+    }
+    wrong = [
+        key
+        for key, level in EXPECTED.items()
+        if key in secured and secured[key] != (level in (LOGIN, SUPERUSER))
+    ]
+    assert not wrong, f"OpenAPI security 표시가 접근 수준과 다른 operation: {wrong}"
 
 
 # ------------------------------------------------------------------ 401

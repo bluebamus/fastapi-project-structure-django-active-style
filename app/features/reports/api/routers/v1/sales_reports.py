@@ -15,12 +15,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 
 from app.core.exception import ErrorResponse
-from app.core.security.dependencies import FORBIDDEN_RESPONSES, require_superuser
+from app.core.security.access import SuperuserRequired
+from app.core.security.dependencies import FORBIDDEN_RESPONSES
 from app.features.reports.dependencies.report_dependencies import get_report_service_readonly
 from app.features.reports.schemas.report_schema import DailySalesReportResponse
 from app.features.reports.services.report_service import ReportService
 
-router = APIRouter(dependencies=[Depends(require_superuser)], responses=FORBIDDEN_RESPONSES)
+router = APIRouter(responses=FORBIDDEN_RESPONSES)
 
 _INVALID_RANGE: dict[int | str, dict[str, Any]] = {
     422: {"model": ErrorResponse, "description": "종료일이 시작일보다 빠름"}
@@ -29,6 +30,7 @@ _INVALID_RANGE: dict[int | str, dict[str, Any]] = {
 
 @router.get(
     "/sales/daily",
+    dependencies=[SuperuserRequired],
     response_model=DailySalesReportResponse,
     responses=_INVALID_RANGE,
     summary="일별 매출 리포트",
