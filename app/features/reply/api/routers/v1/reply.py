@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Path, Query, status
 
 from app.core.exception import ErrorResponse
+from app.core.security.access import Public
 from app.core.security.dependencies import (
     FORBIDDEN_RESPONSES,
     UNAUTHORIZED_RESPONSES,
@@ -58,6 +59,7 @@ async def create_reply(
 
 @router.get(
     "/replies",
+    dependencies=[Public],
     response_model=ReplyListResponse,
     summary="댓글 목록 조회",
     description="댓글 목록을 페이지네이션하여 조회합니다.",
@@ -79,6 +81,7 @@ async def list_replies(
 
 @router.get(
     "/replies/{reply_id}",
+    dependencies=[Public],
     response_model=ReplyResponse,
     responses=_NOT_FOUND,
     summary="댓글 단건 조회",

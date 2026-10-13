@@ -161,3 +161,35 @@ def test_cli_survives_a_console_that_cannot_encode_its_message(root, monkeypatch
     main()
 
     assert (root / "app/features/widget/api/routers/router.py").exists()
+
+
+def _load_generated_v1(root, name):
+    import importlib.util
+
+    path = root / f"app/features/{name}/api/routers/v1/{name}.py"
+    spec = importlib.util.spec_from_file_location(f"_generated_{name}_v1", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_generated_example_view_declares_access_and_passes_the_guard(root):
+    """생성된 예시 뷰를 include 해도 기동 시 접근 정책 검사를 통과한다 (access-policy ADR-003).
+
+    템플릿이 선언을 빠뜨리면 사용자가 예시를 include 하는 순간 서버가 기동하지 않는다.
+    """
+    from fastapi import FastAPI
+
+    from app.core.security.access import AccessLevel, AccessPolicyGuard
+
+    scaffold("widget", root=root)
+    module = _load_generated_v1(root, "widget")
+    app = FastAPI()
+    app.include_router(module.router, prefix="/api/v1/widget")
+
+    guard = AccessPolicyGuard()
+    guard.verify(app)
+    assert guard.operations(app) == {("GET", "/api/v1/widget/ping"): {AccessLevel.PUBLIC}}
+
+    text = (root / "app/features/widget/api/routers/v1/widget.py").read_text(encoding="utf-8")
+    assert "선언하지 않으면 서버가 기동하지 않는다" in text

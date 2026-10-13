@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from app.core.exception import ErrorResponse
+from app.core.security.access import PublicWrite
 from app.core.security.rate_limiter import RateLimiter
 from app.features.auth.dependencies.auth_dependencies import (
     get_auth_service,
@@ -48,7 +49,7 @@ _CONFLICT: dict[int | str, dict[str, Any]] = {
     description="사용자명·이메일·비밀번호로 사용자를 생성합니다. IP 별 시도 횟수가 제한됩니다.",
     operation_id="authRegister",
     responses={**_CONFLICT, **_THROTTLED},
-    dependencies=[Depends(register_rate_limit)],
+    dependencies=[PublicWrite, Depends(register_rate_limit)],
 )
 async def register(
     payload: RegisterRequest,
@@ -64,6 +65,7 @@ async def register(
 
 @router.post(
     "/login",
+    dependencies=[PublicWrite],
     response_model=TokenResponse,
     summary="로그인(OAuth2 password)",
     description=(
@@ -89,6 +91,7 @@ async def login(
 
 @router.post(
     "/refresh",
+    dependencies=[PublicWrite],
     response_model=TokenResponse,
     summary="토큰 재발급(회전)",
     description=(
@@ -107,6 +110,7 @@ async def refresh(
 
 @router.post(
     "/logout",
+    dependencies=[PublicWrite],
     status_code=status.HTTP_204_NO_CONTENT,
     summary="로그아웃",
     description=(
