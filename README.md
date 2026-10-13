@@ -324,7 +324,7 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | 4 | 프록시 뒤라면 `TRUSTED_PROXY_HOPS` 를 앞단 프록시 단 수로 설정했는가 | `0` 이면 모든 클라이언트가 프록시 IP 하나로 보여 접속 로그와 로그인 rate limit(API·`/admin`)이 전체 사용자를 한 사람으로 취급한다. 실제보다 크게 잡으면 IP 위조가 가능하다 |
 | 4a | Redis 가 **7.0 이상**인가 | rate limit 이 `EXPIRE … NX`(7.0)를 쓴다. 낮으면 기동이 멈춘다. 관리형 Redis 가 `INFO` 를 막으면 확인을 건너뛰고 WARNING 만 남기므로(`Redis 버전 확인 불가`) 그때는 운영자가 버전을 직접 확인한다 |
 | 5 | readiness 를 `/ready` 에 걸었는가 | `/ready` 는 DB 와 Redis 를 모두 본다(각 2초). `/health` 는 둘 다 보지 않는다 |
-| 6 | 새로 더한 엔드포인트가 [권한 표](#권한-표)에 분류됐는가 | 예제 API 는 인증·소유권·슈퍼유저 검사를 갖췄다. 새 엔드포인트는 직접 보호해야 하고, 분류하지 않으면 `tests/test_authorization.py` 가 실패한다 |
+| 6 | 새로 더한 엔드포인트마다 접근 수준을 선언했는가([권한 표](#권한-표)) | 예제 API 는 인증·소유권·슈퍼유저 검사를 갖췄다. 새 뷰는 `dependencies=[Public]` 등으로 접근 수준을 직접 선언해야 하고, 선언이 없거나 모순인 뷰가 하나라도 있으면 서버가 기동하지 않는다(`AccessPolicyGuard`). 소유권은 선언이 아니라 서비스가 판정하므로 따로 확인한다 |
 | 7 | 기존 MySQL 데이터가 있다면 `e5a7c9d1f3b5`(KST→UTC 시각 전환) 적용 **전에 백업**하고, 그 시각이 `+09:00`(Asia/Seoul 벽시계)으로 저장됐는지 확인했는가 | 리비전이 `+09:00 → UTC` 로 옮긴다. 다른 시간대로 쌓인 DB 는 적용 전에 리비전의 `_LOCAL_OFFSET` 상수를 그 오프셋으로 바꾼다([ARCHITECTURE §12](docs/guides/ARCHITECTURE.md)) |
 
 **`/admin` 은 슈퍼유저 로그인이 필요합니다.** SQLAdmin 에 붙인 `AdminAuthBackend` 가 활성 슈퍼유저만
@@ -373,8 +373,16 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 
 권한은 **슈퍼유저/일반 2단계**입니다. 공개 = 토큰 없이, 인증 = 로그인한 누구나, 소유자 = 작성자 본인(사용자
 리소스는 본인) 또는 슈퍼유저, 관리자 = 슈퍼유저 전용. 토큰이 없거나 만료·위조면 401, 권한이 없으면 403
-입니다. 같은 표가 `tests/test_authorization.py` 의 `POLICY` 로 고정돼 있어 분류되지 않은 새 엔드포인트는
-테스트가 막습니다.
+입니다.
+
+**접근 수준은 뷰마다 선언합니다.** 경로 데코레이터의 `dependencies=[...]` 에 `Public`(인증 없는 조회)·
+`PublicWrite`(인증 없는 쓰기 — 가입·로그인·refresh·logout)·`LoginRequired`·`SuperuserRequired` 중 하나를
+적습니다(`app/core/security/access.py`). 핸들러 인자 `principal: CurrentPrincipal`·`SuperuserPrincipal` 도 각각
+`LoginRequired`·`SuperuserRequired` 선언으로 인정됩니다. 선언이 없거나, 둘 이상이거나, 쓰기 메서드에 `Public`·
+조회 메서드에 `PublicWrite` 를 쓴 뷰가 있으면 앱 조립 직후 `AccessPolicyGuard` 가 위반 목록 전체를 담아
+**기동을 멈춥니다**(기본 거부). 아래 표의 공개 = `Public`/`PublicWrite`, 인증·소유자 = `LoginRequired`(소유자
+판정은 서비스의 `OwnershipPolicy`), 관리자 = `SuperuserRequired` 입니다. 예시 정책은
+`tests/test_authorization.py` 의 `EXPECTED` 표가 고정합니다. `/docs`(DEBUG 전용 Scalar)도 `Public` 을 선언합니다.
 
 | 엔드포인트 | 공개 | 인증 | 소유자 | 관리자 |
 |---|---|---|---|---|

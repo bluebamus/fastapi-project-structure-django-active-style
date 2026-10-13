@@ -653,6 +653,8 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
 | `get_current_principal` / `CurrentPrincipal` | `dependencies.py` | Bearer access 토큰 → `TokenService.decode` → `Principal`. **DB 조회 없음.** 성공 시 `request.state.user_id` 를 남긴다(접속 로그가 응답 뒤에 읽는다). 실패 401 |
 | `require_superuser` / `SuperuserPrincipal` | `dependencies.py` | 주체가 슈퍼유저가 아니면 403 `FORBIDDEN` |
 | `OwnershipPolicy.ensure_can_modify(owner_id, principal)` | `authorization.py` | 소유자 또는 슈퍼유저만 통과, 아니면 403. `owner_id` 가 None(작성자 컬럼 도입 전의 행)이면 슈퍼유저만 |
+| `Public` · `PublicWrite` · `LoginRequired` · `SuperuserRequired` | `access.py` | 뷰의 `dependencies=[...]` 에 넣는 접근 수준 선언. `Public`·`PublicWrite` 는 아무것도 하지 않는 표식 의존성(런타임 비용 없음), 나머지는 위 두 의존성 그대로 |
+| `AccessPolicyGuard` | `access.py` | 앱 조립 직후(`main.py`, 라우터·헬스·Admin 결선 뒤) 모든 `APIRoute`(숨긴 경로·중첩 include 포함, 문서용 Starlette `Route`·`/admin` `Mount` 제외)의 의존성 트리를 재귀로 훑어 선언 없음·이중 선언·쓰기+`Public`·조회+`PublicWrite` 를 모으고, 하나라도 있으면 목록 전체를 담은 `AppContractError` 로 기동을 멈춘다. `require_superuser` 는 내부에서 `get_current_principal` 을 쓰므로 슈퍼유저 하나로 판정 |
 
 - **무상태 판정:** 보호 라우트는 토큰만 봅니다. 비활성화·강등은 refresh family 폐기(`revoke_user`)와
   짧은 access 만료(기본 15분)로 반영됩니다 — 이미 발급된 access 토큰은 만료까지 남습니다.
@@ -668,9 +670,14 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
 - **첫 슈퍼유저:** API 에는 경로가 없습니다(가입은 항상 일반 사용자). `scripts/create_superuser.py` 가
   `background_db_session` + core `get_password_hasher` + `UserRepository` 로 만들거나 승격합니다
   (README "첫 관리자 만들기").
-- **권한 표의 단일 기준:** `tests/test_authorization.py` 의 `POLICY` 가 모든 operation 을 공개·인증·
-  소유자·슈퍼유저로 분류하고, 표에 없는 새 operation 은 테스트가 막습니다. README 권한 표와 같은
-  내용입니다.
+- **접근 수준의 정본은 뷰 선언이고, 기본 정책은 거부입니다.** 선언하지 않은 뷰는 열린 채 배포되는 대신
+  서버가 뜨지 않습니다. 데코레이터 선언만으로는 "선언을 잊은 뷰" 를 막을 수 없어 기동 검사를 둡니다.
+  함수를 감싸는 `@login_required` 식 데코레이터는 쓰지 않습니다 — FastAPI 는 뷰 시그니처로 주입·검증·
+  OpenAPI 를 만들기 때문에 감싸면 셋이 함께 깨집니다. 핸들러 인자 `CurrentPrincipal`·`SuperuserPrincipal` 은
+  선언으로 인정되므로 같은 수준을 데코레이터에 중복으로 적지 않습니다. 예시 정책이 의도대로인지는
+  `tests/test_authorization.py` 의 `EXPECTED` 표(README 권한 표와 같은 내용)가 가드의 판정·OpenAPI
+  `security` 표시와 대조해 고정합니다. 소유자 판정은 선언이 아니라 서비스 동작이라 같은 파일의 실요청
+  테스트가 맡습니다.
 
 ### 10.3 SQLAdmin
 

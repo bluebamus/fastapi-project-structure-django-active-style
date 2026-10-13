@@ -24,7 +24,8 @@
 3. **데이터 소유** — 새 테이블인가, 기존 테이블의 계산 결과인가(§4 의 선택 기준).
 4. **읽기/쓰기 의도** — 조회만인가, 조회 후 쓰기인가, 잠금이 필요한가(§7).
 5. **권한** — 공개·로그인·작성자 본인(또는 슈퍼유저)·슈퍼유저 전용 중 무엇인지 정합니다(§7.1,
-   [ARCHITECTURE §10.2](./ARCHITECTURE.md)). 인증 성공과 수정 권한은 별개입니다.
+   [ARCHITECTURE §10.2](./ARCHITECTURE.md)). 인증 성공과 수정 권한은 별개입니다. 정한 수준은 뷰마다
+   선언합니다 — 선언하지 않은 뷰가 하나라도 있으면 서버가 기동하지 않습니다.
 6. **동시성·멱등성** — 재고 차감·상태 전환은 "조회 후 UPDATE" 만으로 안전하지 않습니다. 조건부
    UPDATE·잠금·DB 제약 중 무엇을 쓸지 정합니다.
 
@@ -410,17 +411,30 @@ async def get_catalog_service_readonly(
 ### 7.1 라우트 보호 — 인증 · 슈퍼유저 · 소유권
 
 권한은 슈퍼유저/일반 2단계입니다([ARCHITECTURE §10.2](./ARCHITECTURE.md)). 부품은 전부 core
-`app.core.security.dependencies` 에 있고, 기능은 이것만 import 합니다(다른 기능을 import 하지 않는다).
+`app.core.security`(`access`·`dependencies`)에 있고, 기능은 이것만 import 합니다(다른 기능을 import 하지 않는다).
+
+**모든 뷰는 접근 수준 하나를 선언합니다.** 경로 데코레이터의 `dependencies=[...]` 에 넣습니다. 선언이 없거나
+모순인 뷰(둘 이상, 쓰기에 `Public`, 조회에 `PublicWrite`)가 하나라도 있으면 앱 조립 직후 `AccessPolicyGuard` 가
+위반 목록 전체를 담은 `AppContractError` 로 **서버 기동을 멈춥니다**(기본 거부).
 
 | 원하는 것 | 쓰는 것 | 실패 |
 |---|---|---|
-| 로그인한 누구나 | 핸들러 인자 `principal: CurrentPrincipal` | 토큰 없음·만료·위조 401 |
-| 슈퍼유저만 (주체를 쓰지 않음) | 라우트 `dependencies=[Depends(require_superuser)]`, 라우터 전체면 `APIRouter(dependencies=[...])` | 401 / 403 |
+| 누구나 조회 (GET·HEAD·OPTIONS) | `dependencies=[Public]` | — |
+| 인증 없는 쓰기 (가입·로그인처럼 의도적으로 열 때만) | `dependencies=[PublicWrite]` — 쓰기에 `Public` 을 쓰면 기동 거부 | — |
+| 로그인한 누구나 | 핸들러 인자 `principal: CurrentPrincipal`(주체를 쓸 때) 또는 `dependencies=[LoginRequired]` | 토큰 없음·만료·위조 401 |
+| 슈퍼유저만 (주체를 쓰지 않음) | `dependencies=[SuperuserRequired]`. 라우터 전체 `APIRouter(dependencies=[...])` 도 판정에 인정되지만 예시는 뷰 단위로 적는다 | 401 / 403 |
 | 슈퍼유저만 (주체를 씀) | 핸들러 인자 `admin: SuperuserPrincipal` | 401 / 403 |
 | 작성자 본인 또는 슈퍼유저 | 서비스 생성자에 `OwnershipPolicy`(provider `get_ownership_policy`), 메서드가 `principal` 을 받아 `self.policy.ensure_can_modify(entity.author_id, principal)` | 403 |
 
 ```python
+from app.core.security.access import Public, SuperuserRequired
 from app.core.security.dependencies import FORBIDDEN_RESPONSES, CurrentPrincipal
+
+@router.get("/notes", dependencies=[Public], ...)                      # 공개 조회
+async def list_notes(...) -> NoteListResponse: ...
+
+@router.delete("/notes/{note_id}", dependencies=[SuperuserRequired], ...)  # 주체를 쓰지 않는 관리 경로
+async def purge_note(...) -> None: ...
 
 @router.patch("/notes/{note_id}", responses={**_NOT_FOUND, **FORBIDDEN_RESPONSES}, ...)
 async def update_note(
@@ -433,13 +447,24 @@ async def update_note(
     ...
 ```
 
+`principal: CurrentPrincipal` 인자가 곧 `LoginRequired` 선언이라 같은 수준을 데코레이터에 다시 적지 않습니다
+(`SuperuserPrincipal` 은 `SuperuserRequired`). 소유자 판정은 선언이 아니라 서비스가 하므로 수정·삭제 뷰의
+선언은 `LoginRequired` 입니다.
+
+**왜 `@login_required` 처럼 함수를 감싸지 않는가.** FastAPI 는 뷰 함수의 시그니처를 읽어 의존성 주입·요청
+검증·OpenAPI 를 만듭니다. 함수를 감싸는 데코레이터는 그 시그니처를 가리거나(`functools.wraps` 로 겉모습을
+복사해도 주입할 인자와 실제 호출 인자가 어긋난다) OpenAPI 의 `security` 표시를 잃게 만듭니다. 그래서 접근
+수준은 FastAPI 가 원래 제공하는 경로 데코레이터의 `dependencies=[...]` 에 선언하고, 데코레이터가 못 하는
+"선언을 잊은 뷰 막기" 는 기동 시 검사(`AccessPolicyGuard`)가 맡습니다.
+
 - 인증 주체는 토큰에서 만들고 **DB 를 조회하지 않습니다**. 사용자 엔티티가 꼭 필요할 때만 auth 의
   `get_current_user` 를 씁니다(`/me`).
 - 작성자 컬럼은 요청 본문에서 받지 않습니다 — 서비스가 `principal.id`·`principal.username` 으로 채우고,
   Update 스키마에 넣지 않습니다.
 - 존재 여부 자체가 비밀이면(예: 사용자) 존재 확인 **전에** 판정해 404/403 차이로 떠볼 수 없게 합니다.
-- 새 operation 은 `tests/test_authorization.py` 의 `POLICY` 표와 README 권한 표에 분류를 더합니다 —
-  분류되지 않은 operation 은 테스트가 막고, OpenAPI `security` 표시(로그인 필요 여부)도 맞아야 합니다.
+- 새 operation 은 뷰에 접근 수준을 선언하고(없으면 기동 거부) README 권한 표에 더합니다. 예시 기능의
+  operation 이면 `tests/test_authorization.py` 의 `EXPECTED` 표에도 더합니다 — 가드의 판정과 OpenAPI
+  `security` 표시(로그인 필요 여부)를 함께 대조합니다.
 - 테스트는 인증 의존성을 override 하지 말고 `tests/auth_headers.py`(`user_headers()`·
   `other_user_headers()`·`superuser_headers()`)로 실제 서명된 토큰을 보냅니다.
 
@@ -583,7 +608,9 @@ uv run python -m scripts.review_gate --group static structure docs
 - [ ] `services/` — 업무 규칙, Raw 결과는 여기서 DTO 로
 - [ ] `dependencies/` — 쓰기용·조회용 getter 둘 다
 - [ ] `api/routers/v1/` — `operation_id`, DTO 검증 → commit 1회 / `router.py` 의 `<name>_router`
-- [ ] 권한 — §7.1 의 부품으로 보호, `tests/test_authorization.py` 의 `POLICY`·README 권한 표에 분류
+- [ ] 권한 — 뷰마다 접근 수준(`Public`·`PublicWrite`·`LoginRequired`·`SuperuserRequired`, §7.1)을 선언
+  (**선언하지 않은 뷰가 있으면 서버가 기동하지 않는다**), 소유권은 서비스의 `OwnershipPolicy`, README 권한 표·
+  `tests/test_authorization.py` 의 `EXPECTED` 갱신
 - [ ] 필요하면 `admin.py` 의 `admin_views` (민감 필드 제외 확인 — `/admin` 은 슈퍼유저 로그인 뒤에 있고
   `ADMIN_DISABLED=true` 면 import 되지 않으므로 뷰에 인증을 따로 넣지 않는다), `apps.py` 의 `ready()`
 - [ ] 태그 설명(`app/core/tags_metadata.py`), `tests/test_route_inventory.py`, README API 표 갱신
@@ -595,7 +622,7 @@ uv run python -m scripts.review_gate --group static structure docs
 | 공개 경로·메서드 | 라우터, `operation_id`, `tests/test_route_inventory.py`, README API 표 |
 | 모델 필드 | 스키마 3종(create/update/response), Repository, `admin.py` 노출, Alembic revision |
 | 트랜잭션 | 핸들러의 commit 위치, 기능별 트랜잭션 경계 테스트(예: `app/features/auth/tests/test_transaction_boundary.py`) |
-| 인증 정책 | 보호할 라우터(§7.1), 401/403 응답 문서(`UNAUTHORIZED_RESPONSES`·`FORBIDDEN_RESPONSES`), `tests/test_authorization.py` 의 `POLICY`, README 권한 표 |
+| 인증 정책 | 뷰의 접근 수준 선언(§7.1), 401/403 응답 문서(`UNAUTHORIZED_RESPONSES`·`FORBIDDEN_RESPONSES`), `tests/test_authorization.py` 의 `EXPECTED`, README 권한 표 |
 | 접속 로그 필드 | 미들웨어, sink, 모델·스키마, 개인정보 보존 정책 |
 | 설정 추가 | `config.py`, `.env.example`(테스트가 양방향 일치 강제), 필요하면 배포 게이트 |
 | 함수명·세션 이름·경로 | 이 문서, ARCHITECTURE, README (게이트 `docs` 그룹이 경로를 검사) |
