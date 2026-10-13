@@ -41,13 +41,20 @@ B 가 받는다.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from app.utils.logs import get_logger
+from app.utils.logs.filters import redact_handlers
 
 logger = get_logger("celery_lifecycle")
 
-__all__ = ["on_worker_process_init", "on_worker_process_shutdown", "register_worker_signals"]
+__all__ = [
+    "on_setup_logger",
+    "on_worker_process_init",
+    "on_worker_process_shutdown",
+    "register_worker_signals",
+]
 
 
 def on_worker_process_init(**_: Any) -> None:
@@ -102,15 +109,32 @@ def on_worker_process_shutdown(**_: Any) -> None:
     logger.info("[celery] 자식 프로세스 종료 정리 완료 (loop_closed=%s)", closed)
 
 
+def on_setup_logger(logger: logging.Logger, **_: Any) -> None:
+    """Celery 가 워커 로깅을 세운 직후 실행된다.
+
+    워커는 기본으로 root 로거를 가로채(`worker_hijack_root_logger`) 자기 핸들러로 바꾼다.
+    그 핸들러에는 우리 마스킹 필터가 없어서, 태스크 실패 traceback 의 DSN·토큰이 그대로
+    찍힌다. 같은 `RedactingFilter` 를 단다.
+    """
+    redact_handlers(logger)
+
+
 def register_worker_signals() -> None:
     """prefork 신호에 위 핸들러를 연결한다(멱등).
 
     `celery_app` 모듈이 import 될 때 호출한다. solo/threads 풀에서는 이 신호가
     발생하지 않으므로 연결해 두어도 아무 일도 일어나지 않는다.
     """
-    from celery.signals import worker_process_init, worker_process_shutdown
+    from celery.signals import (
+        after_setup_logger,
+        after_setup_task_logger,
+        worker_process_init,
+        worker_process_shutdown,
+    )
 
     # `weak=False`: 핸들러가 모듈 전역 함수라 참조가 유지되지만, Celery 의 signal 은
     # 기본이 약한 참조라 등록이 조용히 사라지는 사고가 잦다. 명시적으로 강한 참조.
     worker_process_init.connect(on_worker_process_init, weak=False)
     worker_process_shutdown.connect(on_worker_process_shutdown, weak=False)
+    after_setup_logger.connect(on_setup_logger, weak=False)
+    after_setup_task_logger.connect(on_setup_logger, weak=False)

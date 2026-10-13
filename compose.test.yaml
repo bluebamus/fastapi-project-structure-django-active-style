@@ -74,6 +74,8 @@ services:
 
   redis-test:
     # Redis 는 필수 자원이다(ADR-008). 로컬에서 lifespan·`/ready` 를 실물로 확인할 때 쓴다 —
+    # 앱의 최소 요구는 7.0 이다(rate limit 의 EXPIRE ... NX, app/core/redis.py 의 REDIS_MIN_VERSION).
+    # 7.4 는 그 이상인 고정 이미지일 뿐 7.4 전용 기능을 쓰지 않는다.
     # 단위 테스트는 가짜 클라이언트를 주입하므로 이 컨테이너가 없어도 돈다.
     # digest 는 docker 없이 레지스트리 API 로 확인했다(멀티 아키텍처 index digest):
     #   TOKEN=$(curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/redis:pull" | jq -r .token)

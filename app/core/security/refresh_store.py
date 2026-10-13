@@ -6,7 +6,8 @@
     auth:fam:{fam}:revoked    폐기된 family 표시 (TTL=refresh 만료 — 그 뒤엔 토큰이 어차피 만료)
 
 회전은 ``GETDEL`` 한 번으로 jti 를 소비한다. 같은 토큰이 동시에 두 번 와도 한쪽만 값을
-받는다 — 다른 쪽은 "없음" 이 되어 재사용으로 처리된다.
+받는다 — 다른 쪽은 "없음" 이 되어 재사용으로 처리된다. ``GETDEL`` 은 Redis 6.2 부터다(저장소 최소
+버전은 rate limit 의 ``EXPIRE NX`` 때문에 7.0 — ``app/core/redis.py`` 의 ``REDIS_MIN_VERSION``).
 """
 
 from __future__ import annotations

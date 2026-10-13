@@ -51,6 +51,7 @@ from redis.asyncio import Redis
 
 from app.core.db.session import create_db_tables, dispose_engine
 from app.core.middlewares.background_tasks import access_log_tasks
+from app.core.redis import check_redis_version
 from app.utils.logs import get_logger
 from app.utils.logs.queue_logging import stop_queue_listener
 from config import app_settings, redis_settings
@@ -218,6 +219,7 @@ async def manage_application_resources(
         except Exception as exc:
             logger.error("[Startup] Redis 연결 실패: %s", type(exc).__name__)
             raise
+        await check_redis_version(redis_client)
         app.state.redis = redis_client
         logger.info("[Startup] Redis 연결 확인 완료")
 

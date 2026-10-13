@@ -490,6 +490,9 @@ async with background_db_session() as session:     # 별도 풀, 예외 시 roll
 - 같은 `AsyncSession` 으로 `asyncio.gather` 를 돌리지 않습니다. 한 트랜잭션의 SQL 은 순차 await,
   독립 병렬 작업은 작업마다 세션을 엽니다.
 - 공유 Redis 가 필요하면 core provider `get_redis`(`app/core/redis.py`)를 `Depends` 로 받습니다.
+  지원 Redis 는 **7.0 이상**입니다(`REDIS_MIN_VERSION`, 기동 시 확인). 새 Redis 명령을 쓰면 그 명령의
+  도입 버전을 `app/core/redis.py` 의 표와 상수에 반영합니다 — `tests/core/test_redis_version.py` 가
+  `expire(..., nx=True)`·`getdel(` 사용과 상수를 대조합니다.
   client 가 없으면 503 이고, 테스트는 `app.dependency_overrides[get_redis]` 로 가짜를 넣습니다. Redis
   명령 실패 시의 오류 계약은 쓰는 기능이 정합니다.
 - auth 경로(가입·로그인·재발급·로그아웃)는 refresh 저장소와 rate limit 때문에 Redis 를 씁니다.
@@ -552,6 +555,11 @@ uv run alembic heads          # head 는 하나여야 한다
 - 모델을 정의하는 테스트는 공유 `Base.metadata` 를 오염시키지 않도록 테스트 전용 `DeclarativeBase`
   를 씁니다(`tests/core/test_pk_generic.py`).
 - skip 된 MySQL 테스트는 성공이 아닙니다. CI MySQL job 과 `tests` 게이트는 skip 0 을 요구합니다.
+- **커버리지 하한.** CI 와 `tests` 게이트는 커버리지를 측정·출력만 하고, 하한은 `pyproject.toml` 의
+  `[tool.coverage.report] fail_under` 하나가 정합니다. 기본값은 **0**(하한 없음)입니다 — 처음에는 기능이
+  제대로 동작하는지 확인하는 것이 우선입니다. 올릴 때는 `uv run python -m pytest -m "not mysql" --cov=app
+  --cov-config=pyproject.toml --cov-report=term-missing` 으로 현재 수치를 재고, 그보다 조금 낮게 정해 점차 올립니다. 명령줄에
+  `--cov-fail-under` 를 두지 않습니다(값이 두 곳으로 갈라진다 — `tests/test_coverage_policy.py`).
 - `DeprecationWarning`·`PendingDeprecationWarning` 은 `pyproject.toml` 의 `filterwarnings` 가
   **에러로 올립니다**(예외 목록은 비어 있습니다). 폐기 예고가 뜨면 억제하지 말고 원인을 고치고,
   그래도 `ignore` 를 남겨야 하면 이유를 주석으로 함께 적습니다. `UserWarning` 은 올리지 않습니다 —

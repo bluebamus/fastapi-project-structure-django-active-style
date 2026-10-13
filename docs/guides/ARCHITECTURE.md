@@ -222,7 +222,7 @@ main:app import
   ├─ _add_health_and_docs(app)                  /health · /ready · (DEBUG) Scalar /docs
   └─ ADMIN_DISABLED=false → register_admin(app, engine, registry)   (true 면 import·마운트 없음)
 ASGI lifespan 진입
-  └─ manage_application_resources(app)          Redis ping → (DEBUG) create_db_tables → yield
+  └─ manage_application_resources(app)          Redis ping·버전(≥7.0) → (DEBUG) create_db_tables → yield
 ```
 
 - `python main.py` 는 조립 후 `uvicorn.run("main:app", host=SERVER_HOST, port=SERVER_PORT,
@@ -334,7 +334,17 @@ staging/production 만:
 파일 핸들러는 root 에 직접 붙지 않고 bounded queue 뒤의 listener 스레드가 씁니다(이벤트 루프가
 파일 I/O 로 멈추지 않도록). 크기·보관 수는 `LOG_MAX_SIZE_MB`·`LOG_BACKUP_COUNT`, 파일 임계값은
 `LOG_FILE_LEVEL` 입니다. 모든 핸들러에 `RedactingFilter`(DSN 자격증명·`password=`/`token=` 형태
-값 마스킹)가 걸리고, SQL/드라이버 잡음은 `LOG_SQL_ECHO_ENABLED=true` 가 아니면 걸러집니다.
+값·`Bearer <토큰>` 마스킹)가 걸리고, SQL/드라이버 잡음은 `LOG_SQL_ECHO_ENABLED=true` 가 아니면 걸러집니다.
+
+**마스킹 범위.** 메시지만이 아니라 예외 traceback(체인 `raise … from` 포함)과 `stack_info` 도 같은
+규칙으로 가립니다. 필터가 `exc_info` 를 traceback 문자열로 미리 렌더해 `exc_text` 에 고정한 뒤 가리고,
+포매터는 `exc_text` 가 있으면 다시 만들지 않으므로 핸들러는 가린 본문을 찍습니다. 예외 타입·파일·줄 번호는
+남습니다. 정규식(정본)은 `app/utils/logs/filters.py` 의 `redact()` 하나이고, 우리 dictConfig 밖에서 생긴
+핸들러에도 같은 필터를 답니다 — `uvicorn main:app`(CLI)이 앱 import 전에 세운 uvicorn 기본 핸들러는
+`configure_logging()` 이, Celery 워커가 root 를 가로채며 붙인 핸들러는 `after_setup_logger`·
+`after_setup_task_logger` 신호(`app/celery/worker_lifecycle.py`)가 붙입니다. SQLAlchemy 등 나머지
+서드파티 로거는 root 로 전파돼 같은 핸들러를 지납니다. 접속 로그 테이블의 `session_id` 쿠키·Referer·
+X-Forwarded-For 원문 저장은 로그 마스킹 대상이 아니며 그대로 유지합니다(사용자 결정 — §7.1).
 
 **레벨.** 명시값이 `DEBUG` 기반 기본값보다 우선합니다. 레벨은 "최소 심각도" 입니다.
 
@@ -368,7 +378,7 @@ logger.exception("저장 실패")            # 스택 트레이스 포함
 ```text
 app.state.resources = ResourceManager(); app.state.redis = None
 register("logging-queue", 5s) · register("db-engines", 10s)
-acquire("redis", start=ping, close=aclose, 5s)   ← 정리를 먼저 등록한 뒤 start
+acquire("redis", start=ping+버전 확인, close=aclose, 5s)   ← 정리를 먼저 등록한 뒤 start
 register("background-tasks", drain, 5s)
 DEBUG=true → create_db_tables()                  ← 30초 guard
 yield  (요청 처리 기간)
@@ -377,7 +387,12 @@ finally: resources.close(); app.state.redis = None; app.state.resources = None
 
 **Redis 는 필수입니다.** `Redis.from_url(REDIS_URL, socket_connect_timeout=5, socket_timeout=5)`
 후 `ping()` 이 실패하면 오류 타입만 ERROR 로 남기고 다시 올려 서버 시작을 멈춥니다. `DEBUG` 와
-무관하고 끄는 설정은 없습니다. 성공해야 `app.state.redis` 에 client 가 들어갑니다. 기동 이후
+무관하고 끄는 설정은 없습니다. 이어서 `check_redis_version()`(`app/core/redis.py`)이 `INFO server` 의
+`redis_version` 을 상수 `REDIS_MIN_VERSION`(7.0)과 비교해 낮으면 `RedisVersionError` 로 멈춥니다 —
+최소 버전은 코드가 보내는 명령에서 정했습니다(rate limit 의 `EXPIRE … NX` 7.0 > `GETDEL` 6.2 >
+`SET … EX` 2.6.12). INFO 가 막힌 관리형 Redis(`ResponseError`)는 WARNING 후 계속하고, 연결 오류는
+그대로 올립니다. fakeredis 는 INFO 를 지원하지 않아 테스트·로컬 스모크에서는 경고 경로를 탑니다.
+성공해야 `app.state.redis` 에 client 가 들어갑니다. 기동 이후
 상태는 `/ready` 가 호출마다 `PING`(2초 상한)으로 확인합니다(§9). 요청 쪽은 core provider
 `get_redis`(`app/core/redis.py`) 하나를 `Depends` 로 받습니다 — client 가 없으면(기동 전·종료 후)
 503 `SERVICE_UNAVAILABLE` 이고, 테스트는 `app.dependency_overrides[get_redis]` 로 가짜를 넣습니다.
@@ -549,7 +564,7 @@ beat 표시에만 쓰입니다. 리포트는 지역 날짜 범위를 UTC 반열�
 |---|---|
 | `AppException` 계열 (`NotFoundException`, `DuplicateException`, `ValidationException`, `DatabaseException`, 기능 예외) | 예외가 정한 상태 코드·`error_code`·`detail` |
 | `RequestValidationError` | 422, `detail` 에 `field`·`message`·`type` 목록 |
-| Starlette `HTTPException` | 해당 상태, `error_code=HTTP_<status>` |
+| Starlette `HTTPException` | 해당 상태, `error_code=HTTP_<status>`. 예외의 `headers` 를 그대로 싣는다(405 `Allow`·401 `WWW-Authenticate` 등) |
 | 그 밖의 `Exception` | 500 `INTERNAL_SERVER_ERROR`, 고정 메시지, `detail=null` — **DEBUG 여부와 무관** |
 
 500 의 예외 타입·route template·스택은 로그에만 남습니다(경로에 박힌 식별자 대신 template).
@@ -690,7 +705,7 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
 | 로그인 보호 | 고정 창 rate limit(창 경계에서 최대 2배 통과, API·`/admin` 공통). 계정 잠금은 없다 |
 | 관리 세션 | 서명 쿠키라 서버 쪽 폐기 목록이 없다 — 로그아웃은 브라우저 쿠키를 비울 뿐이고, 복사된 쿠키 값은 만료(8시간)까지 서명상 유효하다(매 요청 DB 확인으로 강등·비활성화만 즉시 끊긴다). CSRF 는 `SameSite=Strict` 에 의존하며 sqladmin 폼에 CSRF 토큰은 없다 |
 | 토큰 폐기 | refresh 는 family 단위로 폐기된다(재사용 탐지·로그아웃). access 토큰은 만료(기본 15분)까지 유효하다 |
-| 접속 로그 개인정보 | `query_string` 은 민감 키 값만 가리고 나머지와 `referer`·`session_id` 쿠키는 원문 저장한다. 보존 기간·파기 절차가 없다(조회 API 는 슈퍼유저 전용) |
+| 접속 로그 개인정보 | `query_string` 은 민감 키 값만 가리고 나머지와 `referer`·`session_id` 쿠키는 원문 저장한다 — **사용자 결정으로 유지**(log-redaction-fixes ADR-003). 보존 기간·파기 절차가 없다(조회 API 는 슈퍼유저 전용) |
 | CORS | 기본 `CORS_ALLOW_ORIGINS=["*"]`, credentials false (staging/production 은 게이트가 `*` 를 거부) |
 
 ---
@@ -778,7 +793,7 @@ mypy 는 캐시 없이 돈 결과만 인정합니다.
 | 게이트 그룹 | 내용 |
 |---|---|
 | `static` | ruff check · ruff format --check · mypy · bandit(`app`, `main.py`, `config.py`) |
-| `tests` | 전체 pytest(skip·xfail·deselect 0 이어야 통과 — MySQL 필요) + collect-only |
+| `tests` | 전체 pytest(skip·xfail·deselect 0 이어야 통과 — MySQL 필요, 커버리지 측정·출력) + collect-only |
 | `structure` | `alembic heads` |
 | `supply` | Action SHA 고정 · compose 이미지 digest · 비밀값 스캔 |
 | `docs` | README·`docs/guides`·`docs/crp`·워크플로 주석이 가리키는 경로·환경변수 실재, 가르치는 문서의 옛 세션 별칭 금지 |
@@ -786,7 +801,9 @@ mypy 는 캐시 없이 돈 결과만 인정합니다.
 
 CI(`.github/workflows/ci.yml`)는 두 job 입니다: gate job 이 `static structure supply docs deps` 와
 `pytest -m "not mysql"`(skip·xfail 0 확인)을, MySQL job 이 `compose.test.yaml` 을 띄워
-`pytest -m mysql` 과 `tests` 그룹을 돌립니다.
+`pytest -m mysql` 과 `tests` 그룹을 돌립니다. 커버리지는 gate job 의 pytest 와 `tests` 그룹이
+`--cov=app --cov-config=pyproject.toml --cov-report=term-missing` 으로 측정·출력하고, 하한은 `pyproject.toml` 의
+`[tool.coverage.report] fail_under` 하나(기본 0 = 하한 없음 — 사용자 결정)가 정합니다.
 
 ---
 
@@ -794,6 +811,7 @@ CI(`.github/workflows/ci.yml`)는 두 job 입니다: gate job 이 `static struct
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-13 | **log-redaction-fixes**: 로그 마스킹이 예외 traceback·체인·`stack_info`·`Bearer` 토큰까지 덮고 uvicorn CLI·Celery 워커 핸들러에도 붙는다(§5). Starlette `HTTPException` 의 헤더를 응답에 싣는다(§9). Redis 최소 버전 7.0 을 명령에서 도출해 기동 시 확인한다(§6). 커버리지 하한 기본 0(§13). |
 | 2026-09-17 | **문서 일관성 정리**: 개발 가이드를 `DEVELOPMENT.md` 로 이름을 바꾸고, 재구성 때 지웠던 HTML 안내서 2종(`server-lifecycle-guide.html`·`feature-development-guide.html`)을 현행 코드·이 문서와 맞춰 복원했다(표·목록 원문은 Markdown 이 소유). 코드 변경: blog·reply·sns·user 쓰기 핸들러를 "DTO 검증 → commit" 순서로 맞췄다. |
 | 2026-09-17 | **문서 재구성**: README 의 로깅·접속 로그·요청 처리·앱 규약 상세, `server-lifecycle-guide.html` 의 설정·lifespan·종료 추적, 버전 가이드(`docs/project-guide/v1.0.0/`)의 현행 사실을 이 문서로 모았다. 코드와 대조해 로그 포맷·파일 핸들러 조건·미사용 설정, 프록시 헤더 신뢰 설정, 배포 게이트, 라우트 수를 바로잡았다. 코드 변경 없음. |
 | 2026-09-17 | lifespan 이 `manage_application_resources()`(Redis PING 필수·DEBUG DDL·역순 정리)로 옮겨진 것을 반영하고, `env.py` 예시를 실제 코드로 정정했다. |

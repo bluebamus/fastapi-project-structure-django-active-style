@@ -86,7 +86,9 @@ def test_forged_valid_token_is_accepted(tokens):
     "overrides",
     [
         {"exp": datetime.now(UTC) - timedelta(seconds=1)},
-        {"nbf": datetime.now(UTC) + timedelta(minutes=1)},
+        # 값은 수집(import) 시각에 계산된다. 수집에서 실행까지 1분을 넘기면(커버리지 측정으로 느려진
+        # 실행에서 실측) nbf 가 과거가 되어 거부되지 않으므로, 실행 시간과 무관하게 충분히 먼 미래로 둔다.
+        {"nbf": datetime.now(UTC) + timedelta(days=1)},
         {"iss": "other-iss"},
         {"aud": "other-aud"},
         {"type": "refresh"},

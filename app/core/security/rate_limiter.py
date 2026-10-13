@@ -2,6 +2,9 @@
 
 ``INCR`` 와 첫 hit 의 ``EXPIRE NX`` 를 한 트랜잭션(MULTI)으로 보낸다 — 둘 사이에 프로세스가
 죽어 TTL 없는 카운터가 남으면 그 키는 영구 차단된다.
+
+``EXPIRE ... NX`` 는 Redis 7.0 에서 생겼다 — 이 명령이 저장소의 최소 Redis 버전을 정한다
+(``app/core/redis.py`` 의 ``REDIS_MIN_VERSION``, 기동 시 확인).
 """
 
 from __future__ import annotations

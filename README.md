@@ -36,7 +36,7 @@ Repository 패턴과 계층 분리를 적용한 FastAPI 프로젝트 골격입�
   뒤에 있고, `ADMIN_DISABLED=true` 면 경로·링크·로그까지 통째로 사라진다
   ([admin 인증 안내서](docs/guides/admin-auth-guide.html)).
 - **운영 안전장치** — staging/production 에서 위험한 설정이면 기동 거부, 오류 응답에 내부 정보 비노출,
-  접속 로그 비동기 수집, 로그 비밀값 마스킹.
+  접속 로그 비동기 수집, 로그 비밀값 마스킹(메시지·예외 traceback·stack — uvicorn·Celery 핸들러 포함).
 - **검증 게이트** — 로컬과 CI 가 같은 `scripts/review_gate.py` 로 정적 검사·테스트·공급망·문서를 판정.
 
 ## 기술 스택
@@ -47,7 +47,7 @@ Repository 패턴과 계층 분리를 적용한 FastAPI 프로젝트 골격입�
 | ORM / DB | SQLAlchemy 2.0 async · MySQL(aiomysql) |
 | Validation / Settings | Pydantic v2 · pydantic-settings |
 | Migration | Alembic |
-| Redis | startup 연결 검증(필수) · Celery broker/backend · refresh 토큰 저장소 · rate limit |
+| Redis | **7.0 이상**(rate limit 의 `EXPIRE … NX`) — startup 연결·버전 검증(필수) · Celery broker/backend · refresh 토큰 저장소 · rate limit |
 | Task Queue | Celery |
 | Admin / API Docs | SQLAdmin · Scalar |
 | Auth | OAuth2 Password + PyJWT + pwdlib(Argon2) |
@@ -134,10 +134,12 @@ uv run python -c "import secrets; print(secrets.token_urlsafe(48))"   # 키마�
 ### 2. Redis 만으로 HTTP 배선 확인
 
 **Redis 는 항상 필요합니다.** 앱은 startup 에서 `REDIS_HOST`/`REDIS_PORT` 로 `ping()` 하고, 실패하면
-시작하지 않습니다(`DEBUG=false` 로도 우회되지 않습니다).
+시작하지 않습니다(`DEBUG=false` 로도 우회되지 않습니다). 이어서 `INFO server` 로 버전을 확인해
+**7.0 미만이면 시작하지 않습니다** — 코드가 쓰는 명령 중 가장 늦게 생긴 것이 rate limit 의 `EXPIRE … NX`(7.0)
+입니다(`GETDEL` 6.2, `SET … EX` 2.6.12). INFO 가 막힌 관리형 Redis 면 WARNING 을 남기고 계속합니다.
 
 ```bash
-docker run --rm -d --name fastapi-redis -p 6379:6379 redis:7-alpine
+docker run --rm -d --name fastapi-redis -p 6379:6379 redis:7-alpine   # 7.0 이상이면 된다
 DEBUG=false uv run uvicorn main:app --port 8000
 curl http://127.0.0.1:8000/health      # {"status":"healthy","version":"0.1.0"}
 ```
@@ -243,8 +245,8 @@ uv run python -m scripts.review_gate --group static structure docs
 
 `mysql` 마커 테스트(`tests/integration/`)는 MySQL 8.4 가 `127.0.0.1:3310` 에 있어야 돕니다
 (`MYSQL_TEST_PORT` 로 변경). 같은 파일의 `redis-test` 는 lifespan·`/ready` 를 실물로 볼 때 쓰는
-Redis 7.4 입니다(`127.0.0.1:6381`, `REDIS_TEST_PORT` 로 변경 — 앱이 쓰게 하려면 `REDIS_PORT` 도
-같은 값으로). 단위 테스트는 가짜 클라이언트를 주입하므로 Redis 없이 돕니다.
+Redis 7.4 입니다(최소 요구 7.0 이상인 고정 이미지. `127.0.0.1:6381`, `REDIS_TEST_PORT` 로 변경 — 앱이 쓰게
+하려면 `REDIS_PORT` 도 같은 값으로). 단위 테스트는 가짜 클라이언트를 주입하므로 Redis 없이 돕니다.
 
 ```bash
 docker compose -f compose.test.yaml up -d --wait
@@ -253,6 +255,10 @@ docker compose -f compose.test.yaml down -v
 ```
 
 `uv run pytest` 대신 `python -m pytest` 를 씁니다(콘솔 스크립트가 다른 인터프리터를 집은 전례).
+**커버리지**는 CI 의 단위 테스트 단계와 `tests` 게이트가 `--cov=app --cov-config=pyproject.toml --cov-report=term-missing` 으로 측정·출력합니다.
+하한은 `pyproject.toml` 의 `[tool.coverage.report] fail_under` 하나가 정하고 **기본값은 0**(하한 없음)입니다 —
+처음에는 기능이 제대로 동작하는지 확인하는 것이 우선이라서입니다. 하한이 필요해지면 그 값 하나만 올립니다
+(명령줄 `--cov-fail-under` 는 쓰지 않는다. 올리는 법은 [개발 가이드 §11](docs/guides/DEVELOPMENT.md)).
 `tests` 게이트는 skip 0 을 요구하므로 MySQL 이 필요하고, `deps` 게이트는 네트워크가 필요합니다. CI 는
 gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전체 suite)으로 나뉩니다.
 
@@ -268,7 +274,7 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | `DEBUG` | `true` | 개발 모드 — 아래 표 |
 | `ENV` | `development` | `development`/`test`/`staging`/`production`. 로그 구성과 배포 게이트가 따른다 |
 | `ADMIN_DISABLED` | `false` | `true` 면 `/admin` 을 아예 만들지 않는다(404, 응답·로그에 경로 없음). `false` 면 마운트하고 **슈퍼유저 로그인**을 요구한다 (DEBUG 와 독립). 예전 `ADMIN` 은 이 설정으로 바뀌었고 남아 있으면 기동하지 않는다 |
-| `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_PASSWORD` | `localhost` / `6379` / `0` / 없음 | startup `ping()` 대상, Celery broker |
+| `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_PASSWORD` | `localhost` / `6379` / `0` / 없음 | startup `ping()`·버전(7.0 이상) 확인 대상, Celery broker |
 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | `localhost` / `3306` / `root` / `""` / `fastapi_db` | primary(writer) DB |
 | `DB_ROUTER_ENABLED` / `DB_REPLICATION_ENABLED` / `MYSQL_REPLICA_HOSTS` | `false` / `false` / `[]` | replica 라우팅 (선택). read-only 세션의 쓰기 차단은 이 설정과 **무관하게** 항상 동작한다 |
 | `ACCESS_TOKEN_SECRET_KEY` / `REFRESH_TOKEN_SECRET_KEY` / `SESSION_SECRET_KEY` | `change-this-...` | JWT 서명 키 둘과 `/admin` 세션 쿠키 서명 키. 배포 전 서로 다른 값으로 교체 — 생성: `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"` |
@@ -316,6 +322,7 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | 2b | 관리 화면을 쓰는가 — 쓰지 않으면 `ADMIN_DISABLED=true`. 쓰면 `/admin` 이 **슈퍼유저 로그인**을 요구하고 세션 쿠키 서명 키가 `SESSION_SECRET_KEY` 임을 확인했는가 | 끄면 `/admin` 경로·링크·로그가 모두 사라진다. 켜면 로그인 세션은 `SESSION_SECRET_KEY` 로 서명되고 staging/production 에서 Secure 쿠키라 HTTPS 가 필요하다. 키를 바꾸면 관리 세션이 모두 끊긴다([admin 인증 안내서](docs/guides/admin-auth-guide.html)) |
 | 3 | 외부 노출이 필요 없으면 `SERVER_HOST=127.0.0.1` 인가 | 기본 바인딩은 `0.0.0.0` 이다. 관리 화면을 켰다면 프록시·방화벽으로 `/admin` 접근 범위를 좁히는 것도 권장한다 |
 | 4 | 프록시 뒤라면 `TRUSTED_PROXY_HOPS` 를 앞단 프록시 단 수로 설정했는가 | `0` 이면 모든 클라이언트가 프록시 IP 하나로 보여 접속 로그와 로그인 rate limit(API·`/admin`)이 전체 사용자를 한 사람으로 취급한다. 실제보다 크게 잡으면 IP 위조가 가능하다 |
+| 4a | Redis 가 **7.0 이상**인가 | rate limit 이 `EXPIRE … NX`(7.0)를 쓴다. 낮으면 기동이 멈춘다. 관리형 Redis 가 `INFO` 를 막으면 확인을 건너뛰고 WARNING 만 남기므로(`Redis 버전 확인 불가`) 그때는 운영자가 버전을 직접 확인한다 |
 | 5 | readiness 를 `/ready` 에 걸었는가 | `/ready` 는 DB 와 Redis 를 모두 본다(각 2초). `/health` 는 둘 다 보지 않는다 |
 | 6 | 새로 더한 엔드포인트가 [권한 표](#권한-표)에 분류됐는가 | 예제 API 는 인증·소유권·슈퍼유저 검사를 갖췄다. 새 엔드포인트는 직접 보호해야 하고, 분류하지 않으면 `tests/test_authorization.py` 가 실패한다 |
 | 7 | 기존 MySQL 데이터가 있다면 `e5a7c9d1f3b5`(KST→UTC 시각 전환) 적용 **전에 백업**하고, 그 시각이 `+09:00`(Asia/Seoul 벽시계)으로 저장됐는지 확인했는가 | 리비전이 `+09:00 → UTC` 로 옮긴다. 다른 시간대로 쌓인 DB 는 적용 전에 리비전의 `_LOCAL_OFFSET` 상수를 그 오프셋으로 바꾼다([ARCHITECTURE §12](docs/guides/ARCHITECTURE.md)) |
@@ -359,7 +366,8 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 
 `/api/v1/home/access-logs/stats` 는 `{total_count, device_types[], os_list[], browsers[]}` 를 돌려줍니다.
 모든 오류는 `{"error_code", "message", "detail"}` 형식이고, 처리되지 않은 예외는 `DEBUG` 와 무관하게
-고정 메시지의 500 입니다.
+고정 메시지의 500 입니다. HTTP 예외가 실어 온 헤더는 본문 형식을 바꿔도 그대로 실립니다 — 허용되지 않은
+메서드의 405 는 `Allow`(예: `DELETE /health` → `Allow: GET`), 401 은 `WWW-Authenticate`, 429 는 `Retry-After`.
 
 ### 권한 표
 
@@ -481,6 +489,7 @@ Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워
 | `/admin` 로그인 뒤 계속 로그인 화면으로 돌아온다 | staging/production 은 세션 쿠키가 Secure 라 HTTP 에서는 붙지 않는다. 또는 슈퍼유저가 아니거나 비활성 | HTTPS 로 접속(프록시의 TLS 종료 포함). 계정은 `scripts/create_superuser.py` 로 승격 |
 | `/admin` 로그인이 429 | 로그인 시도 한도 초과(`AUTH_LOGIN_*`, 창 60초) | `Retry-After` 만큼 기다린다. 프록시 뒤인데 `TRUSTED_PROXY_HOPS` 가 0 이면 모든 사용자가 한 IP 로 묶인다 |
 | startup 에서 `Redis 연결 실패` | Redis 미기동, 주소·포트·비밀번호 오류 | `REDIS_*` 와 서버 확인. `DEBUG=false` 로 우회되지 않는다 |
+| startup 에서 `RedisVersionError: Redis x.y 은(는) 지원하지 않습니다` | Redis 가 7.0 미만 | 7.0 이상으로 올린다(rate limit 의 `EXPIRE … NX`) |
 | startup 에서 `Can't connect to MySQL server` | `DEBUG=true` 기본값이 테이블 생성을 시도 | MySQL 을 띄우거나 `DEBUG=false` |
 | staging/production 에서 `안전하지 않은 설정으로 기동할 수 없습니다` | 배포 게이트 | 메시지의 설정을 모두 고친다 ([운영 배포](#운영-배포)) |
 | `/docs` 가 404 | `DEBUG=false` | `DEBUG=true` (MySQL 필요) |
@@ -508,7 +517,7 @@ Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워
 | [docs/specs/orm-raw-repository/development-plan.md](docs/specs/orm-raw-repository/development-plan.md) | 고정 기준선 — ORM/Raw 개발 계획 | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/orm-raw-repository/workflow-guide.md](docs/specs/orm-raw-repository/workflow-guide.md) | 고정 기준선 — ORM/Raw 지침 원본 (코드 주석의 `workflow-guide §N` 출처) | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/django-style-app-automation.md](docs/specs/django-style-app-automation.md) | 고정 기준선 — 앱 자동 등록 요구사항(`FR-*`·`NFR-*`·`SEC-*` 등, 코드 주석이 인용)과 설계 근거 | 자동 등록 규칙의 원래 의도를 볼 때 |
-| [docs/crp/groups/](docs/crp/groups/) | 검수 이력(append-only) — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계), `service-hardening`(인증·인가·rate limit·UTC), `admin-login`(관리 화면 로그인·`ADMIN_DISABLED`) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
+| [docs/crp/groups/](docs/crp/groups/) | 검수 이력(append-only) — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계), `service-hardening`(인증·인가·rate limit·UTC), `admin-login`(관리 화면 로그인·`ADMIN_DISABLED`), `log-redaction-fixes`(traceback 마스킹·예외 헤더·Redis 최소 버전·커버리지 하한) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
 
 `docs/guides/` 는 **현행 문서**라 코드 기준으로 유지하고, `review_gate` docs 그룹이 Markdown 의 백틱
 경로와 HTML 의 `<code>` 경로·환경변수를 검사합니다. HTML 안내서는 흐름을 요약하고 표·목록의 원문은
