@@ -260,7 +260,19 @@ COMMAND_GROUPS: dict[str, list[list[str]]] = {
         [*_PY, "bandit", "-ll", "-q", "-r", "app", "main.py", "config.py"],
     ],
     "tests": [
-        [*_PY, "pytest", "-q", "-rsxX"],
+        # 커버리지는 측정·출력만 한다. 하한은 pyproject 의 fail_under 하나가 정본이다
+        # (여기에 --cov-fail-under 를 두지 않는다). skip-covered 는 쓰지 않는다 — 그 요약 줄
+        # ("N files skipped due to complete coverage")이 skip 판정과 같은 단어를 쓴다.
+        # --cov-config 를 명시해야 서브프로세스 테스트가 같은 설정(branch)으로 측정해 합치기가 성공한다.
+        [
+            *_PY,
+            "pytest",
+            "-q",
+            "-rsxX",
+            "--cov=app",
+            "--cov-config=pyproject.toml",
+            "--cov-report=term-missing",
+        ],
         [*_PY, "pytest", "--collect-only", "-q"],
     ],
     "structure": [
