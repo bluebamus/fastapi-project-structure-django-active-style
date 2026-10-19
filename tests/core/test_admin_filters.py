@@ -110,13 +110,103 @@ async def test_invalid_input_leaves_the_query_unfiltered(session, operation, val
     assert len(await _ids(session, operation, value)) == 5
 
 
-def test_offers_exactly_the_three_date_operations():
+def test_offers_exactly_the_four_date_operations():
     flt = LocalDateFilter(Post.created_at)
 
     assert [op for op, _ in flt.get_operation_options_for_model(Post)] == [
         "on",
         "on_or_after",
         "before",
+        "range",
     ]
     assert flt.parameter_name == "created_at"
     assert "YYYY-MM-DD" in flt.title
+
+
+# =============================================================================
+# 기간(range) — admin-session-hardening ADR-005
+# =============================================================================
+async def test_range_includes_both_ends(session):
+    """시작일 자정 포함, 종료일 마지막 순간 포함, 종료일 다음 자정 제외."""
+    assert await _ids(session, "range", "2026-10-19~2026-10-19") == [
+        "midnight",
+        "first-second",
+        "day-last-second",
+    ]
+
+
+async def test_range_includes_the_last_microsecond_of_the_end_day(session):
+    async with session.begin_nested():
+        session.add(
+            Post(
+                id="last-micro",
+                title="t",
+                content="c",
+                author="a",
+                created_at=NEXT_MIDNIGHT - timedelta(microseconds=1),
+            )
+        )
+    assert "last-micro" in await _ids(session, "range", "2026-10-18~2026-10-19")
+
+
+async def test_range_over_several_days(session):
+    assert await _ids(session, "range", "2026-10-18~2026-10-20") == [
+        "prev-day-last-second",
+        "midnight",
+        "first-second",
+        "day-last-second",
+        "next-midnight",
+    ]
+
+
+async def test_range_with_only_start_is_open_ended(session):
+    assert await _ids(session, "range", "2026-10-20~") == ["next-midnight"]
+
+
+async def test_range_with_only_end_is_open_started(session):
+    assert await _ids(session, "range", "~2026-10-18") == ["prev-day-last-second"]
+
+
+async def test_range_bounds_follow_dst(session):
+    """미국 서머타임 시작일 하루 기간은 23시간 — 지역 자정 두 개를 각각 UTC 로 바꾼다."""
+    start, end = LocalDateFilter(Post.created_at, tz=NEW_YORK).range_bounds("2026-03-08~2026-03-08")
+
+    assert start == datetime(2026, 3, 8, 5, 0, tzinfo=UTC)
+    assert end - start == timedelta(hours=23)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2026-10-20~2026-10-19",  # 역순
+        "2026-10-19",  # 구분자 없음
+        "~",  # 둘 다 비었다
+        "2026-10-19~not-a-date",
+        "2026-13-01~2026-10-19",
+        "2026-10-01~2026-10-02~2026-10-03",
+    ],
+)
+async def test_invalid_range_leaves_the_query_unfiltered_with_a_warning(session, value, caplog):
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        assert len(await _ids(session, "range", value)) == 5
+    assert any("잘못된 날짜 필터" in r.getMessage() for r in caplog.records)
+
+
+def test_quick_ranges_are_range_values_ending_today(monkeypatch):
+    flt = LocalDateFilter(Post.created_at, tz=SEOUL)
+    labels = dict(flt.quick_ranges())
+    today = datetime.now(SEOUL).date()
+
+    assert labels["오늘"] == f"{today}~{today}"
+    assert labels["최근 7일"] == f"{today - timedelta(days=6)}~{today}"
+    assert labels["최근 30일"] == f"{today - timedelta(days=29)}~{today}"
+    assert all(flt.range_bounds(value) is not None for value in labels.values())
+
+
+def test_filter_has_its_own_template_file():
+    from app.features.admin import ADMIN_TEMPLATES_DIR
+
+    flt = LocalDateFilter(Post.created_at)
+    assert (ADMIN_TEMPLATES_DIR / flt.template).is_file()

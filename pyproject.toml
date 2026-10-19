@@ -32,7 +32,6 @@ dependencies = [
     "python-multipart>=0.0.32",
     "bcrypt>=5.0.0",
     "pwdlib[argon2]>=0.3.1",
-    "itsdangerous>=2.2.0",
 ]
 
 [dependency-groups]

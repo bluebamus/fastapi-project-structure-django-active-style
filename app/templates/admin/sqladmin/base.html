@@ -1,0 +1,74 @@
+{#- sqladmin 0.32 원본(sqladmin_original/base.html)을 그대로 상속하고 head_tail 블록 하나만 덧붙인다
+    (admin-session-hardening ADR-004). 원본 대비 바뀐 부분:
+      (a) <meta name="csrf-token"> — 세션에 묶인 CSRF 토큰
+      (b) 인라인 스크립트 — 같은 출처 POST 폼 제출에 hidden csrf_token, fetch/XHR 에 X-CSRF-Token 헤더,
+          로그아웃 링크(GET) 클릭을 토큰을 실은 POST 폼 제출로 바꾼다.
+    head_tail 을 고른 이유: create.html 은 tail, edit.html 은 tail_js·head_css 를 덮어써 그 블록에 넣으면
+    화면마다 빠진다. head_tail 은 어떤 원본 템플릿도 덮어쓰지 않는다
+    (tests/test_admin_csrf.py::test_packaged_templates_still_fit_the_base_override 가 지킨다).
+    스크립트는 jQuery 보다 먼저 실행되지만 XHR·fetch 를 감싸는 것이라 순서와 무관하다. -#}
+{% extends "sqladmin_original/base.html" %}
+{% block head_tail %}
+{{ super() }}
+<meta name="csrf-token" content="{{ csrf_token(request) }}">
+<meta name="admin-logout-url" content="{{ request.url_for('admin:logout') }}">
+<script>
+(function () {
+  "use strict";
+  var token = document.querySelector('meta[name="csrf-token"]').content;
+  var logoutUrl = document.querySelector('meta[name="admin-logout-url"]').content;
+  function sameOrigin(url) {
+    try { return new URL(String(url), window.location.href).origin === window.location.origin; }
+    catch (e) { return false; }
+  }
+  function tokenInput(form) {
+    var input = form.querySelector('input[name="csrf_token"]');
+    if (!input) {
+      input = document.createElement("input");
+      input.type = "hidden";
+      input.name = "csrf_token";
+      form.appendChild(input);
+    }
+    input.value = token;
+  }
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (form instanceof HTMLFormElement && form.method.toLowerCase() === "post" && sameOrigin(form.action)) {
+      tokenInput(form);
+    }
+  }, true);
+  var open = XMLHttpRequest.prototype.open;
+  var send = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function (method, url) {
+    this.__csrfSameOrigin = sameOrigin(url);
+    return open.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.send = function () {
+    if (this.__csrfSameOrigin) { this.setRequestHeader("X-CSRF-Token", token); }
+    return send.apply(this, arguments);
+  };
+  var nativeFetch = window.fetch;
+  window.fetch = function (input, init) {
+    var url = input instanceof Request ? input.url : input;
+    if (sameOrigin(url)) {
+      init = Object.assign({}, init);
+      var headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+      headers.set("X-CSRF-Token", token);
+      init.headers = headers;
+    }
+    return nativeFetch.call(this, input, init);
+  };
+  document.addEventListener("click", function (event) {
+    var link = event.target.closest && event.target.closest("a[href]");
+    if (!link || link.href !== logoutUrl) { return; }
+    event.preventDefault();
+    var form = document.createElement("form");
+    form.method = "POST";
+    form.action = logoutUrl;
+    tokenInput(form);
+    document.body.appendChild(form);
+    form.submit();
+  });
+})();
+</script>
+{% endblock %}

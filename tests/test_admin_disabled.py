@@ -124,4 +124,6 @@ def test_no_admin_session_middleware_or_backend_is_built(disabled_app):
     assert disabled_app["sqladmin_loaded"] is False
     assert disabled_app["auth_backend_loaded"] is False
     assert "SessionMiddleware" not in disabled_app["middlewares"]
+    assert "RedisSessionMiddleware" not in disabled_app["middlewares"]
+    assert "AdminCsrfMiddleware" not in disabled_app["middlewares"]
     assert disabled_app["admin_attr"] is False

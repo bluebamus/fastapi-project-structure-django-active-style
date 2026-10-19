@@ -32,8 +32,8 @@ Repository 패턴과 계층 분리를 적용한 FastAPI 프로젝트 골격입�
   Argon2 해시(기존 bcrypt 해시는 로그인 때 이전), 로그인·가입 rate limit.
 - **인가** — 슈퍼유저/일반 2단계. 글 수정·삭제는 작성자 본인 또는 슈퍼유저, 관리 API 는 슈퍼유저 전용
   ([권한 표](#권한-표)). 첫 슈퍼유저는 `scripts/create_superuser.py` 로 만든다.
-- **관리 화면** — SQLAdmin `/admin` 은 활성 슈퍼유저 로그인(Bootstrap 로그인 화면, 서명 세션 쿠키)
-  뒤에 있고, `ADMIN_DISABLED=true` 면 경로·링크·로그까지 통째로 사라진다
+- **관리 화면** — SQLAdmin `/admin` 은 활성 슈퍼유저 로그인(Bootstrap 로그인 화면, Redis 서버 세션,
+  모든 상태 변경 요청 CSRF 토큰) 뒤에 있고, `ADMIN_DISABLED=true` 면 경로·링크·로그까지 통째로 사라진다
   ([admin 인증 안내서](docs/guides/admin-auth-guide.html)).
 - **운영 안전장치** — staging/production 에서 위험한 설정이면 기동 거부, 오류 응답에 내부 정보 비노출,
   접속 로그 비동기 수집, 로그 비밀값 마스킹(메시지·예외 traceback·stack — uvicorn·Celery 핸들러 포함).
@@ -277,7 +277,8 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_PASSWORD` | `localhost` / `6379` / `0` / 없음 | startup `ping()`·버전(7.0 이상) 확인 대상, Celery broker |
 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | `localhost` / `3306` / `root` / `""` / `fastapi_db` | primary(writer) DB |
 | `DB_ROUTER_ENABLED` / `DB_REPLICATION_ENABLED` / `MYSQL_REPLICA_HOSTS` | `false` / `false` / `[]` | replica 라우팅 (선택). read-only 세션의 쓰기 차단은 이 설정과 **무관하게** 항상 동작한다 |
-| `ACCESS_TOKEN_SECRET_KEY` / `REFRESH_TOKEN_SECRET_KEY` / `SESSION_SECRET_KEY` | `change-this-...` | JWT 서명 키 둘과 `/admin` 세션 쿠키 서명 키. 배포 전 서로 다른 값으로 교체 — 생성: `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"` |
+| `ACCESS_TOKEN_SECRET_KEY` / `REFRESH_TOKEN_SECRET_KEY` / `SESSION_SECRET_KEY` | `change-this-...` | JWT 서명 키 둘과 `/admin` 관리 세션의 Redis 키 HMAC 키(바꾸면 관리 세션 전부 무효). 배포 전 서로 다른 값으로 교체 — 생성: `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"` |
+| `ADMIN_SESSION_MAX_AGE_SECONDS` / `ADMIN_SESSION_IDLE_SECONDS` | `28800` / `1800` | `/admin` 관리 세션의 절대 만료(로그인 시각부터, 연장 불가 — 쿠키 Max-Age 도 같다) / 미사용 만료(요청마다 다시 셈). 둘 다 60 이상, 미사용 ≤ 절대 |
 | `CORS_ALLOW_ORIGINS` | `["*"]` | JSON 배열로 지정 |
 | `TRUSTED_PROXY_HOPS` | `0` | 앱 앞의 신뢰 리버스 프록시 수. `0` 은 전달 헤더 무시, `N` 은 X-Forwarded-For 의 오른쪽에서 N번째를 접속 IP 로 사용. **프록시 뒤 배포면 반드시 설정**(운영 배포 확인 4) |
 | `ACCESS_LOG_ENABLED` | `true` | 접속 로그 수집 |
@@ -293,7 +294,7 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | `python main.py` reload | 켜짐 | 꺼짐 |
 | 500 응답 상세 | 숨김 | 숨김 |
 
-`SESSION_SECRET_KEY` 는 `/admin` 세션 쿠키 서명에, `SESSION_COOKIE_NAME` 은 접속 로그의 session_id 기록에만
+`SESSION_SECRET_KEY` 는 `/admin` 관리 세션의 Redis 키(`admin:sess:{HMAC(키, 세션 ID)}`) 계산에, `SESSION_COOKIE_NAME` 은 접속 로그의 session_id 기록에만
 쓰입니다(API 인증은 JWT 만). `SESSION_EXPIRE_SECONDS`·`SMTP_*`·`UPLOAD_*`·`API_VERSION` 은 설정만 있고
 이를 쓰는 기능은 아직 없습니다. 설정 로딩
 순서와 클래스별 소비 지점, 로그 구성은 [ARCHITECTURE §4·§5](docs/guides/ARCHITECTURE.md)를 봅니다.
@@ -320,7 +321,7 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | 1 | `ENV` 를 실제 환경 값으로 넘겼는가 | 기본값 `development` 에서는 위 표의 staging·production 검사가 돌지 않는다. `.env` 없이 환경 변수로 주입하는 배포는 `ENV` 가 없으면 기동 거부 |
 | 2 | 트래픽 전환 전에 `alembic upgrade head` 를 적용했는가 | 서버 기동은 migration 을 하지 않는다 |
 | 2a | 첫 관리자를 만들었는가 — `scripts/create_superuser.py`(대화형 또는 `--password-stdin`, [첫 관리자 만들기](#첫-관리자-만들기)) | 관리 API(사용자·상품 쓰기·리포트·접속 로그)는 슈퍼유저 전용이고 API 로는 첫 슈퍼유저를 만들 수 없다. 이 계정이 `/admin` 로그인 계정이기도 하다 |
-| 2b | 관리 화면을 쓰는가 — 쓰지 않으면 `ADMIN_DISABLED=true`. 쓰면 `/admin` 이 **슈퍼유저 로그인**을 요구하고 세션 쿠키 서명 키가 `SESSION_SECRET_KEY` 임을 확인했는가 | 끄면 `/admin` 경로·링크·로그가 모두 사라진다. 켜면 로그인 세션은 `SESSION_SECRET_KEY` 로 서명되고 staging/production 에서 Secure 쿠키라 HTTPS 가 필요하다. 키를 바꾸면 관리 세션이 모두 끊긴다([admin 인증 안내서](docs/guides/admin-auth-guide.html)) |
+| 2b | 관리 화면을 쓰는가 — 쓰지 않으면 `ADMIN_DISABLED=true`. 쓰면 `/admin` 이 **슈퍼유저 로그인**을 요구하고, 관리 세션이 **Redis** 에 있으며(`ADMIN_SESSION_*` 만료) Redis 키가 `SESSION_SECRET_KEY` HMAC 임을 확인했는가 | 끄면 `/admin` 경로·링크·로그가 모두 사라진다. 켜면 staging/production 에서 Secure 쿠키라 HTTPS 가 필요하다. Redis 가 죽으면 관리 화면은 503(fail-closed), Redis 를 비우거나 키를 바꾸면 관리 세션이 모두 끊긴다. 상태 변경은 JavaScript 가 CSRF 토큰을 붙이므로 관리 화면에서 스크립트를 막지 않는다([admin 인증 안내서](docs/guides/admin-auth-guide.html)) |
 | 3 | 외부 노출이 필요 없으면 `SERVER_HOST=127.0.0.1` 인가 | 기본 바인딩은 `0.0.0.0` 이다. 관리 화면을 켰다면 프록시·방화벽으로 `/admin` 접근 범위를 좁히는 것도 권장한다 |
 | 4 | 프록시 뒤라면 `TRUSTED_PROXY_HOPS` 를 앞단 프록시 단 수로 설정했는가 | `0` 이면 모든 클라이언트가 프록시 IP 하나로 보여 접속 로그와 로그인 rate limit(API·`/admin`)이 전체 사용자를 한 사람으로 취급한다. 실제보다 크게 잡으면 IP 위조가 가능하다 |
 | 4a | Redis 가 **7.0 이상**인가 | rate limit 이 `EXPIRE … NX`(7.0)를 쓴다. 낮으면 기동이 멈춘다. 관리형 Redis 가 `INFO` 를 막으면 확인을 건너뛰고 WARNING 만 남기므로(`Redis 버전 확인 불가`) 그때는 운영자가 버전을 직접 확인한다 |
@@ -338,11 +339,16 @@ beat 는 실행 디렉터리에 스케줄 상태 파일 `celerybeat-schedule*` �
 
 **`/admin` 은 슈퍼유저 로그인이 필요합니다.** SQLAdmin 에 붙인 `AdminAuthBackend` 가 활성 슈퍼유저만
 들여보내고(매 요청 DB 확인 — 강등·비활성화는 다음 요청부터 막힌다), 로그인 시도는 API 로그인과 같은
-한도로 따로 셉니다(`admin:rl:`). 세션은 `/admin` 전용 서명 쿠키(`admin_session`, `Path=/admin`,
-`SameSite=Strict`, HttpOnly, 8시간, staging/production 은 Secure)이고 API 인증에는 쓰이지 않습니다.
-로그인 폼은 세션에 묶인 CSRF 토큰(hidden `csrf_token`)을 싣고, 없거나 다르면 레이트 리밋·자격 확인
-전에 403 으로 다시 그립니다. 관리 목록은 `created_at` 을 업무 시간대(`TIME_ZONE`) 날짜(`YYYY-MM-DD`)로
-거를 수 있습니다(같은 날 / 이후(포함) / 이전(미포함)).
+한도로 따로 셉니다(`admin:rl:`). 세션은 `/admin` 전용 **Redis 서버 세션**입니다 — 쿠키 `admin_session`
+(`Path=/admin`, `SameSite=Strict`, HttpOnly, staging/production 은 Secure)에는 무작위 세션 ID 만 있고,
+내용은 Redis `admin:sess:{HMAC(SESSION_SECRET_KEY, ID)}` 에 있습니다. 로그인하면 세션 ID 를 새로 발급하고,
+로그아웃·강등·비활성화·삭제(API)는 서버에서 그 사용자의 세션을 지우므로 복사해 둔 쿠키도 즉시 무효입니다.
+만료는 절대 8시간(연장 불가) + 미사용 30분(`ADMIN_SESSION_*`). API 인증에는 쓰이지 않습니다.
+CSRF 토큰은 세션에 하나이고, 로그인 폼과 로그인 이후의 모든 생성·수정·삭제·일괄 삭제·가져오기·로그아웃
+요청이 싣습니다(화면 스크립트가 폼 hidden 필드·`X-CSRF-Token` 헤더로 붙임). 없거나 다르면 403 입니다.
+로그아웃은 POST 전용입니다(GET 은 405). 관리 목록은 `created_at` 을 업무 시간대(`TIME_ZONE`) 날짜로
+거를 수 있습니다(같은 날 / 이후(포함) / 이전(미포함) / **기간**(시작일~종료일, 양 끝 포함, 한쪽만 넣으면
+열린 구간) + 빠른 선택 오늘·최근 7일·30일).
 관리 화면을 쓰지 않으면 `ADMIN_DISABLED=true` 로 경로 자체를 없앱니다. 설계·흐름·위협 모델은
 [admin 인증 안내서](docs/guides/admin-auth-guide.html), 보안 경계 전체는 [ARCHITECTURE §10](docs/guides/ARCHITECTURE.md)
 에 있습니다.
@@ -507,6 +513,8 @@ Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워
 | `ENV=development 에서 안전하지 않은 설정으로 기동할 수 없습니다` | `.env` 의 비밀 키·비밀번호가 예시 값·빈 값·32자 미만 | 빠른 시작 1단계 표대로 고친다 |
 | `설정 ADMIN 은 ADMIN_DISABLED 로 바뀌었습니다` | `.env`·환경 변수에 예전 `ADMIN` 이 남아 있다 | 예전 값이 false 였다면 `ADMIN_DISABLED=true` 로, 아니면 그 줄을 지운다 |
 | `/admin` 로그인 뒤 계속 로그인 화면으로 돌아온다 | staging/production 은 세션 쿠키가 Secure 라 HTTP 에서는 붙지 않는다. 또는 슈퍼유저가 아니거나 비활성 | HTTPS 로 접속(프록시의 TLS 종료 포함). 계정은 `scripts/create_superuser.py` 로 승격 |
+| `/admin` 전체가 503 "관리 세션 저장소(Redis)를 사용할 수 없습니다" | Redis 연결 실패 — 관리 세션이 Redis 에 있다(fail-closed) | Redis·`REDIS_*` 확인, `/ready` |
+| `/admin` 저장·삭제가 403 "CSRF 토큰이 없거나 올바르지 않습니다" | 오래 열어 둔 탭(다시 로그인해 토큰이 바뀜), JavaScript 차단 | 화면을 새로 고친 뒤 다시 시도. 관리 화면의 스크립트를 허용 |
 | `/admin` 로그인이 429 | 로그인 시도 한도 초과(`AUTH_LOGIN_*`, 창 60초) | `Retry-After` 만큼 기다린다. 프록시 뒤인데 `TRUSTED_PROXY_HOPS` 가 0 이면 모든 사용자가 한 IP 로 묶인다 |
 | startup 에서 `Redis 연결 실패` | Redis 미기동, 주소·포트·비밀번호 오류 | `REDIS_*` 와 서버 확인. `DEBUG=false` 로 우회되지 않는다 |
 | startup 에서 `RedisVersionError: Redis x.y 은(는) 지원하지 않습니다` | Redis 가 7.0 미만 | 7.0 이상으로 올린다(rate limit 의 `EXPIRE … NX`) |
@@ -537,7 +545,7 @@ Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워
 | [docs/specs/orm-raw-repository/development-plan.md](docs/specs/orm-raw-repository/development-plan.md) | 고정 기준선 — ORM/Raw 개발 계획 | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/orm-raw-repository/workflow-guide.md](docs/specs/orm-raw-repository/workflow-guide.md) | 고정 기준선 — ORM/Raw 지침 원본 (코드 주석의 `workflow-guide §N` 출처) | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/django-style-app-automation.md](docs/specs/django-style-app-automation.md) | 고정 기준선 — 앱 자동 등록 요구사항(`FR-*`·`NFR-*`·`SEC-*` 등, 코드 주석이 인용)과 설계 근거 | 자동 등록 규칙의 원래 의도를 볼 때 |
-| [docs/crp/groups/](docs/crp/groups/) | 검수 이력(append-only) — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계), `service-hardening`(인증·인가·rate limit·UTC), `admin-login`(관리 화면 로그인·`ADMIN_DISABLED`), `log-redaction-fixes`(traceback 마스킹·예외 헤더·Redis 최소 버전·커버리지 하한), `security-ops-hardening`(DB 바인드 값 숨김·접속 로그 보존·관리 로그인 CSRF·날짜 필터) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
+| [docs/crp/groups/](docs/crp/groups/) | 검수 이력(append-only) — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계), `service-hardening`(인증·인가·rate limit·UTC), `admin-login`(관리 화면 로그인·`ADMIN_DISABLED`), `log-redaction-fixes`(traceback 마스킹·예외 헤더·Redis 최소 버전·커버리지 하한), `security-ops-hardening`(DB 바인드 값 숨김·접속 로그 보존·관리 로그인 CSRF·날짜 필터), `admin-session-hardening`(관리 세션 Redis 이전·로그인 이후 CSRF·기간 필터) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
 
 `docs/guides/` 는 **현행 문서**라 코드 기준으로 유지하고, `review_gate` docs 그룹이 Markdown 의 백틱
 경로와 HTML 의 `<code>` 경로·환경변수를 검사합니다. HTML 안내서는 흐름을 요약하고 표·목록의 원문은

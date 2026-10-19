@@ -28,7 +28,7 @@ from tests.integration.conftest import (
     MYSQL_PORT,
     MYSQL_USER,
 )
-from tests.test_admin_login import PASSWORD, build_admin_app, csrf_token
+from tests.test_admin_login import PASSWORD, build_admin_app, csrf_token, logout
 
 pytestmark = pytest.mark.mysql
 
@@ -95,5 +95,5 @@ async def test_cli_superuser_can_log_in_to_admin_on_mysql(mysql_session_maker):
         )
         assert ok.status_code == 302
         assert (await client.get("/admin/")).status_code == 200
-        assert (await client.get("/admin/logout")).status_code == 302
+        assert (await logout(client)).status_code == 302
         assert (await client.get("/admin/")).status_code == 302

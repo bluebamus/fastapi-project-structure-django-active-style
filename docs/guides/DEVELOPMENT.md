@@ -540,6 +540,11 @@ async with background_db_session() as session:     # 별도 풀, 예외 시 roll
   `app.dependency_overrides[get_redis] = lambda: fake` 로 넣습니다(예:
   `app/features/auth/tests/test_endpoint.py`). Redis 를 쓰는 core 클래스는 생성자에 fakeredis 를 넣어
   실물 그대로 시험합니다(`tests/core/test_refresh_store.py`·`test_rate_limiter.py`).
+- 사용자를 비활성화·강등·삭제하는 서비스는 `/admin` 관리 세션도 끊는다 — `get_user_service` 가
+  `get_admin_session_store`(같은 `get_redis` 사용, `ADMIN_DISABLED=true` 면 `None`)를 주입한다. 세션을 끊어야
+  하는 새 서비스(예: 비밀번호 변경)는 같은 provider 를 받아 `revoke_user(user_id)` 를 부른다.
+  `/admin` 흐름 테스트는 `tests/test_admin_login.py` 의 `build_admin_app`(SQLite 파일 DB + fakeredis
+  `AdminSessionStore`)을 쓰고, 상태 변경 요청은 `page_token()` 으로 꺼낸 CSRF 토큰을 싣는다.
 
 ---
 
@@ -626,8 +631,10 @@ uv run python -m scripts.review_gate --group static structure docs
 - [ ] 권한 — 뷰마다 접근 수준(`Public`·`PublicWrite`·`LoginRequired`·`SuperuserRequired`, §7.1)을 선언
   (**선언하지 않은 뷰가 있으면 서버가 기동하지 않는다**), 소유권은 서비스의 `OwnershipPolicy`, README 권한 표·
   `tests/test_authorization.py` 의 `EXPECTED` 갱신
-- [ ] 필요하면 `admin.py` 의 `admin_views` (민감 필드 제외 확인 — `/admin` 은 슈퍼유저 로그인 뒤에 있고
-  `ADMIN_DISABLED=true` 면 import 되지 않으므로 뷰에 인증을 따로 넣지 않는다), `apps.py` 의 `ready()`
+- [ ] 필요하면 `admin.py` 의 `admin_views` (민감 필드 제외 확인 — `/admin` 은 슈퍼유저 로그인·Redis 세션·
+  CSRF 미들웨어 뒤에 있고 `ADMIN_DISABLED=true` 면 import 되지 않으므로 뷰에 인증·CSRF 를 따로 넣지 않는다.
+  `created_at` 이 있으면 `column_filters` 에 `LocalDateFilter(Model.created_at)`(같은 날·이후·이전·기간).
+  상태를 바꾸는 작업을 sqladmin `@action`(GET)으로 만들지 않는다 — CSRF 검사 대상이 아니다), `apps.py` 의 `ready()`
 - [ ] 태그 설명(`app/core/tags_metadata.py`), `tests/test_route_inventory.py`, README API 표 갱신
 - [ ] 테스트 작성, `mysql` 마커 대상 SQL 확인, 게이트 실행
 - [ ] Celery 태스크가 필요하면 기능 폴더의 `tasks.py` 에 추가 (중앙 파일 수정 없음)
