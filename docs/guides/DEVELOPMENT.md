@@ -121,7 +121,7 @@ catalog_router = APIRouter()
 catalog_router.include_router(products_v1.router, prefix="/v1/catalog", tags=["Catalog"])
 ```
 
-`API_VERSION` 설정은 prefix 에 쓰이지 않습니다. `tests/test_openapi_contract.py` 가 모든 operation 의
+URL 버전은 위 `prefix` 문자열이 정합니다(버전 설정은 없습니다). `tests/test_openapi_contract.py` 가 모든 operation 의
 summary·description·유일한 `operation_id`·tag, 파라미터·스키마 필드의 `description`, 그리고
 `app/core/tags_metadata.py` 와 실제 tag 의 양방향 일치를 강제합니다. 새 경로를 추가하면
 `tests/test_route_inventory.py` 의 목록과 README 의 API 표를 함께 갱신합니다.

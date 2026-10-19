@@ -15,6 +15,7 @@
     3. Field의 default 값
 """
 
+import logging
 import os
 from collections.abc import Mapping
 from datetime import UTC, date, datetime, time, timedelta
@@ -25,7 +26,7 @@ from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from dotenv import dotenv_values
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 
@@ -594,11 +595,12 @@ class LogSettings(BaseSettings):
     )
 
     # === 출력 대상 설정 ===
-    # 선언만 있고 로깅 구성(build_dictconfig)이 읽지 않는다 — false 로 둬도 콘솔
-    # 핸들러는 항상 붙는다. 켜고 끄는 기능이 필요해지면 그때 연결한다.
+    # false 면 콘솔(stdout/stderr) 핸들러를 하나도 붙이지 않는다 — 앱 root·`python main.py` 의
+    # uvicorn·`uvicorn main:app` CLI 기본 핸들러·Celery 워커 모두(app.utils.logs.config.console_enabled).
+    # 파일 핸들러도 없으면(development/test, 또는 LOG_FILE_ENABLED=false) 기동 시 stderr 에 경고 한 줄.
     LOG_CONSOLE_ENABLED: bool = Field(
         default=True,
-        description="콘솔 로그 활성화 (현재 미사용 — 콘솔 핸들러는 항상 붙는다)",
+        description="콘솔 로그 활성화",
     )
 
     # 파일 로그 출력 활성화 (staging/production 에서만 파일 핸들러를 붙인다)
@@ -671,23 +673,56 @@ class LogSettings(BaseSettings):
     )
 
     # === 포맷 설정 ===
-    # 콘솔 로그 출력 형식
+    # str.format 형식(`{필드}`). LogRecord 필드에 더해 tzname(KST/UTC)·appname(소스 경로로 판별한
+    # 앱)·classname(호출 클래스, 없으면 -)을 쓸 수 있다. 잘못된 형식은 기동 시 설정 오류다.
+    # 비밀값 마스킹은 필터가 하므로 형식과 무관하게 유지된다.
     LOG_CONSOLE_FORMAT: str = Field(
-        default="[{asctime}] {levelname:8} [{name}:{funcName}:{lineno}] {message}",
-        description="콘솔 로그 포맷",
+        default=(
+            "[{asctime} {tzname}] {levelname:5} [app={appname}] "
+            "[{module}:{classname}:{funcName}:{lineno}] {message}"
+        ),
+        description="콘솔 로그 포맷 (앱 root·python main.py 의 uvicorn 로거)",
     )
 
-    # 파일 로그 출력 형식
+    # 파일 로그 출력 형식 (staging/production 의 app·error 파일)
     LOG_FILE_FORMAT: str = Field(
-        default="[{asctime}] {levelname:8} [{name}:{funcName}:{lineno}] {message}",
+        default=(
+            "[{asctime} {tzname}] {levelname:5} [app={appname}] "
+            "[{module}:{classname}:{funcName}:{lineno}] {message}"
+        ),
         description="파일 로그 포맷",
     )
 
-    # 날짜 출력 형식
+    # {asctime} 의 strftime 형식. development 는 끝에 `.밀리초` 가 붙는다.
     LOG_DATE_FORMAT: str = Field(
         default="%Y-%m-%d %H:%M:%S",
         description="날짜 포맷",
     )
+
+    @field_validator("LOG_CONSOLE_FORMAT", "LOG_FILE_FORMAT")
+    @classmethod
+    def _format_renders(cls, value: str) -> str:
+        """샘플 레코드를 한 번 렌더해 본다 — 모르는 필드·괄호 불일치·잘못된 지정자를 기동 시 잡는다.
+
+        TzFormatter 는 config 를 import 하므로 여기서 쓰지 못한다. 그것이 채우는 세 필드를 직접 넣고
+        같은 style="{" 표준 Formatter 로 렌더한다(결과는 같다).
+        """
+        record = logging.LogRecord("app", logging.INFO, __file__, 1, "sample", (), None, "func")
+        record.tzname, record.appname, record.classname = "UTC", "app", "-"
+        try:
+            logging.Formatter(value, style="{").format(record)
+        except (ValueError, KeyError, IndexError, AttributeError, TypeError) as error:
+            raise ValueError(f"로그 형식을 렌더할 수 없습니다 ({error!r}): {value!r}") from error
+        return value
+
+    @field_validator("LOG_DATE_FORMAT")
+    @classmethod
+    def _date_format_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError(
+                "LOG_DATE_FORMAT 이 비어 있습니다 — strftime 형식을 주세요(예: %Y-%m-%d %H:%M:%S)."
+            )
+        return value
 
     def get_log_dir(self) -> Path:
         """로그 디렉토리 경로 반환 (없으면 생성)"""
@@ -947,26 +982,6 @@ class JWTSettings(BaseSettings):
 
 
 # =============================================================================
-# API 설정
-# =============================================================================
-class ApiSettings(BaseSettings):
-    """REST API 관련 설정."""
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
-
-    # REST API 버전. 선언만 있고 라우터 prefix 는 각 앱 router.py 의 "/v1/..." 가
-    # 정한다 — 이 값을 바꿔도 URL 은 바뀌지 않는다.
-    API_VERSION: str = Field(
-        default="v1",
-        description="REST API 버전",
-    )
-
-
-# =============================================================================
 # 세션 설정
 # =============================================================================
 class SessionSettings(BaseSettings):
@@ -1076,12 +1091,6 @@ def get_jwt_settings() -> JWTSettings:
 
 
 @lru_cache
-def get_api_settings() -> ApiSettings:
-    """API 설정 인스턴스 반환 (캐싱)"""
-    return ApiSettings()
-
-
-@lru_cache
 def get_session_settings() -> SessionSettings:
     """세션 설정 인스턴스 반환 (캐싱)"""
     return SessionSettings()
@@ -1100,7 +1109,6 @@ log_settings = get_log_settings()
 redis_settings = get_redis_settings()
 middleware_settings = get_middleware_settings()
 jwt_settings = get_jwt_settings()
-api_settings = get_api_settings()
 session_settings = get_session_settings()
 
 

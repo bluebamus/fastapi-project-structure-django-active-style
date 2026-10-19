@@ -259,17 +259,15 @@ ASGI lifespan 진입
 | `app_settings` | 앱 메타데이터, `DEBUG`/`ENV`/`ADMIN_DISABLED`, 직접 실행 host/port |
 | `db_settings` | 엔진 URL·라우팅·풀, Alembic URL(`ALEMBIC_URL`), `describe_routing()`(DSN 마스킹) |
 | `cors_settings` | `CustomCORSMiddleware.configure_cors()` |
-| `log_settings` | `build_dictconfig()` |
+| `log_settings` | `build_dictconfig()`·`setup_uvicorn_logging()`(형식·레벨·파일), `console_enabled()`(콘솔 on/off — 앱·uvicorn·Celery 공통) |
 | `middleware_settings` | `UserInfoMiddleware` (활성·제외 규칙·민감 query 키), `ClientIPResolver`(`TRUSTED_PROXY_HOPS`) |
 | `redis_settings` | startup Redis ping client, Celery broker/backend |
 | `jwt_settings` | `TokenService`(서명·검증·수명·iss/aud·leeway), 로그인·가입 rate limit(`AUTH_*`) |
 | `session_settings` | `SESSION_SECRET_KEY` 는 `/admin` 관리 세션의 Redis 키 HMAC 키이고(`get_admin_session_store`) 배포 게이트가 검사한다. `ADMIN_SESSION_MAX_AGE_SECONDS`·`ADMIN_SESSION_IDLE_SECONDS` 가 관리 세션의 절대·미사용 만료다(기본값은 README [세션·토큰 만료](../../README.md#세션토큰-만료)). `UserInfoMiddleware` 는 `SESSION_COOKIE_NAME` 쿠키를 session_id 로 **기록만** 한다. API 인증에 쓰는 쿠키 세션은 없다(§10.3) |
-| `api_settings` | **선언만 있고 앱 코드가 쓰지 않는다.** |
 
 설정 클래스가 있다고 기능이 있는 것은 아닙니다. API 쿠키 세션·Redis 캐시는
-구현돼 있지 않고, `API_VERSION` 을 바꿔도 라우터 prefix(`/v1/...`)는 바뀌지 않습니다.
-`LogSettings` 의 `LOG_CONSOLE_ENABLED`·`LOG_CONSOLE_FORMAT`·`LOG_FILE_FORMAT`·`LOG_DATE_FORMAT` 도
-현재 로깅 구성에서 읽지 않습니다(§5).
+구현돼 있지 않습니다. URL 버전은 설정이 아니라 각 앱 router 의 `/v1/...` 선언이 정합니다
+(`API_VERSION` 설정은 config-cleanup 2차에서 지웠고, `.env` 에 남은 줄은 무시됩니다).
 
 ### 4.3 검증
 
@@ -323,7 +321,20 @@ staging/production 만:
 - 핸들러는 **root 에만** 붙습니다. `get_logger(name)` 은 핸들러 없는 자식 로거를 돌려주고,
   헤더의 `app=` 은 로거 이름이 아니라 **소스 파일 경로**에서 계산합니다. 그래서 새 기능을 추가할
   때 로깅 설정에 손댈 곳이 없습니다. 대가로 앱별·서드파티 로거별 레벨은 따로 줄 수 없습니다.
-- 포맷: `[{asctime} {tzname}] {levelname:5} [app={appname}] [{module}:{classname}:{funcName}:{lineno}] {message}`
+- 포맷: 콘솔 `LOG_CONSOLE_FORMAT`, 파일 `LOG_FILE_FORMAT`(둘 다 `str.format` 의 `{필드}`), 시각
+  `LOG_DATE_FORMAT`(strftime). 기본값은 둘 다
+  `[{asctime} {tzname}] {levelname:5} [app={appname}] [{module}:{classname}:{funcName}:{lineno}] {message}`
+  와 `%Y-%m-%d %H:%M:%S` 입니다. 포매터는 `TzFormatter` 이고 `tzname`·`appname`·`classname` 을 채우며,
+  development 는 시각 끝에 `.밀리초` 를 붙입니다. 설정 로드 때 샘플 레코드를 한 번 렌더해 모르는 필드·괄호
+  불일치·잘못된 지정자를 설정 오류로 막고, 빈 날짜 형식도 막습니다.
+- 적용 범위: 앱 root 의 콘솔·파일 핸들러, `python main.py` 의 uvicorn 로거(`setup_uvicorn_logging()` —
+  `uvicorn.access` 는 요청 라인 전용 형식을 유지하고 날짜 형식만 따름). `uvicorn main:app` CLI 와 Celery
+  워커가 스스로 세운 콘솔 핸들러는 각자의 기본 형식을 그대로 씁니다(기본 출력 유지).
+- 콘솔 on/off: `LOG_CONSOLE_ENABLED=false` 면 콘솔 핸들러를 붙이지 않습니다. 판단은
+  `app/utils/logs/config.py` 의 `console_enabled()` 한 곳이고, 앱 root(`build_dictconfig()`)·
+  `setup_uvicorn_logging()`(핸들러 없이 root 로 전파)·`uvicorn main:app` CLI 와 Celery 워커의 기존 핸들러
+  (`setup.adopt_external_handlers()` 가 걷어냄)가 모두 따릅니다. 파일 핸들러도 없으면(development/test,
+  또는 `LOG_FILE_ENABLED=false`) 기동은 하되 `configure_logging()` 이 stderr 에 경고 한 줄을 남깁니다.
 
 | ENV | 출력 | 시각 |
 |---|---|---|
@@ -860,6 +871,7 @@ CI(`.github/workflows/ci.yml`)는 두 job 입니다: gate job 이 `static struct
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-19 | **config-cleanup 2차**: `API_VERSION`(`ApiSettings`)을 삭제했다(URL 버전은 router 의 `/v1/...`). `LOG_CONSOLE_FORMAT`·`LOG_FILE_FORMAT`·`LOG_DATE_FORMAT`·`LOG_CONSOLE_ENABLED` 를 로깅 구성에 연결했다 — 기본값은 기존 하드코딩 형식과 같고, 잘못된 형식은 기동 오류, 출력이 모두 꺼지면 stderr 경고(§5). 설정 사용 계약 테스트의 예외 목록을 없앴다. |
 | 2026-10-19 | **config-cleanup**: 읽는 코드가 없던 `SMTP_*`(`SMTPSettings`)·`UPLOAD_*`(`UploadSettings`)·`SESSION_EXPIRE_SECONDS` 를 삭제했다(남은 `.env` 줄은 `extra="ignore"` 로 무시). 세션·토큰 만료의 정본은 README 표 하나다. 사용처 없는 설정 필드가 다시 생기지 않게 계약 테스트를 더했다. |
 | 2026-10-19 | **admin-session-hardening**: 관리 세션을 서명 쿠키에서 Redis 서버 세션으로(세션 ID 회전·즉시 폐기·절대/미사용 만료, `ADMIN_SESSION_*`), 로그인 이후 모든 상태 변경 요청 CSRF·POST 로그아웃, 날짜 필터 기간 연산(§10.3·§10.4). `itsdangerous` 의존성 제거. |
 | 2026-10-19 | **security-ops-hardening**: 모든 엔진에 `hide_parameters=True`(정본 `ENGINE_SAFETY_OPTIONS`, §8.1). 접속 로그 보존 기간 `ACCESS_LOG_RETENTION_DAYS` 와 beat 배치 삭제(§7.1·§11). 관리 로그인 폼 CSRF 토큰, 관리 목록 `created_at` 날짜 필터(§10.3). |

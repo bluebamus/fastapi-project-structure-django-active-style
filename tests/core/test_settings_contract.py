@@ -125,17 +125,6 @@ def test_environment_access_check_scans_real_files():
 #
 # 읽는 방식은 속성 접근(`settings.X`, config.py 안의 `self.X` 포함)과 `getattr(settings, "X")` 두 가지다.
 # 한계: config.py 의 validator 만 읽는 필드도 "읽힘" 으로 센다.
-# 읽는 코드가 없지만 남겨 둔 필드 — 사유와 함께. 새로 더하지 말고 지우는 쪽으로 줄인다.
-UNUSED_FIELD_EXCEPTIONS = {
-    # 문서상 API 버전 표기. URL prefix 는 각 router.py 의 "/v1/..." 가 정한다(README 환경 설정).
-    "API_VERSION": "선언만 — URL prefix 에 쓰이지 않음(문서화된 상태)",
-    # build_dictconfig 가 읽지 않는 로그 형식 설정(ARCHITECTURE §4.2·§5). 정리는 별도 결정.
-    "LOG_CONSOLE_ENABLED": "build_dictconfig 미사용(문서화된 상태)",
-    "LOG_CONSOLE_FORMAT": "build_dictconfig 미사용(문서화된 상태)",
-    "LOG_FILE_FORMAT": "build_dictconfig 미사용(문서화된 상태)",
-    "LOG_DATE_FORMAT": "build_dictconfig 미사용(문서화된 상태)",
-}
-
 REMOVED_SETTINGS = {
     "SMTP_SERVER": "smtp.example.com",
     "SMTP_PASSWORD": "your-app-password",
@@ -144,6 +133,7 @@ REMOVED_SETTINGS = {
     "UPLOAD_DIR": "uploads",
     "UPLOAD_ALLOWED_EXTENSIONS": "not-json",
     "SESSION_EXPIRE_SECONDS": "not-an-int",
+    "API_VERSION": "v2",  # config-cleanup-2 — URL prefix 는 코드에 고정("/v1/...")
 }
 
 
@@ -160,15 +150,11 @@ def _unread_fields() -> set[str]:
 
 def test_every_setting_field_is_read_somewhere():
     """config.py 의 설정 필드는 app·scripts·migrations·main.py·config.py 어딘가에서 읽혀야 한다."""
-    unread = _unread_fields()
-    missing = sorted(unread - set(UNUSED_FIELD_EXCEPTIONS))
-    assert not missing, (
-        f"읽는 코드가 없는 설정 필드: {missing}\n"
-        "쓰지 않는 설정은 지우세요. 꼭 남겨야 하면 UNUSED_FIELD_EXCEPTIONS 에 사유와 함께 적습니다."
+    unread = sorted(_unread_fields())
+    assert not unread, (
+        f"읽는 코드가 없는 설정 필드: {unread}\n"
+        "쓰지 않는 설정은 지웁니다 — 예외 목록은 없습니다(config-cleanup-2 에서 비웠다)."
     )
-    # 예외 목록이 낡지 않게 — 이제 읽히거나 사라진 필드는 목록에서 지운다.
-    stale = sorted(set(UNUSED_FIELD_EXCEPTIONS) - unread)
-    assert not stale, f"UNUSED_FIELD_EXCEPTIONS 에서 지울 항목: {stale}"
 
 
 def test_removed_settings_are_ignored_when_left_in_environment(monkeypatch):
@@ -184,7 +170,7 @@ def test_removed_settings_are_ignored_when_left_in_environment(monkeypatch):
         for obj in vars(config_module).values()
         if inspect.isclass(obj) and issubclass(obj, BaseSettings) and obj is not BaseSettings
     ]
-    assert len(classes) >= 10
+    assert len(classes) >= 9
     for cls in classes:
         assert cls.model_config.get("extra") == "ignore", cls.__name__
         instance = cls(_env_file=None)

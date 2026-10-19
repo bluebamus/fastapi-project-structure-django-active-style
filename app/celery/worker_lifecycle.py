@@ -45,7 +45,7 @@ import logging
 from typing import Any
 
 from app.utils.logs import get_logger
-from app.utils.logs.filters import redact_handlers
+from app.utils.logs.setup import adopt_external_handlers
 
 logger = get_logger("celery_lifecycle")
 
@@ -114,9 +114,10 @@ def on_setup_logger(logger: logging.Logger, **_: Any) -> None:
 
     워커는 기본으로 root 로거를 가로채(`worker_hijack_root_logger`) 자기 핸들러로 바꾼다.
     그 핸들러에는 우리 마스킹 필터가 없어서, 태스크 실패 traceback 의 DSN·토큰이 그대로
-    찍힌다. 같은 `RedactingFilter` 를 단다.
+    찍힌다. 같은 `RedactingFilter` 를 단다. LOG_CONSOLE_ENABLED=false 면 콘솔 핸들러를 걷어낸다
+    (앱·uvicorn 과 같은 판단 — app.utils.logs.config.console_enabled).
     """
-    redact_handlers(logger)
+    adopt_external_handlers(logger)
 
 
 def register_worker_signals() -> None:

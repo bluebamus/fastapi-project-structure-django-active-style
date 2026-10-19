@@ -239,6 +239,19 @@ def test_production_console_and_file_handlers_mask_traceback(monkeypatch, tmp_pa
         _assert_redacted(path.read_text(encoding="utf-8"))
 
 
+def test_masking_holds_with_user_log_formats(monkeypatch, tmp_path):
+    """사용자 포맷(config-cleanup-2)으로 바꿔도 메시지·traceback·stack_info 는 가려진다.
+
+    마스킹은 포매터가 아니라 필터가 하므로 형식과 무관해야 한다 — 위 production 테스트를 그대로 다시 돈다.
+    """
+    from app.utils.logs import config as logs_config
+
+    for key in ("LOG_CONSOLE_FORMAT", "LOG_FILE_FORMAT"):
+        monkeypatch.setattr(logs_config.log_settings, key, "{levelname}|{asctime}|{message}")
+    monkeypatch.setattr(logs_config.log_settings, "LOG_DATE_FORMAT", "%d/%m/%Y")
+    test_production_console_and_file_handlers_mask_traceback(monkeypatch, tmp_path)
+
+
 def test_uvicorn_log_config_masks_traceback():
     """`python main.py` 경로 — setup_uvicorn_logging() 의 핸들러."""
     from app.utils.logs import setup_uvicorn_logging
