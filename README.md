@@ -281,6 +281,7 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | `CORS_ALLOW_ORIGINS` | `["*"]` | JSON 배열로 지정 |
 | `TRUSTED_PROXY_HOPS` | `0` | 앱 앞의 신뢰 리버스 프록시 수. `0` 은 전달 헤더 무시, `N` 은 X-Forwarded-For 의 오른쪽에서 N번째를 접속 IP 로 사용. **프록시 뒤 배포면 반드시 설정**(운영 배포 확인 4) |
 | `ACCESS_LOG_ENABLED` | `true` | 접속 로그 수집 |
+| `ACCESS_LOG_RETENTION_DAYS` | `365` | 접속 로그 보존 일수. 지난 행은 Celery beat 가 매일 03:30(`TIME_ZONE`) 5,000행씩 지운다. `0` = 지우지 않음, 음수는 기동 오류(운영 배포 확인 8) |
 | `LOG_LEVEL` / `LOG_CONSOLE_LEVEL` | 미설정 | 미설정이면 DEBUG 에 따라 DEBUG/INFO |
 | `SERVER_HOST` / `SERVER_PORT` | `0.0.0.0` / `8000` | `python main.py` 직접 실행 시 바인딩 |
 
@@ -310,7 +311,7 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | placeholder 인 access/refresh/session 키(앞뒤 공백 제거·소문자화 후 `change-this` 를 포함하거나 `your-` 로 시작하거나 빈 값 — `config.is_placeholder_secret`), 32자 미만, access 와 refresh 가 같음. `.env.example` 의 키 예시는 일부러 이 규칙에 걸린다 | test 외 전부 |
 | placeholder 인 `MYSQL_PASSWORD`(**빈 값 포함** — 무인증 DB 계정). `REDIS_PASSWORD`·`SMTP_PASSWORD` 는 빈 값이 정당한 구성이라 값이 있을 때만 검사한다 | test 외 전부 |
 | 예전 설정 `ADMIN` 이 `.env`·환경 변수에 남아 있음(`validate_renamed_settings` — `ADMIN_DISABLED` 로 바뀌었고 의미가 반대) | test 외 전부 |
-| `DEBUG=true` · `CORS_ALLOW_ORIGINS` 의 `*` · `LOG_SQL_ECHO_ENABLED=true` · `LOG_LEVEL=DEBUG`(롤백 상세에 SQL 본문과 바인딩된 값이 남는다) | staging·production |
+| `DEBUG=true` · `CORS_ALLOW_ORIGINS` 의 `*` · `LOG_SQL_ECHO_ENABLED=true` · `LOG_LEVEL=DEBUG`(롤백 상세에 SQL 본문이 남는다 — 바인드 값은 모든 엔진의 `hide_parameters=True` 가 숨긴다) | staging·production |
 
 **사람이 확인할 것.**
 
@@ -326,11 +327,22 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | 5 | readiness 를 `/ready` 에 걸었는가 | `/ready` 는 DB 와 Redis 를 모두 본다(각 2초). `/health` 는 둘 다 보지 않는다 |
 | 6 | 새로 더한 엔드포인트마다 접근 수준을 선언했는가([권한 표](#권한-표)) | 예제 API 는 인증·소유권·슈퍼유저 검사를 갖췄다. 새 뷰는 `dependencies=[Public]` 등으로 접근 수준을 직접 선언해야 하고, 선언이 없거나 모순인 뷰가 하나라도 있으면 서버가 기동하지 않는다(`AccessPolicyGuard`). 소유권은 선언이 아니라 서비스가 판정하므로 따로 확인한다 |
 | 7 | 기존 MySQL 데이터가 있다면 `e5a7c9d1f3b5`(KST→UTC 시각 전환) 적용 **전에 백업**하고, 그 시각이 `+09:00`(Asia/Seoul 벽시계)으로 저장됐는지 확인했는가 | 리비전이 `+09:00 → UTC` 로 옮긴다. 다른 시간대로 쌓인 DB 는 적용 전에 리비전의 `_LOCAL_OFFSET` 상수를 그 오프셋으로 바꾼다([ARCHITECTURE §12](docs/guides/ARCHITECTURE.md)) |
+| 8 | 접속 로그 보존을 쓰는가 — `ACCESS_LOG_RETENTION_DAYS` 가 개인정보 처리 방침과 맞는지, Celery **worker 와 beat** 를 띄웠는지(아래 명령) | 보존 기간이 지난 접속 로그는 beat 가 매일 03:30(`TIME_ZONE`)에 `home.purge_expired_access_logs` 를 발행해야 지워진다. beat 를 띄우지 않으면 아무것도 지워지지 않는다. beat 는 배포 전체에서 **하나만** 띄운다(둘이면 같은 태스크가 두 번 발행된다) |
+
+```bash
+uv run celery -A app.celery.app:celery_app worker --loglevel=INFO   # 태스크 실행
+uv run celery -A app.celery.app:celery_app beat --loglevel=INFO     # 스케줄 발행(배포마다 1개만)
+```
+
+beat 는 실행 디렉터리에 스케줄 상태 파일 `celerybeat-schedule*` 을 만듭니다(`-s <경로>` 로 바꿀 수 있고, 저장소 안에서는 git 이 무시합니다).
 
 **`/admin` 은 슈퍼유저 로그인이 필요합니다.** SQLAdmin 에 붙인 `AdminAuthBackend` 가 활성 슈퍼유저만
 들여보내고(매 요청 DB 확인 — 강등·비활성화는 다음 요청부터 막힌다), 로그인 시도는 API 로그인과 같은
 한도로 따로 셉니다(`admin:rl:`). 세션은 `/admin` 전용 서명 쿠키(`admin_session`, `Path=/admin`,
 `SameSite=Strict`, HttpOnly, 8시간, staging/production 은 Secure)이고 API 인증에는 쓰이지 않습니다.
+로그인 폼은 세션에 묶인 CSRF 토큰(hidden `csrf_token`)을 싣고, 없거나 다르면 레이트 리밋·자격 확인
+전에 403 으로 다시 그립니다. 관리 목록은 `created_at` 을 업무 시간대(`TIME_ZONE`) 날짜(`YYYY-MM-DD`)로
+거를 수 있습니다(같은 날 / 이후(포함) / 이전(미포함)).
 관리 화면을 쓰지 않으면 `ADMIN_DISABLED=true` 로 경로 자체를 없앱니다. 설계·흐름·위협 모델은
 [admin 인증 안내서](docs/guides/admin-auth-guide.html), 보안 경계 전체는 [ARCHITECTURE §10](docs/guides/ARCHITECTURE.md)
 에 있습니다.
@@ -525,7 +537,7 @@ Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워
 | [docs/specs/orm-raw-repository/development-plan.md](docs/specs/orm-raw-repository/development-plan.md) | 고정 기준선 — ORM/Raw 개발 계획 | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/orm-raw-repository/workflow-guide.md](docs/specs/orm-raw-repository/workflow-guide.md) | 고정 기준선 — ORM/Raw 지침 원본 (코드 주석의 `workflow-guide §N` 출처) | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/django-style-app-automation.md](docs/specs/django-style-app-automation.md) | 고정 기준선 — 앱 자동 등록 요구사항(`FR-*`·`NFR-*`·`SEC-*` 등, 코드 주석이 인용)과 설계 근거 | 자동 등록 규칙의 원래 의도를 볼 때 |
-| [docs/crp/groups/](docs/crp/groups/) | 검수 이력(append-only) — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계), `service-hardening`(인증·인가·rate limit·UTC), `admin-login`(관리 화면 로그인·`ADMIN_DISABLED`), `log-redaction-fixes`(traceback 마스킹·예외 헤더·Redis 최소 버전·커버리지 하한) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
+| [docs/crp/groups/](docs/crp/groups/) | 검수 이력(append-only) — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계), `service-hardening`(인증·인가·rate limit·UTC), `admin-login`(관리 화면 로그인·`ADMIN_DISABLED`), `log-redaction-fixes`(traceback 마스킹·예외 헤더·Redis 최소 버전·커버리지 하한), `security-ops-hardening`(DB 바인드 값 숨김·접속 로그 보존·관리 로그인 CSRF·날짜 필터) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
 
 `docs/guides/` 는 **현행 문서**라 코드 기준으로 유지하고, `review_gate` docs 그룹이 Markdown 의 백틱
 경로와 HTML 의 `<code>` 경로·환경변수를 검사합니다. HTML 안내서는 흐름을 요약하고 표·목록의 원문은

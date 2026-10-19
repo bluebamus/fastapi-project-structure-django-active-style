@@ -50,3 +50,5 @@ Icon?
 /static/
 /poc/
 /.gitattributes
+# Celery beat 스케줄 상태 파일(beat 실행 디렉터리에 생긴다)
+celerybeat-schedule*
