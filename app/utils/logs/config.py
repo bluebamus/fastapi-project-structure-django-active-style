@@ -31,13 +31,11 @@ Django 와 같은 점 / 다른 점 (ADR-019 — 이 설계를 유지하기로 �
 
 from __future__ import annotations
 
-from config import app_settings, log_settings, timezone_settings
+from config import LogSettings, app_settings, log_settings, timezone_settings
 
-# 확정 포맷 (#3): [시간 TZ] LEVEL [app=..] [module:class:func:line] message
-LOG_FORMAT = (
-    "[{asctime} {tzname}] {levelname:5} [app={appname}] "
-    "[{module}:{classname}:{funcName}:{lineno}] {message}"
-)
+# 기본 포맷 (#3): [시간 TZ] LEVEL [app=..] [module:class:func:line] message
+# 실제로 쓰는 값은 LOG_CONSOLE_FORMAT·LOG_FILE_FORMAT 이다 — 이 상수는 그 기본값이다.
+LOG_FORMAT: str = LogSettings.model_fields["LOG_CONSOLE_FORMAT"].default
 
 
 def _env() -> str:
@@ -48,24 +46,49 @@ def _level() -> str:
     return log_settings.get_effective_log_level(app_settings.DEBUG)
 
 
+def console_enabled() -> bool:
+    """콘솔(stdout/stderr) 핸들러를 붙일지 — 콘솔을 만드는 **모든 경로**가 이 함수 하나만 본다.
+
+    앱 root(build_dictconfig)·`python main.py` 의 uvicorn(setup_uvicorn_logging)·
+    `uvicorn main:app` CLI 와 Celery 워커가 세운 핸들러(setup.adopt_external_handlers).
+    """
+    return log_settings.LOG_CONSOLE_ENABLED
+
+
+def file_enabled() -> bool:
+    """파일 핸들러를 붙이는가 — staging/production 이고 LOG_FILE_ENABLED 일 때만."""
+    return _env() in ("production", "staging") and log_settings.LOG_FILE_ENABLED
+
+
+def _formatter(fmt: str, *, use_utc: bool, with_ms: bool = False) -> dict:
+    return {
+        "()": "app.utils.logs.formatters.TzFormatter",
+        "fmt": fmt,
+        "datefmt": log_settings.LOG_DATE_FORMAT,
+        "use_utc": use_utc,
+        "with_ms": with_ms,
+    }
+
+
 def build_dictconfig() -> dict:
     env = _env()
     level = _level()
     use_utc = env in ("production", "staging")
     with_ms = env == "development"
 
-    handlers: dict = {
-        "console": {
+    handlers: dict = {}
+    root_handlers: list[str] = []
+    if console_enabled():
+        handlers["console"] = {
             "class": "logging.StreamHandler",
             "stream": "ext://sys.stdout",
             "formatter": "app",
             "filters": ["context", "redact", "sql_noise"],
             "level": log_settings.get_effective_console_level(app_settings.DEBUG),
-        },
-    }
-    root_handlers = ["console"]
+        }
+        root_handlers.append("console")
 
-    if env in ("production", "staging") and log_settings.LOG_FILE_ENABLED:
+    if file_enabled():
         log_dir = log_settings.get_log_dir()
         today = timezone_settings.now().strftime("%Y-%m-%d")
         max_bytes = log_settings.LOG_MAX_SIZE_MB * 1024 * 1024
@@ -75,7 +98,7 @@ def build_dictconfig() -> dict:
             "maxBytes": max_bytes,
             "backupCount": log_settings.LOG_BACKUP_COUNT,
             "encoding": "utf-8",
-            "formatter": "app",
+            "formatter": "file",
             "filters": ["context", "redact"],
             "level": log_settings.LOG_FILE_LEVEL,
         }
@@ -85,7 +108,7 @@ def build_dictconfig() -> dict:
             "maxBytes": max_bytes,
             "backupCount": log_settings.LOG_BACKUP_COUNT,
             "encoding": "utf-8",
-            "formatter": "app",
+            "formatter": "file",
             "filters": ["context", "redact"],
             "level": "ERROR",
         }
@@ -113,12 +136,8 @@ def build_dictconfig() -> dict:
             "sql_noise": {"()": "app.utils.logs.filters.SQLNoiseFilter"},
         },
         "formatters": {
-            "app": {
-                "()": "app.utils.logs.formatters.TzFormatter",
-                "fmt": LOG_FORMAT,
-                "use_utc": use_utc,
-                "with_ms": with_ms,
-            },
+            "app": _formatter(log_settings.LOG_CONSOLE_FORMAT, use_utc=use_utc, with_ms=with_ms),
+            "file": _formatter(log_settings.LOG_FILE_FORMAT, use_utc=use_utc, with_ms=with_ms),
         },
         "handlers": handlers,
         "root": {"handlers": root_handlers, "level": level},

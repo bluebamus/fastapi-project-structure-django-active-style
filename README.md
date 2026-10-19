@@ -282,6 +282,8 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | `ACCESS_LOG_ENABLED` | `true` | 접속 로그 수집 |
 | `ACCESS_LOG_RETENTION_DAYS` | `365` | 접속 로그 보존 일수. 지난 행은 Celery beat 가 매일 03:30(`TIME_ZONE`) 5,000행씩 지운다. `0` = 지우지 않음, 음수는 기동 오류(운영 배포 확인 8) |
 | `LOG_LEVEL` / `LOG_CONSOLE_LEVEL` | 미설정 | 미설정이면 DEBUG 에 따라 DEBUG/INFO |
+| `LOG_CONSOLE_ENABLED` | `true` | `false` 면 콘솔 핸들러를 붙이지 않는다(앱·uvicorn·Celery 모두). 파일 로그도 없으면 기동 시 stderr 경고 한 줄 |
+| `LOG_CONSOLE_FORMAT` / `LOG_FILE_FORMAT` / `LOG_DATE_FORMAT` | `[{asctime} {tzname}] {levelname:5} [app={appname}] [{module}:{classname}:{funcName}:{lineno}] {message}` / 같음 / `%Y-%m-%d %H:%M:%S` | 콘솔·파일 줄 형식(`{필드}`)과 시각 형식. 잘못된 형식은 기동 오류, 마스킹은 형식과 무관([ARCHITECTURE §5](docs/guides/ARCHITECTURE.md)) |
 | `SERVER_HOST` / `SERVER_PORT` | `0.0.0.0` / `8000` | `python main.py` 직접 실행 시 바인딩 |
 
 | 동작 | `DEBUG=true` | `DEBUG=false` |
@@ -293,7 +295,7 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | 500 응답 상세 | 숨김 | 숨김 |
 
 `SESSION_SECRET_KEY` 는 `/admin` 관리 세션의 Redis 키(`admin:sess:{HMAC(키, 세션 ID)}`) 계산에, `SESSION_COOKIE_NAME` 은 접속 로그의 session_id 기록에만
-쓰입니다(API 인증은 JWT 만). `API_VERSION` 은 설정만 있고 URL prefix 에 쓰이지 않습니다. 설정 로딩
+쓰입니다(API 인증은 JWT 만). URL 버전(`/api/v1`)은 각 앱 router 의 `/v1/...` 선언이 정합니다(설정 없음). 설정 로딩
 순서와 클래스별 소비 지점, 로그 구성은 [ARCHITECTURE §4·§5](docs/guides/ARCHITECTURE.md)를 봅니다.
 
 ### 세션·토큰 만료
@@ -560,7 +562,7 @@ Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워
 | [docs/specs/orm-raw-repository/development-plan.md](docs/specs/orm-raw-repository/development-plan.md) | 고정 기준선 — ORM/Raw 개발 계획 | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/orm-raw-repository/workflow-guide.md](docs/specs/orm-raw-repository/workflow-guide.md) | 고정 기준선 — ORM/Raw 지침 원본 (코드 주석의 `workflow-guide §N` 출처) | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/django-style-app-automation.md](docs/specs/django-style-app-automation.md) | 고정 기준선 — 앱 자동 등록 요구사항(`FR-*`·`NFR-*`·`SEC-*` 등, 코드 주석이 인용)과 설계 근거 | 자동 등록 규칙의 원래 의도를 볼 때 |
-| [docs/crp/groups/](docs/crp/groups/) | 검수 이력(append-only) — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계), `service-hardening`(인증·인가·rate limit·UTC), `admin-login`(관리 화면 로그인·`ADMIN_DISABLED`), `log-redaction-fixes`(traceback 마스킹·예외 헤더·Redis 최소 버전·커버리지 하한), `security-ops-hardening`(DB 바인드 값 숨김·접속 로그 보존·관리 로그인 CSRF·날짜 필터), `admin-session-hardening`(관리 세션 Redis 이전·로그인 이후 CSRF·기간 필터), `config-cleanup`(쓰지 않는 SMTP·업로드·세션 만료 설정 삭제·설정 사용 계약 테스트) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
+| [docs/crp/groups/](docs/crp/groups/) | 검수 이력(append-only) — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계), `service-hardening`(인증·인가·rate limit·UTC), `admin-login`(관리 화면 로그인·`ADMIN_DISABLED`), `log-redaction-fixes`(traceback 마스킹·예외 헤더·Redis 최소 버전·커버리지 하한), `security-ops-hardening`(DB 바인드 값 숨김·접속 로그 보존·관리 로그인 CSRF·날짜 필터), `admin-session-hardening`(관리 세션 Redis 이전·로그인 이후 CSRF·기간 필터), `config-cleanup`(쓰지 않는 SMTP·업로드·세션 만료 설정 삭제·설정 사용 계약 테스트, 2차: `API_VERSION` 삭제·로그 형식/콘솔 설정 연결) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
 
 `docs/guides/` 는 **현행 문서**라 코드 기준으로 유지하고, `review_gate` docs 그룹이 Markdown 의 백틱
 경로와 HTML 의 `<code>` 경로·환경변수를 검사합니다. HTML 안내서는 흐름을 요약하고 표·목록의 원문은

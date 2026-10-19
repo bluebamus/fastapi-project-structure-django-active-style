@@ -14,6 +14,16 @@
 
 - 기준선: base `ad59b1f`(main) · alembic head `a7c3e9f1b2d4`(변경 없음).
 
+**v0.2 추가 인벤토리 (REQ-002, 브랜치 `chore/config-cleanup-2`, base `b32e106`)**
+
+| 영역 | 경로 | 종류 | 비고 |
+|---|---|---|---|
+| 설정 | `config.py` | 소스 | `ApiSettings`(`API_VERSION`)·`get_api_settings`·`api_settings` 삭제. `LogSettings` 형식 기본값을 기존 하드코딩 형식으로, 형식·날짜 validator 추가 |
+| 로깅 | `app/utils/logs/config.py`·`setup.py`·`formatters.py`, `app/celery/worker_lifecycle.py` | 소스 | 형식·날짜·콘솔 on/off 연결, `console_enabled()` 단일 판단, `adopt_external_handlers()`, 전부 꺼짐 경고 |
+| 예시 설정 | `.env.example` | 설정 | API 절 삭제, 로그 키 주석을 실제 동작대로 |
+| 테스트 | `tests/utils/test_log_settings_wiring.py`(신규), `tests/utils/test_log_redaction.py`(사용자 형식 마스킹 1건), `tests/core/test_settings_contract.py`(예외 목록 삭제·`API_VERSION` 무시) | 테스트 | |
+| 문서 | `README.md`, `docs/guides/ARCHITECTURE.md`(§4.2·§5·§14), `docs/guides/DEVELOPMENT.md`, `docs/guides/feature-development-guide.html`, `docs/guides/server-lifecycle-guide.html` | 문서 | |
+
 ## 2. 계약 (Contract)
 
 ### 2-1. 불변식 (Invariants)
@@ -29,10 +39,21 @@
   (검사: `tests/core/test_deployment_safety.py` 비밀번호 절)
 - INV-4: 세션·토큰 만료의 정본은 README `세션·토큰 만료` 표 하나이고, 다른 문서는 그 표를 가리킨다.
 
+- INV-1 (v0.2 개정, REQ-002): 예외 목록 `UNUSED_FIELD_EXCEPTIONS` 는 없다 — 읽히지 않는 필드가 하나라도 있으면 실패한다.
+- INV-2 (v0.2 확장): `API_VERSION` 도 남아 있으면 무시된다(같은 테스트의 `REMOVED_SETTINGS`).
+- INV-5: `LOG_CONSOLE_FORMAT`·`LOG_FILE_FORMAT`·`LOG_DATE_FORMAT` 은 실제 출력 줄을 정하고 기본값은 기존 하드코딩 형식과 같다
+  (앱 root 콘솔·파일, `setup_uvicorn_logging()`). 잘못된 형식·빈 날짜 형식은 설정 오류.
+  (검사: `tests/utils/test_log_settings_wiring.py`)
+- INV-6: `LOG_CONSOLE_ENABLED=false` 면 콘솔 핸들러를 만드는 모든 경로(앱 root·`setup_uvicorn_logging()`·uvicorn CLI·Celery 워커)에
+  콘솔 핸들러가 0개이고 파일 핸들러는 그대로다. 판단은 `console_enabled()` 한 곳. 출력이 모두 꺼지면 stderr 경고 한 줄.
+- INV-7: 비밀값 마스킹은 사용자 형식에서도 유지된다(`test_masking_holds_with_user_log_formats`).
+
 ### 2-2. 비목표
 - `API_VERSION`·`LOG_CONSOLE_*`·`LOG_FILE_FORMAT`·`LOG_DATE_FORMAT` 정리(별도 결정 — residual-risk R-801).
 - `python-multipart` 제거(사용 중 — `OAuth2PasswordRequestForm`, `admin_auth.py` 의 `request.form()`).
 - 과거 CRP 그룹 문서 수정(append-only).
+- (v0.2) uvicorn CLI·Celery 워커가 스스로 세운 콘솔 핸들러의 **형식** 변경 — 기본 출력 유지(R-803).
+- (v0.2) `setup_uvicorn_logging()` access 포매터의 요청 라인 필드 결손(R-804, 이번 변경 전부터 있음).
 
 ## 3. 인수 기준 (Acceptance Criteria)
 
@@ -45,3 +66,4 @@
 
 ## 4. 변경 이력
 - v0.1 (2026-10-19): 최초 작성.
+- v0.2 (2026-10-19): REQ-002 — 인벤토리 추가, INV-1 개정, INV-5~7, 비목표 2건. 비목표의 R-801 항목은 REQ-002 로 해소.

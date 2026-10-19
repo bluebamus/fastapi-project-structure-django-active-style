@@ -2,6 +2,7 @@
 
 asctime 을 설정된 타임존(또는 UTC)으로 렌더하고, 약어(KST/UTC)를 record.tzname 에 주입한다.
 style 은 '{' 고정. appname/classname 이 비어 있으면 안전 기본값으로 채운다.
+datefmt(LOG_DATE_FORMAT)가 없으면 ``%Y-%m-%d %H:%M:%S``. with_ms 면 그 뒤에 ``.밀리초`` 를 붙인다.
 """
 
 from __future__ import annotations
@@ -32,9 +33,7 @@ class TzFormatter(logging.Formatter):
 
     def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
         dt = datetime.fromtimestamp(record.created, tz=self._tz())
-        if datefmt:
-            return dt.strftime(datefmt)
-        rendered = dt.strftime("%Y-%m-%d %H:%M:%S")
+        rendered = dt.strftime(datefmt or "%Y-%m-%d %H:%M:%S")
         if self.with_ms:
             rendered = f"{rendered}.{int(record.msecs):03d}"
         return rendered
