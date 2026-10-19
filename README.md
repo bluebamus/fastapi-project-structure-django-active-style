@@ -124,7 +124,6 @@ uv run python -c "import secrets; print(secrets.token_urlsafe(48))"   # 키마�
 |---|---|
 | `ACCESS_TOKEN_SECRET_KEY`·`REFRESH_TOKEN_SECRET_KEY`·`SESSION_SECRET_KEY` | 위 명령으로 만든 값을 **서로 다르게** 넣는다(32자 이상) |
 | `MYSQL_PASSWORD` | 3단계에서 띄울 MySQL 의 비밀번호와 같은 값. 비워 두거나 예시 값이면 거부 |
-| `SMTP_PASSWORD` | 메일을 안 쓰면 **비운다**. 예시 값을 남겨 두면 거부 |
 
 `.env` 가 없으면 기동하지 않습니다. 파일 없이 환경 변수로 주입하는 경우(컨테이너)는 `ENV`·비밀 키 3종·
 `MYSQL_HOST/USER/PASSWORD/DATABASE` 가 모두 있어야 합니다. 프로세스 환경변수가 `.env` 보다 우선하고,
@@ -278,7 +277,6 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | `localhost` / `3306` / `root` / `""` / `fastapi_db` | primary(writer) DB |
 | `DB_ROUTER_ENABLED` / `DB_REPLICATION_ENABLED` / `MYSQL_REPLICA_HOSTS` | `false` / `false` / `[]` | replica 라우팅 (선택). read-only 세션의 쓰기 차단은 이 설정과 **무관하게** 항상 동작한다 |
 | `ACCESS_TOKEN_SECRET_KEY` / `REFRESH_TOKEN_SECRET_KEY` / `SESSION_SECRET_KEY` | `change-this-...` | JWT 서명 키 둘과 `/admin` 관리 세션의 Redis 키 HMAC 키(바꾸면 관리 세션 전부 무효). 배포 전 서로 다른 값으로 교체 — 생성: `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"` |
-| `ADMIN_SESSION_MAX_AGE_SECONDS` / `ADMIN_SESSION_IDLE_SECONDS` | `28800` / `1800` | `/admin` 관리 세션의 절대 만료(로그인 시각부터, 연장 불가 — 쿠키 Max-Age 도 같다) / 미사용 만료(요청마다 다시 셈). 둘 다 60 이상, 미사용 ≤ 절대 |
 | `CORS_ALLOW_ORIGINS` | `["*"]` | JSON 배열로 지정 |
 | `TRUSTED_PROXY_HOPS` | `0` | 앱 앞의 신뢰 리버스 프록시 수. `0` 은 전달 헤더 무시, `N` 은 X-Forwarded-For 의 오른쪽에서 N번째를 접속 IP 로 사용. **프록시 뒤 배포면 반드시 설정**(운영 배포 확인 4) |
 | `ACCESS_LOG_ENABLED` | `true` | 접속 로그 수집 |
@@ -295,9 +293,23 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | 500 응답 상세 | 숨김 | 숨김 |
 
 `SESSION_SECRET_KEY` 는 `/admin` 관리 세션의 Redis 키(`admin:sess:{HMAC(키, 세션 ID)}`) 계산에, `SESSION_COOKIE_NAME` 은 접속 로그의 session_id 기록에만
-쓰입니다(API 인증은 JWT 만). `SESSION_EXPIRE_SECONDS`·`SMTP_*`·`UPLOAD_*`·`API_VERSION` 은 설정만 있고
-이를 쓰는 기능은 아직 없습니다. 설정 로딩
+쓰입니다(API 인증은 JWT 만). `API_VERSION` 은 설정만 있고 URL prefix 에 쓰이지 않습니다. 설정 로딩
 순서와 클래스별 소비 지점, 로그 구성은 [ARCHITECTURE §4·§5](docs/guides/ARCHITECTURE.md)를 봅니다.
+
+### 세션·토큰 만료
+
+만료 설정은 이 표가 정본입니다. 다른 문서는 이 표를 가리킵니다.
+
+| 대상 | 설정 | 기본값 | 뜻 |
+|---|---|---|---|
+| `/admin` 관리 세션 — 절대 만료 | `ADMIN_SESSION_MAX_AGE_SECONDS` | `28800`(8시간) | 로그인 시각부터 세고 요청이 와도 늘지 않는다. 쿠키 Max-Age 도 같다. 최소 60 |
+| `/admin` 관리 세션 — 미사용 만료 | `ADMIN_SESSION_IDLE_SECONDS` | `1800`(30분) | 요청마다 다시 센다(절대 만료를 넘지 않게). 최소 60, 절대 만료 이하 |
+| API 접근 토큰(access) | `ACCESS_TOKEN_EXPIRE_MINUTES` | `15`(분) | 폐기 수단이 없어 만료까지 유효하다 — 짧게 둔다 |
+| API refresh 토큰 | `REFRESH_TOKEN_EXPIRE_DAYS` | `7`(일) | 한 번 쓰면 소비되고(회전) 로그아웃·재사용 탐지로 family 단위 폐기 |
+
+**업그레이드 노트 — 지운 설정.** `SMTP_*`·`UPLOAD_*`·`SESSION_EXPIRE_SECONDS` 는 읽는 코드가 없어 삭제했습니다
+(config-cleanup). 기존 `.env`·환경 변수의 이 줄들은 지워도 되고, 남아 있어도 무시됩니다(설정 클래스가
+`extra="ignore"`). 관리 세션 만료는 위 표의 `ADMIN_SESSION_*` 가 정합니다.
 
 ---
 
@@ -310,7 +322,7 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 |---|---|
 | `.env` 가 없고 `ENV`·비밀 키 3종·`MYSQL_HOST/USER/PASSWORD/DATABASE` 가 환경 변수로도 없음(`validate_env_source`) | test 외 전부 |
 | placeholder 인 access/refresh/session 키(앞뒤 공백 제거·소문자화 후 `change-this` 를 포함하거나 `your-` 로 시작하거나 빈 값 — `config.is_placeholder_secret`), 32자 미만, access 와 refresh 가 같음. `.env.example` 의 키 예시는 일부러 이 규칙에 걸린다 | test 외 전부 |
-| placeholder 인 `MYSQL_PASSWORD`(**빈 값 포함** — 무인증 DB 계정). `REDIS_PASSWORD`·`SMTP_PASSWORD` 는 빈 값이 정당한 구성이라 값이 있을 때만 검사한다 | test 외 전부 |
+| placeholder 인 `MYSQL_PASSWORD`(**빈 값 포함** — 무인증 DB 계정). `REDIS_PASSWORD` 는 빈 값이 정당한 구성이라 값이 있을 때만 검사한다 | test 외 전부 |
 | 예전 설정 `ADMIN` 이 `.env`·환경 변수에 남아 있음(`validate_renamed_settings` — `ADMIN_DISABLED` 로 바뀌었고 의미가 반대) | test 외 전부 |
 | `DEBUG=true` · `CORS_ALLOW_ORIGINS` 의 `*` · `LOG_SQL_ECHO_ENABLED=true` · `LOG_LEVEL=DEBUG`(롤백 상세에 SQL 본문이 남는다 — 바인드 값은 모든 엔진의 `hide_parameters=True` 가 숨긴다) | staging·production |
 
@@ -346,7 +358,7 @@ beat 는 실행 디렉터리에 스케줄 상태 파일 `celerybeat-schedule*` �
 관리 세션을 커밋 전에 전부 끊으므로(Redis 폐기가 실패하면 변경 자체를 저장하지 않는다. 관리 화면과 API 가 같은 판정·폐기 함수를
 써서 비활성화·강등·삭제(관리 화면은 비밀번호 해시 변경도)면 API refresh 토큰도 함께 끊는다) 복사해 둔 쿠키도 즉시 무효입니다. 관리 화면에서 **자기 자신**을 강등·비활성화하면 지금 세션도 끊겨
 저장 뒤 로그인 화면으로 갑니다. 이메일 등 일반 수정은 세션을 유지합니다.
-만료는 절대 8시간(연장 불가) + 미사용 30분(`ADMIN_SESSION_*`). API 인증에는 쓰이지 않습니다.
+만료는 절대·미사용 두 가지입니다([세션·토큰 만료](#세션토큰-만료)). API 인증에는 쓰이지 않습니다.
 CSRF 토큰은 세션에 하나이고, 로그인 폼과 로그인 이후의 모든 생성·수정·삭제·일괄 삭제·가져오기·로그아웃
 요청이 싣습니다(화면 스크립트가 폼 hidden 필드·`X-CSRF-Token` 헤더로 붙임). 없거나 다르면 403 입니다.
 로그아웃은 POST 전용입니다(GET 은 405). 관리 목록은 `created_at` 을 업무 시간대(`TIME_ZONE`) 날짜로
@@ -452,7 +464,7 @@ curl -X POST localhost:8000/api/v1/auth/logout \
   -H 'Content-Type: application/json' -d '{"refresh_token":"<refresh_token>"}'
 ```
 
-access 15분, refresh 7일(`ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS`), 기본 HS256
+토큰 수명은 [세션·토큰 만료](#세션토큰-만료) 표를 봅니다. 서명은 기본 HS256
 (`JWT_ALGORITHM` 은 HS256/HS384/HS512 만)입니다. 토큰에는 `iss`·`aud`·`jti`·`nbf` 가 들어가고 검증 때
 모두 확인합니다. access 토큰에는 사용자명과 슈퍼유저 여부(`su`)가 들어가며, 보호 엔드포인트는 DB 를
 조회하지 않고 이 값으로 판정합니다. 토큰 종류가 섞이면 거부되고, 비활성 사용자는 로그인·재발급에서
@@ -548,7 +560,7 @@ Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워
 | [docs/specs/orm-raw-repository/development-plan.md](docs/specs/orm-raw-repository/development-plan.md) | 고정 기준선 — ORM/Raw 개발 계획 | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/orm-raw-repository/workflow-guide.md](docs/specs/orm-raw-repository/workflow-guide.md) | 고정 기준선 — ORM/Raw 지침 원본 (코드 주석의 `workflow-guide §N` 출처) | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/django-style-app-automation.md](docs/specs/django-style-app-automation.md) | 고정 기준선 — 앱 자동 등록 요구사항(`FR-*`·`NFR-*`·`SEC-*` 등, 코드 주석이 인용)과 설계 근거 | 자동 등록 규칙의 원래 의도를 볼 때 |
-| [docs/crp/groups/](docs/crp/groups/) | 검수 이력(append-only) — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계), `service-hardening`(인증·인가·rate limit·UTC), `admin-login`(관리 화면 로그인·`ADMIN_DISABLED`), `log-redaction-fixes`(traceback 마스킹·예외 헤더·Redis 최소 버전·커버리지 하한), `security-ops-hardening`(DB 바인드 값 숨김·접속 로그 보존·관리 로그인 CSRF·날짜 필터), `admin-session-hardening`(관리 세션 Redis 이전·로그인 이후 CSRF·기간 필터) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
+| [docs/crp/groups/](docs/crp/groups/) | 검수 이력(append-only) — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계), `service-hardening`(인증·인가·rate limit·UTC), `admin-login`(관리 화면 로그인·`ADMIN_DISABLED`), `log-redaction-fixes`(traceback 마스킹·예외 헤더·Redis 최소 버전·커버리지 하한), `security-ops-hardening`(DB 바인드 값 숨김·접속 로그 보존·관리 로그인 CSRF·날짜 필터), `admin-session-hardening`(관리 세션 Redis 이전·로그인 이후 CSRF·기간 필터), `config-cleanup`(쓰지 않는 SMTP·업로드·세션 만료 설정 삭제·설정 사용 계약 테스트) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
 
 `docs/guides/` 는 **현행 문서**라 코드 기준으로 유지하고, `review_gate` docs 그룹이 Markdown 의 백틱
 경로와 HTML 의 `<code>` 경로·환경변수를 검사합니다. HTML 안내서는 흐름을 요약하고 표·목록의 원문은
