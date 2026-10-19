@@ -19,11 +19,12 @@ from redis.asyncio import Redis
 
 from app.core.exception import ErrorResponse, ForbiddenException, UnauthorizedException
 from app.core.redis import get_redis
+from app.core.security.admin_session import AdminSessionStore
 from app.core.security.authorization import OwnershipPolicy, Principal
 from app.core.security.password_hasher import PasswordHasher
 from app.core.security.refresh_store import RefreshTokenStore
 from app.core.security.tokens import ACCESS, TokenService
-from config import jwt_settings
+from config import app_settings, jwt_settings, session_settings
 
 # 로그인 엔드포인트(auth 기능)에서 access token 을 발급받는다. 경로 문자열만 알 뿐
 # auth 기능을 import 하지 않는다(C-2). auto_error=False — 토큰이 없을 때도 FastAPI 기본
@@ -61,6 +62,18 @@ def get_refresh_token_store(
     tokens: TokenService = Depends(get_token_service),
 ) -> RefreshTokenStore:
     return RefreshTokenStore(redis, int(tokens.refresh_ttl.total_seconds()))
+
+
+def get_admin_session_store(redis: Redis = Depends(get_redis)) -> AdminSessionStore | None:
+    """/admin 관리 세션 저장소. ``ADMIN_DISABLED=true`` 면 관리 세션이 없으니 만들지 않는다(None)."""
+    if app_settings.ADMIN_DISABLED:
+        return None
+    return AdminSessionStore(
+        redis,
+        session_settings.SESSION_SECRET_KEY,
+        max_age=session_settings.ADMIN_SESSION_MAX_AGE_SECONDS,
+        idle=session_settings.ADMIN_SESSION_IDLE_SECONDS,
+    )
 
 
 async def get_current_principal(

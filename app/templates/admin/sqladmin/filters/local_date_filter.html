@@ -1,0 +1,63 @@
+{#- LocalDateFilter 전용 필터 템플릿 (admin-session-hardening ADR-005).
+    sqladmin 0.32 의 filters/operation_filter.html 을 바탕으로 했다. 원본 대비 바뀐 부분:
+      (a) 단일 날짜 폼의 연산 목록에서 기간(range)을 뺐다(입력은 type="date").
+      (b) 기간 폼 — 날짜 입력 두 개를 제출 직전에 "시작일~종료일" 한 값으로 합쳐 {param} 으로 보낸다
+          (sqladmin 은 필터 값을 하나만 넘긴다). 한쪽만 넣으면 열린 구간이다.
+      (c) 빠른 선택(오늘·최근 7일·최근 30일) — 기간 연산 링크. -#}
+{% extends "sqladmin/filters/base_filter.html" %}
+
+{% block filter_body %}
+  {% set param = filter.parameter_name %}
+  {% set current_filter = request.query_params.get(param, '') %}
+  {% set current_op = request.query_params.get(param + '_op', '') %}
+  {% set cleared = request.url.remove_query_params(param).remove_query_params(param + '_op') %}
+
+  {% if current_filter %}
+  <div class="mb-2 text-muted small">
+    Current: {{ current_op }} {{ current_filter }}
+    <a href="{{ cleared }}" class="text-decoration-none">[Clear]</a>
+  </div>
+  {% endif %}
+
+  <form method="get" class="d-flex flex-column filter-form mb-2">
+    {% for key, value in request.query_params.items() %}
+      {% if key != param and key != param + '_op' and key != 'error' %}
+      <input type="hidden" name="{{ key }}" value="{{ value }}">
+      {% endif %}
+    {% endfor %}
+    <select name="{{ param }}_op" class="form-select form-select-sm" required>
+      <option value="">Select operation...</option>
+      {% for op_value, op_label in filter.get_operation_options_for_model(model_view.model) if op_value != filter.RANGE %}
+      <option value="{{ op_value }}" {% if current_op == op_value %}selected{% endif %}>{{ op_label }}</option>
+      {% endfor %}
+    </select>
+    <input type="date" name="{{ param }}" class="form-control form-control-sm"
+      value="{{ current_filter if current_op != filter.RANGE else '' }}" required>
+    <button type="submit" class="btn btn-sm btn-outline-primary">{{ _("Apply Filter") }}</button>
+  </form>
+
+  {% set span = current_filter.split(filter.RANGE_SEPARATOR) if current_op == filter.RANGE and filter.RANGE_SEPARATOR in current_filter else ['', ''] %}
+  <form method="get" class="d-flex flex-column filter-form" data-local-date-range="{{ param }}"
+    onsubmit="var f=this; f.querySelector('input[name=&quot;{{ param }}&quot;]').value = f.querySelector('[data-range-start]').value + '{{ filter.RANGE_SEPARATOR }}' + f.querySelector('[data-range-end]').value;">
+    {% for key, value in request.query_params.items() %}
+      {% if key != param and key != param + '_op' and key != 'error' %}
+      <input type="hidden" name="{{ key }}" value="{{ value }}">
+      {% endif %}
+    {% endfor %}
+    <input type="hidden" name="{{ param }}_op" value="{{ filter.RANGE }}">
+    <input type="hidden" name="{{ param }}" value="">
+    <label class="small text-muted">기간 시작일(포함)
+      <input type="date" data-range-start class="form-control form-control-sm" value="{{ span[0] }}">
+    </label>
+    <label class="small text-muted">기간 종료일(포함)
+      <input type="date" data-range-end class="form-control form-control-sm" value="{{ span[1] }}">
+    </label>
+    <button type="submit" class="btn btn-sm btn-outline-primary">기간 적용</button>
+  </form>
+
+  <div class="mt-1 small">
+    {% for label, value in filter.quick_ranges() %}
+    <a href="{{ cleared.include_query_params(**{param: value, param + '_op': filter.RANGE}) }}" class="me-2 text-decoration-none">{{ label }}</a>
+    {% endfor %}
+  </div>
+{% endblock %}

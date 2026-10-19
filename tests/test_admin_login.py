@@ -32,13 +32,13 @@ from starlette.requests import Request
 from app.core.db.session import Base
 from app.core.middlewares.client_ip import ClientIPResolver
 from app.core.registry import AppRegistry
+from app.core.security.admin_session import AdminSessionStore
 from app.core.security.dependencies import get_password_hasher
 from app.core.security.rate_limiter import RateLimiter
 from app.features.admin import create_admin_interface
 from app.features.auth import admin_auth
 from app.features.auth.admin_auth import (
     ADMIN_SESSION_COOKIE,
-    ADMIN_SESSION_MAX_AGE,
     THROTTLED_MESSAGE,
     AdminAuthBackend,
 )
@@ -53,6 +53,13 @@ PASSWORD = "correct-horse-1"
 SECRET = "test-admin-session-secret-key-0123456789"
 
 SessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
+MAX_AGE = session_settings.ADMIN_SESSION_MAX_AGE_SECONDS
+IDLE = session_settings.ADMIN_SESSION_IDLE_SECONDS
+
+
+def session_store(redis: FakeAsyncRedis, **kwargs) -> AdminSessionStore:
+    return AdminSessionStore(redis, SECRET, max_age=MAX_AGE, idle=IDLE, **kwargs)
+
 
 # main.py 와 같은 발견 목록 — 모든 모델이 metadata 에 오르고(테이블 생성), 모든 ModelView 를 등록한다.
 REGISTRY = AppRegistry()
@@ -61,7 +68,10 @@ REGISTRY.import_models()
 
 
 def build_admin_app(
-    engine: AsyncEngine, session_factory: SessionFactory, redis: FakeAsyncRedis
+    engine: AsyncEngine,
+    session_factory: SessionFactory,
+    redis: FakeAsyncRedis,
+    store: Callable[[], AdminSessionStore] | None = None,
 ) -> FastAPI:
     """운영과 같은 ``create_admin_interface`` 에 테스트 협력 객체로 만든 백엔드를 넣는다."""
     app = FastAPI()
@@ -70,7 +80,7 @@ def build_admin_app(
         hasher=get_password_hasher(),
         rate_limiter=lambda: RateLimiter(redis),
         ip_resolver=ClientIPResolver(0),
-        secret_key=SECRET,
+        session_store=store or (lambda: session_store(redis)),
         https_only=False,
     )
     admin = create_admin_interface(app, engine, authentication_backend=backend)
@@ -114,6 +124,20 @@ async def _add_user(maker, username, *, superuser=True, active=True, password=PA
 
 
 _CSRF_INPUT = re.compile(r'<input type="hidden" name="csrf_token" value="([^"]+)">')
+_CSRF_META = re.compile(r'<meta name="csrf-token" content="([^"]+)">')
+
+
+async def page_token(client, path: str = "/admin/") -> str:
+    """로그인한 관리 화면의 meta CSRF 토큰(스크립트가 폼·fetch 에 붙이는 값)."""
+    page = await client.get(path)
+    match = _CSRF_META.search(page.text)
+    assert match, f"{path} 에 CSRF meta 가 없다"
+    return match.group(1)
+
+
+async def logout(client):
+    """화면의 로그아웃 링크를 누른 것과 같다 — 스크립트가 토큰을 실은 POST 로 바꾼다."""
+    return await client.post("/admin/logout", data={"csrf_token": await page_token(client)})
 
 
 async def csrf_token(client) -> str:
@@ -157,8 +181,8 @@ async def test_session_cookie_attributes(env):
     assert "path=/admin" in cookie
     assert "samesite=strict" in cookie
     assert "httponly" in cookie
-    assert f"max-age={ADMIN_SESSION_MAX_AGE}" in cookie
-    assert ADMIN_SESSION_MAX_AGE == 8 * 60 * 60
+    assert f"max-age={MAX_AGE}" in cookie
+    assert MAX_AGE == 8 * 60 * 60
     assert "secure" not in cookie  # https_only=False 로 조립했다
 
 
@@ -206,7 +230,7 @@ async def test_too_many_attempts_rerenders_login_with_429_and_retry_after(env, m
     assert THROTTLED_MESSAGE in response.text
     assert '<form action="' in response.text
     # API 로그인(auth:rl:)과 키를 나눠 센다.
-    keys = {key.decode() for key in await redis.keys("*")}
+    keys = {key.decode() for key in await redis.keys("*") if not key.startswith(b"admin:sess:")}
     assert keys and all(key.startswith("admin:rl:") for key in keys)
 
 
@@ -230,7 +254,7 @@ async def test_login_replaces_any_existing_session_content(env):
         hasher=get_password_hasher(),
         rate_limiter=lambda: RateLimiter(redis),
         ip_resolver=ClientIPResolver(0),
-        secret_key=SECRET,
+        session_store=lambda: session_store(redis),
         https_only=False,
     )
     session = {"user_id": "attacker-chosen", "planted": "x", "csrf_token": "known-token"}
@@ -253,7 +277,10 @@ async def test_login_replaces_any_existing_session_content(env):
     )
 
     assert await backend.login(request) is True
-    assert session == {"user_id": user_id}
+    assert session.keys() == {"user_id", "csrf_token"}
+    assert session["user_id"] == user_id
+    assert session["csrf_token"] != "known-token"  # 토큰 회전
+    assert request.scope["admin_session.rotate"] is True  # 세션 ID 회전 요청
 
 
 # =============================================================================
@@ -294,7 +321,7 @@ async def test_post_without_a_valid_token_is_403_before_rate_limit_and_credentia
 
     assert response.status_code == 403
     assert admin_auth.CSRF_FAILED_MESSAGE in response.text
-    assert await redis.keys("*") == []  # 레이트 리밋 카운터도 건드리지 않는다
+    assert await redis.keys("admin:rl:*") == []  # 레이트 리밋 카운터도 건드리지 않는다
     assert (await client.get("/admin/")).status_code == 302
 
 
@@ -355,7 +382,7 @@ async def test_token_comparison_is_constant_time(env, monkeypatch):
 
     monkeypatch.setattr(admin_auth.hmac, "compare_digest", spy)
     assert (await _post_login(client, csrf_token=token)).status_code == 302
-    # hmac 모듈은 세션 쿠키 서명 검증도 쓴다 — CSRF 비교 호출이 그중에 있는지 본다.
+    # hmac 모듈은 다른 곳에서도 쓰인다 — CSRF 비교 호출이 그중에 있는지 본다.
     assert (token.encode(), token.encode()) in calls
 
 
@@ -403,7 +430,7 @@ async def test_logout_clears_the_session(env):
     await _add_user(maker, "root")
     await _login(client, "root")
 
-    response = await client.get("/admin/logout")
+    response = await logout(client)
 
     assert response.status_code == 302
     assert client.cookies.get(ADMIN_SESSION_COOKIE) is None
@@ -491,7 +518,7 @@ async def test_create_superuser_then_full_admin_login_flow(env):
     assert (await _login(client, "regular")).status_code == 400  # 일반 사용자는 실패
     assert (await _login(client, "ops-admin")).status_code == 302
     assert (await client.get("/admin/")).status_code == 200
-    assert (await client.get("/admin/logout")).status_code == 302
+    assert (await logout(client)).status_code == 302
     assert (await client.get("/admin/")).status_code == 302
 
 
@@ -505,14 +532,31 @@ def test_main_app_admin_uses_the_login_backend():
     backend = main.admin.authentication_backend
     assert isinstance(backend, AdminAuthBackend)
     assert backend.templates is main.admin.templates
+    assert [m.cls.__name__ for m in backend.middlewares] == [
+        "RedisSessionMiddleware",
+        "AdminCsrfMiddleware",
+    ]
     options = backend.middlewares[0].kwargs
-    assert options["secret_key"] == session_settings.SESSION_SECRET_KEY
     assert options["https_only"] is (app_settings.ENV in ("staging", "production"))
 
 
-async def test_main_app_redirects_anonymous_admin_to_the_login_page():
+def test_main_app_session_store_uses_the_settings(monkeypatch):
     import main
 
+    redis = FakeAsyncRedis()
+    monkeypatch.setattr(main.app.state, "redis", redis, raising=False)
+    store = main.admin.authentication_backend.middlewares[0].kwargs["store"]()
+
+    assert store.key("sid") == AdminSessionStore(
+        redis, session_settings.SESSION_SECRET_KEY, max_age=MAX_AGE, idle=IDLE
+    ).key("sid")
+    assert (store.max_age, store.idle) == (MAX_AGE, IDLE)
+
+
+async def test_main_app_redirects_anonymous_admin_to_the_login_page(monkeypatch):
+    import main
+
+    monkeypatch.setattr(main.app.state, "redis", FakeAsyncRedis(), raising=False)
     transport = ASGITransport(app=main.app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         index = await client.get("/admin/")
@@ -558,26 +602,19 @@ def test_leftover_flag_in_environment_does_not_break_settings(monkeypatch):
 
 
 # =============================================================================
-# 세션 사용 범위 — 서명 세션은 /admin 전용이다 (admin-login ADR-008)
+# 세션 사용 범위 — 관리 세션은 /admin 전용이다 (admin-login ADR-008)
 # =============================================================================
-def _signed_admin_cookie(secret: str, user_id: str) -> str:
-    """starlette ``SessionMiddleware`` 와 같은 방식으로 서명한 세션 쿠키 값."""
-    import json
-    from base64 import b64encode
-
-    from itsdangerous import TimestampSigner
-
-    data = b64encode(json.dumps({"user_id": user_id}).encode("utf-8"))
-    return TimestampSigner(secret).sign(data).decode("utf-8")
+SID = "planted-session-id-for-scope-tests"
 
 
-async def test_crafted_cookie_is_a_valid_admin_session(env):
-    """대조군 — 아래 API 테스트가 쓰는 쿠키가 실제로 /admin 에서는 통하는 쿠키다."""
-    client, maker, *_ = env
+async def test_planted_session_id_is_a_valid_admin_session(env):
+    """대조군 — 아래 API 테스트가 쓰는 쿠키 값이 Redis 에 세션이 있으면 /admin 에서는 통한다."""
+    client, maker, redis, _ = env
     user_id = await _add_user(maker, "root")
-    cookie = _signed_admin_cookie(SECRET, user_id)
+    store = session_store(redis)
+    await store.save(SID, {"user_id": user_id}, store.now())
 
-    response = await client.get("/admin/", headers={"Cookie": f"{ADMIN_SESSION_COOKIE}={cookie}"})
+    response = await client.get("/admin/", headers={"Cookie": f"{ADMIN_SESSION_COOKIE}={SID}"})
 
     assert response.status_code == 200
 
@@ -585,14 +622,17 @@ async def test_crafted_cookie_is_a_valid_admin_session(env):
 def test_session_middleware_lives_only_in_the_admin_sub_app():
     import main
 
-    assert "SessionMiddleware" not in [m.cls.__name__ for m in main.app.user_middleware]
-    assert "SessionMiddleware" in [m.cls.__name__ for m in main.admin.admin.user_middleware]
+    outer = [m.cls.__name__ for m in main.app.user_middleware]
+    inner = [m.cls.__name__ for m in main.admin.admin.user_middleware]
+    assert "SessionMiddleware" not in outer and "RedisSessionMiddleware" not in outer
+    assert "RedisSessionMiddleware" in inner
+    assert "SessionMiddleware" not in inner  # 서명 쿠키 세션은 없앴다
 
 
 async def test_admin_session_cookie_does_not_authenticate_the_api():
     import main
 
-    cookie = _signed_admin_cookie(session_settings.SESSION_SECRET_KEY, "any-superuser-id")
+    cookie = SID
     transport = ASGITransport(app=main.app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get(
@@ -605,7 +645,7 @@ async def test_admin_session_cookie_does_not_authenticate_the_api():
 async def test_admin_session_cookie_is_never_set_outside_admin():
     import main
 
-    cookie = _signed_admin_cookie(session_settings.SESSION_SECRET_KEY, "any-superuser-id")
+    cookie = SID
     transport = ASGITransport(app=main.app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         responses = [
@@ -620,7 +660,7 @@ async def test_admin_session_cookie_is_never_set_outside_admin():
 # 등록된 모든 관리 화면 — 로그인한 슈퍼유저의 목록·필터·상세 (admin-login F-006)
 # =============================================================================
 def _filter_params(view) -> list[dict[str, str]]:
-    """뷰의 필터마다 쿼리 — bool 은 true, 날짜 필터는 연산 3종 + 잘못된 입력 1건,
+    """뷰의 필터마다 쿼리 — bool 은 true, 날짜 필터는 연산 4종(기간 포함) + 잘못된 입력 1건,
     연산 필터는 equals 1(문자열·숫자 모두 유효)."""
     from sqladmin.filters import BooleanFilter
 
@@ -632,7 +672,11 @@ def _filter_params(view) -> list[dict[str, str]]:
         if isinstance(flt, BooleanFilter):
             params.append({name: "true"})
         elif isinstance(flt, LocalDateFilter):
-            params += [{name: "2026-10-19", f"{name}_op": op} for op, _ in flt.OPERATIONS]
+            day = "2026-10-19"
+            params += [
+                {name: f"{day}~{day}" if op == flt.RANGE else day, f"{name}_op": op}
+                for op, _ in flt.OPERATIONS
+            ]
             params.append({name: "not-a-date", f"{name}_op": "on"})  # 500 이 아니라 필터 없이 200
         else:
             params.append({name: "1", f"{name}_op": "equals"})
@@ -680,8 +724,8 @@ async def test_admin_detail_page_returns_200(env):
 
 def test_filter_queries_are_actually_exercised():
     """대조군 — 목록 테스트가 필터를 하나도 돌리지 않는 헛통과가 아니다
-    (기존 14개 + 7개 뷰의 날짜 필터 × 4 쿼리)."""
-    assert sum(len(_filter_params(v)) for v in _admin_views()) == 14 + 7 * 4
+    (기존 14개 + 7개 뷰의 날짜 필터 × 5 쿼리)."""
+    assert sum(len(_filter_params(v)) for v in _admin_views()) == 14 + 7 * 5
 
 
 def test_every_view_with_created_at_has_the_local_date_filter():

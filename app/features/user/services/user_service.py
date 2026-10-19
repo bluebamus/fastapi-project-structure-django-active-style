@@ -9,7 +9,8 @@ Dependency(또는 컨텍스트)가 맡는다.
 
 권한 규칙(ADR-016): 목록·생성·삭제는 라우트가 슈퍼유저로 막고, 단건 조회·수정은 본인
 또는 슈퍼유저(`OwnershipPolicy` — 사용자 자신이 "소유자"다), ``is_active``·``is_superuser``
-변경은 슈퍼유저만 한다. 비활성화·강등·삭제는 그 사용자의 refresh family 를 모두 폐기한다.
+변경은 슈퍼유저만 한다. 비활성화·강등·삭제는 그 사용자의 refresh family 와 /admin 관리 세션을
+모두 폐기한다(admin-session-hardening ADR-003 — 비밀번호 변경 경로는 아직 없다).
 """
 
 import asyncio
@@ -17,6 +18,7 @@ from collections.abc import Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security.admin_session import AdminSessionStore
 from app.core.security.authorization import OwnershipPolicy, Principal
 from app.core.security.password_hasher import PasswordHasher
 from app.core.security.refresh_store import RefreshTokenStore
@@ -43,12 +45,21 @@ class UserService(BaseService):
         hasher: PasswordHasher,
         refresh_store: RefreshTokenStore,
         policy: OwnershipPolicy,
+        admin_sessions: AdminSessionStore | None = None,
     ) -> None:
         super().__init__(session)
         self.repository = UserRepository(session)
         self.hasher = hasher
         self.refresh_store = refresh_store
         self.policy = policy
+        # None = 관리 화면이 꺼져 있다(ADMIN_DISABLED=true) — 폐기할 관리 세션이 없다.
+        self.admin_sessions = admin_sessions
+
+    async def _revoke_sessions(self, user_id: str) -> None:
+        """refresh family 와 /admin 관리 세션을 모두 끊는다(비활성화·강등·삭제)."""
+        await self.refresh_store.revoke_user(user_id)
+        if self.admin_sessions is not None:
+            await self.admin_sessions.revoke_user(user_id)
 
     async def create_user(self, data: UserCreate) -> User:
         """사용자를 생성한다. 사용자명 중복 시 UsernameDuplicateException."""
@@ -101,16 +112,16 @@ class UserService(BaseService):
         existing = await self._get(user_id)  # 존재 보장(없으면 404)
         if changes.get("is_active") is False or changes.get("is_superuser") is False:
             # 비활성화·강등이면 기존 로그인 세션을 끊는다 — 이미 발급된 access 토큰은
-            # 만료(기본 15분)까지 남는다(R-201).
-            await self.refresh_store.revoke_user(user_id)
+            # 만료(기본 15분)까지 남는다(R-201). /admin 세션은 즉시 끊긴다.
+            await self._revoke_sessions(user_id)
         updated = await self.repository.update(user_id, changes)
         # updated 가 None 이면 변경행 0(동일 값 no-op, MySQL changed-rows 의미). 존재는 이미
         # 보장됐으므로 404 가 아니라 현재 엔티티를 반환한다.
         return updated if updated is not None else existing
 
     async def delete_user(self, user_id: str) -> None:
-        """사용자를 삭제하고 그 사용자의 refresh family 를 모두 폐기한다. 없으면 404."""
+        """사용자를 삭제하고 그 사용자의 refresh family·관리 세션을 모두 폐기한다. 없으면 404."""
         self.log.debug("사용자 삭제: id=%s", user_id)
         if not await self.repository.delete(user_id):
             raise UserNotFoundException(detail={"id": user_id})
-        await self.refresh_store.revoke_user(user_id)
+        await self._revoke_sessions(user_id)

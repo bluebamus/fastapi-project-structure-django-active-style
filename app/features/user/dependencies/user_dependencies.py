@@ -11,8 +11,10 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.session import get_read_only_db_session, get_writer_db_session
+from app.core.security.admin_session import AdminSessionStore
 from app.core.security.authorization import OwnershipPolicy
 from app.core.security.dependencies import (
+    get_admin_session_store,
     get_ownership_policy,
     get_password_hasher,
     get_refresh_token_store,
@@ -27,14 +29,18 @@ async def get_user_service(
     hasher: PasswordHasher = Depends(get_password_hasher),
     refresh_store: RefreshTokenStore = Depends(get_refresh_token_store),
     policy: OwnershipPolicy = Depends(get_ownership_policy),
+    admin_sessions: AdminSessionStore | None = Depends(get_admin_session_store),
 ) -> UserService:
     """UserService 를 구성해 view 에 제공한다(쓰기용 — 커밋은 핸들러가 한다).
+
+    ``admin_sessions`` 는 비활성화·강등·삭제 때 그 사용자의 /admin 세션을 함께 폐기하려고 넣는다
+    (admin-session-hardening ADR-003).
 
     이전에는 `yield` 이후 커밋했으나, FastAPI 상위 버전에서 yield dependency 의
     종료 코드가 **응답 전송 후에** 실행되도록 바뀌어 커밋 실패가 201 로 둔갑했다.
     커밋을 핸들러 본문으로 옮겨 응답 생성 전에 끝나도록 보장한다.
     """
-    return UserService(session, hasher, refresh_store, policy)
+    return UserService(session, hasher, refresh_store, policy, admin_sessions)
 
 
 async def get_user_service_readonly(

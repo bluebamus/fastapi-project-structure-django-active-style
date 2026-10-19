@@ -50,9 +50,12 @@ Note:
     ``/admin`` 은 **활성 슈퍼유저 로그인**이 필요하다. 백엔드는
     ``app/features/auth/admin_auth.py`` 의 ``AdminAuthBackend`` 이고, 이 파일의
     ``create_admin_interface()`` 가 ``Admin(..., authentication_backend=...)`` 로 주입한다.
-    첫 계정은 ``scripts/create_superuser.py`` 로 만든다. 세션 쿠키(``admin_session``,
-    ``Path=/admin``)는 ``SESSION_SECRET_KEY`` 로 서명한다. 로그인 화면은
-    ``app/templates/admin/sqladmin/login.html``(Bootstrap)이 sqladmin 기본 화면을 덮어쓴다.
+    첫 계정은 ``scripts/create_superuser.py`` 로 만든다. 세션은 Redis 서버 세션이다 — 쿠키
+    (``admin_session``, ``Path=/admin``)에는 무작위 세션 ID 만 있고, Redis 키는
+    ``SESSION_SECRET_KEY`` HMAC 이다(admin-session-hardening ADR-001). 로그인 화면은
+    ``app/templates/admin/sqladmin/login.html``(Bootstrap)이 sqladmin 기본 화면을 덮어쓰고,
+    그 밖의 화면은 ``sqladmin/base.html`` 덮어쓰기가 CSRF meta·스크립트를 싣는다(ADR-004).
+    로그아웃은 POST 전용으로 바꾼다(``_make_logout_post_only`` — GET 은 405).
 
 보안 주의 (이 저장소 고유):
     ``User`` 는 자격증명(``hashed_password``)을 보유한다. sqladmin 은
@@ -65,16 +68,19 @@ Note:
 from pathlib import Path
 
 from fastapi import FastAPI
+from redis.exceptions import ConnectionError as RedisConnectionError
 from sqladmin import Admin
 from sqlalchemy.ext.asyncio import AsyncEngine
+from starlette.routing import Route
 
 from app.core.db.session import background_db_session
 from app.core.registry import AppRegistry
-from app.core.security.dependencies import get_password_hasher
+from app.core.security.admin_session import AdminSessionStore
+from app.core.security.dependencies import get_admin_session_store, get_password_hasher
 from app.core.security.rate_limiter import RateLimiter
 from app.features.auth.admin_auth import AdminAuthBackend
 from app.features.auth.dependencies.auth_dependencies import get_client_ip_resolver
-from config import app_settings, session_settings
+from config import app_settings
 
 # sqladmin 은 templates_dir 의 FileSystemLoader 를 패키지 템플릿보다 먼저 찾는다 —
 # 여기의 sqladmin/login.html 이 기본 로그인 화면을 덮어쓴다.
@@ -86,16 +92,43 @@ def build_admin_auth_backend(app: FastAPI) -> AdminAuthBackend:
 
     Redis 는 lifespan 이 ``app.state.redis`` 에 두므로 로그인 시점에 꺼낸다. sqladmin 은
     하위 앱으로 마운트돼 ``request.app`` 이 이 ``app`` 이 아니라서 ``get_redis(request)`` 를
-    쓸 수 없다.
+    쓸 수 없다. 관리 세션 저장소도 같은 이유로 요청마다 만든다(``get_admin_session_store`` 재사용).
     """
+
+    def session_store() -> AdminSessionStore:
+        redis = getattr(app.state, "redis", None)
+        if redis is None:
+            # 세션 미들웨어가 RedisError 를 503 으로 바꾼다 — 통과시키지 않는다(fail-closed).
+            raise RedisConnectionError("Redis 가 준비되지 않았습니다.")
+        store = get_admin_session_store(redis)
+        assert store is not None  # 이 모듈은 ADMIN_DISABLED=false 일 때만 로드된다
+        return store
+
     return AdminAuthBackend(
         session_factory=background_db_session,
         hasher=get_password_hasher(),
         rate_limiter=lambda: RateLimiter(app.state.redis),
         ip_resolver=get_client_ip_resolver(),
-        secret_key=session_settings.SESSION_SECRET_KEY,
+        session_store=session_store,
         https_only=app_settings.ENV in ("staging", "production"),
     )
+
+
+def _make_logout_post_only(admin: Admin) -> None:
+    """sqladmin 의 GET 로그아웃 라우트를 같은 이름·엔드포인트의 POST 전용 라우트로 바꾼다.
+
+    GET 로그아웃은 다른 사이트가 ``<img src>`` 로 강제 로그아웃시킬 수 있다. POST 는 CSRF
+    미들웨어가 토큰을 요구한다. 템플릿의 링크는 base.html 의 스크립트가 토큰을 실은 POST 폼으로
+    바꾼다. 이름(``admin:logout``)을 유지해 ``url_for`` 는 그대로 쓴다.
+    """
+    routes = admin.admin.router.routes
+    for index, route in enumerate(routes):
+        if isinstance(route, Route) and route.name == "logout":
+            routes[index] = Route(
+                route.path, endpoint=admin.logout, name="logout", methods=["POST"]
+            )
+            return
+    raise RuntimeError("sqladmin 로그아웃 라우트를 찾지 못했습니다 — sqladmin 구조가 바뀌었다.")
 
 
 def create_admin_interface(
@@ -132,6 +165,7 @@ def create_admin_interface(
     # 로그인 템플릿이 `{{ csrf_token(request) }}` 로 세션 토큰을 싣는다(sqladmin 의 GET 로그인
     # 경로는 컨텍스트를 받지 않아 전역 함수로 준다).
     admin.templates.env.globals["csrf_token"] = backend.csrf_token
+    _make_logout_post_only(admin)
     return admin
 
 

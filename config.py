@@ -183,7 +183,8 @@ class AppSettings(BaseSettings):
     #
     # /admin 은 **활성 슈퍼유저 로그인**이 필요하다(admin-login ADR-002 — 이전의 "인증 없음"
     # 결정을 대체한다). 계정은 `scripts/create_superuser.py` 로 만들고, 세션 쿠키
-    # (`admin_session`, Path=/admin)는 SESSION_SECRET_KEY 로 서명한다. 그래서 배포 환경에서도
+    # (`admin_session`, Path=/admin)에는 세션 ID 만 있고 내용은 Redis 에 있다(키 = SESSION_SECRET_KEY HMAC,
+    # admin-session-hardening ADR-001). 그래서 배포 환경에서도
     # 켠 채 기동할 수 있다. 예전의 "무인증 허용" 확인 플래그는 없앴다(extra="ignore" 라
     # `.env` 에 남아도 무시된다). 예전 `ADMIN`(true=켬)은 이 설정으로 바뀌었고, 남아 있으면
     # 의미가 뒤집힌 채 무시되므로 `validate_renamed_settings()` 가 기동을 멈춘다.
@@ -973,7 +974,7 @@ class SessionSettings(BaseSettings):
 
     Note:
         API 인증은 JWT(Bearer) 기반이다. 쿠키 세션은 `/admin` 로그인만 쓴다 —
-        `SESSION_SECRET_KEY` 가 그 세션 쿠키(`admin_session`, Path=/admin)의 서명 키다
+        `SESSION_SECRET_KEY` 가 그 관리 세션(쿠키 `admin_session`, Path=/admin)의 Redis 키 HMAC 키다
         (admin-login ADR-003). `SESSION_COOKIE_NAME` 은 접속 로그 미들웨어가 session_id 를
         읽을 쿠키 이름이며 `/admin` 세션 쿠키와는 별개다. 설정 자체는 `.env` 에
         있으므로 config 가 로드해 둔다(설정의 단일 출처 유지).
@@ -991,11 +992,26 @@ class SessionSettings(BaseSettings):
         description="세션 쿠키 이름",
     )
 
-    # 세션 서명 키 (운영 환경에서 반드시 교체). /admin 로그인 세션 쿠키를 서명한다 —
-    # 바꾸면 기존 /admin 로그인 세션이 모두 끊긴다.
+    # 세션 키 (운영 환경에서 반드시 교체). /admin 관리 세션의 Redis 키를 만든다 —
+    # admin:sess:{HMAC-SHA256(SESSION_SECRET_KEY, 세션 ID)} (admin-session-hardening ADR-001).
+    # 바꾸면 기존 /admin 로그인 세션이 모두 끊긴다(새 키로는 옛 Redis 키를 찾지 못한다).
     SESSION_SECRET_KEY: str = Field(
         default="change-this-session-secret-key",
-        description="세션 서명 키 (/admin 로그인 세션 쿠키)",
+        description="세션 키 (/admin 관리 세션 Redis 키 HMAC)",
+    )
+
+    # /admin 관리 세션의 절대 만료(초). 로그인 시각부터 세고 연장되지 않는다. 쿠키 Max-Age 도 같다.
+    ADMIN_SESSION_MAX_AGE_SECONDS: int = Field(
+        default=28800,
+        ge=60,
+        description="/admin 관리 세션 절대 만료(초, 연장 불가)",
+    )
+
+    # /admin 관리 세션의 미사용 만료(초). 요청마다 Redis TTL 을 다시 이 값으로(절대 만료 이내) 맞춘다.
+    ADMIN_SESSION_IDLE_SECONDS: int = Field(
+        default=1800,
+        ge=60,
+        description="/admin 관리 세션 미사용 만료(초, 절대 만료 이하)",
     )
 
     # 세션 만료 시간 (초, 기본값 24시간)
@@ -1003,6 +1019,15 @@ class SessionSettings(BaseSettings):
         default=86400,
         description="세션 만료 시간(초)",
     )
+
+    @model_validator(mode="after")
+    def _idle_within_max_age(self) -> "SessionSettings":
+        """미사용 만료가 절대 만료보다 길면 미사용 만료는 의미가 없다 — 설정 실수로 본다."""
+        if self.ADMIN_SESSION_IDLE_SECONDS > self.ADMIN_SESSION_MAX_AGE_SECONDS:
+            raise ValueError(
+                "ADMIN_SESSION_IDLE_SECONDS 는 ADMIN_SESSION_MAX_AGE_SECONDS 이하여야 합니다."
+            )
+        return self
 
 
 # =============================================================================
