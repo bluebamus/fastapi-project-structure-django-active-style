@@ -2,7 +2,7 @@
 
 ``/admin`` 은 **활성 슈퍼유저**만 쓴다. 계정은 ``scripts/create_superuser.py`` 로 만든다.
 
-- 로그인: 폼 username/password → rate limit(키 접두사 ``admin:rl:`` — API 로그인과 따로 센다,
+- 로그인: 폼 CSRF 토큰 확인(security-ops-hardening ADR-003) → 폼 username/password → rate limit(키 접두사 ``admin:rl:`` — API 로그인과 따로 센다,
   한도 설정은 API 와 같은 ``AUTH_LOGIN_*``) → API 로그인과 같은 ``verify_credentials`` →
   슈퍼유저 확인. 성공하면 세션을 비우고 사용자 id 만 넣는다(세션 고정 방지).
   실패 사유는 구분하지 않는다(계정 열거 방지). 한도 초과는 로그인 화면을 429 + ``Retry-After`` 로.
@@ -10,6 +10,11 @@
 - 세션 쿠키: ``admin_session``(접속 로그가 읽는 ``SESSION_COOKIE_NAME`` 과 다르다),
   ``Path=/admin``, ``SameSite=Strict``, HttpOnly, 8시간, 배포 환경은 Secure.
   서명 키는 ``SESSION_SECRET_KEY``.
+- CSRF(synchronizer token): 로그인 화면을 그릴 때 세션에 ``secrets.token_urlsafe(32)`` 토큰을 두고
+  폼 hidden 필드로 싣는다. POST 는 rate limit·자격 확인 **전에** 두 값을 상수 시간으로 비교하고,
+  없거나 다르면 403 으로 로그인 화면을 다시 그린다. 로그인 성공 시 ``session.clear()`` 로 회전된다.
+  로그인 이후 sqladmin 이 그리는 생성·수정·삭제 폼과 GET 로그아웃은 대상이 아니다
+  (``SameSite=Strict``·``Path=/admin`` 이 1차 방어 — residual-risk).
 
 이 모듈은 sqladmin 을 import 하므로 ``app/features/admin.py``(ADMIN_DISABLED=false 일 때만 로드)에서만
 가져온다. 기능 패키지의 ``admin.py`` 가 아닌 이유: registry 는 그 이름을 ``admin_views`` 계약으로
@@ -18,6 +23,8 @@
 
 from __future__ import annotations
 
+import hmac
+import secrets
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from typing import Any
@@ -45,6 +52,9 @@ ADMIN_SESSION_PATH = "/admin"
 ADMIN_SESSION_MAX_AGE = 8 * 60 * 60
 LOGIN_TEMPLATE = "sqladmin/login.html"
 THROTTLED_MESSAGE = "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요."
+CSRF_FAILED_MESSAGE = "요청이 만료되었습니다. 다시 시도하세요."
+# 세션 키와 폼 필드 이름이 같다 — 템플릿의 hidden input name 과 맞춘다.
+CSRF_FIELD = "csrf_token"
 # 로그에 싣는 사용자명 길이 상한 — 폼 값은 클라이언트 입력이라 길이를 믿지 않는다.
 _LOG_USERNAME_MAX = 64
 
@@ -89,12 +99,33 @@ class AdminAuthBackend(AuthenticationBackend):
         # 로그인 화면을 그릴 sqladmin 템플릿 엔진. Admin 이 만든 뒤 조립부가 넣는다.
         self.templates: Any = None
 
+    def csrf_token(self, request: Request) -> str:
+        """세션의 CSRF 토큰을 돌려준다. 없으면 만들어 넣는다(로그인 템플릿의 전역 함수)."""
+        token = request.session.get(CSRF_FIELD)
+        if not isinstance(token, str) or not token:
+            token = secrets.token_urlsafe(32)
+            request.session[CSRF_FIELD] = token
+        return token
+
+    @staticmethod
+    def _csrf_valid(request: Request, submitted: object) -> bool:
+        expected = request.session.get(CSRF_FIELD)
+        if not isinstance(expected, str) or not expected or not isinstance(submitted, str):
+            return False
+        # bytes 로 비교한다 — str 끼리는 비 ASCII 입력에서 TypeError 가 난다.
+        return hmac.compare_digest(submitted.encode(), expected.encode())
+
     async def login(self, request: Request) -> Response | bool:
         form = await request.form()
         username = str(form.get("username") or "")
         password = str(form.get("password") or "")
         ip = self._ip_resolver.resolve(request)
         log_extra = {"username": username[:_LOG_USERNAME_MAX], "client_ip": ip}
+
+        # 레이트 리밋보다 먼저 본다 — 위조 요청이 피해자의 시도 횟수를 깎지 못하게.
+        if not self._csrf_valid(request, form.get(CSRF_FIELD)):
+            logger.warning("[AdminLogin] CSRF 토큰 불일치", extra=log_extra)
+            return await self._render(request, CSRF_FAILED_MESSAGE, 403)
 
         limiter = self._rate_limiter()
         user_key = f"admin:rl:login:{ip}:{username.lower()}"

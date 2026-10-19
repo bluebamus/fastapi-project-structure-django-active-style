@@ -7,6 +7,7 @@
 
 from sqladmin import ModelView
 
+from app.core.admin_filters import LocalDateFilter
 from app.features.catalog.models.models import Product
 
 
@@ -16,6 +17,8 @@ class ProductAdmin(ModelView, model=Product):
     name = "Product"
     name_plural = "Products"
     column_list = [Product.id, Product.name, Product.price, Product.is_active, Product.created_at]
+    # created_at(UTCDateTime)은 업무 시간대 날짜로 거른다(core LocalDateFilter).
+    column_filters = [LocalDateFilter(Product.created_at)]
     can_create = True
     can_edit = True
     can_delete = True

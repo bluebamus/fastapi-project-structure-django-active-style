@@ -113,8 +113,20 @@ async def _add_user(maker, username, *, superuser=True, active=True, password=PA
         return user.id
 
 
+_CSRF_INPUT = re.compile(r'<input type="hidden" name="csrf_token" value="([^"]+)">')
+
+
+async def csrf_token(client) -> str:
+    """로그인 화면을 열어 세션에 묶인 CSRF 토큰을 꺼낸다(브라우저가 하는 일)."""
+    page = await client.get("/admin/login")
+    match = _CSRF_INPUT.search(page.text)
+    assert match, "로그인 화면에 CSRF hidden 필드가 없다"
+    return match.group(1)
+
+
 async def _login(client, username, password=PASSWORD):
-    return await client.post("/admin/login", data={"username": username, "password": password})
+    data = {"username": username, "password": password, "csrf_token": await csrf_token(client)}
+    return await client.post("/admin/login", data=data)
 
 
 def _set_cookie(response) -> str:
@@ -176,7 +188,8 @@ async def test_failed_login_is_400_with_one_indistinguishable_message(
     assert response.status_code == 400, case
     assert "alert alert-danger" in response.text
     assert InvalidCredentialsException.message in response.text
-    assert ADMIN_SESSION_COOKIE not in _set_cookie(response)
+    # 세션 쿠키는 CSRF 토큰 때문에 이미 있다 — 로그인 상태가 아니라는 것을 본다.
+    assert (await client.get("/admin/")).status_code == 302
 
 
 async def test_too_many_attempts_rerenders_login_with_429_and_retry_after(env, monkeypatch):
@@ -220,8 +233,8 @@ async def test_login_replaces_any_existing_session_content(env):
         secret_key=SECRET,
         https_only=False,
     )
-    session = {"user_id": "attacker-chosen", "planted": "x"}
-    body = f"username=root&password={PASSWORD}".encode()
+    session = {"user_id": "attacker-chosen", "planted": "x", "csrf_token": "known-token"}
+    body = f"username=root&password={PASSWORD}&csrf_token=known-token".encode()
 
     async def receive():
         return {"type": "http.request", "body": body, "more_body": False}
@@ -241,6 +254,117 @@ async def test_login_replaces_any_existing_session_content(env):
 
     assert await backend.login(request) is True
     assert session == {"user_id": user_id}
+
+
+# =============================================================================
+# 로그인 폼 CSRF (security-ops-hardening ADR-003) — synchronizer token
+# =============================================================================
+async def _post_login(client, **data):
+    return await client.post(
+        "/admin/login", data={"username": "root", "password": PASSWORD, **data}
+    )
+
+
+async def test_login_page_carries_a_session_bound_csrf_token(env):
+    client, *_ = env
+
+    first = await csrf_token(client)
+    again = await csrf_token(client)
+
+    assert len(first) >= 43  # token_urlsafe(32)
+    assert first == again  # 같은 세션 안에서는 유지 — 탭을 두 번 열어도 앞 폼이 죽지 않는다
+    assert client.cookies.get(ADMIN_SESSION_COOKIE)
+
+
+@pytest.mark.parametrize(
+    "token", [None, "", "forged-token-value"], ids=["missing", "empty", "wrong"]
+)
+async def test_post_without_a_valid_token_is_403_before_rate_limit_and_credentials(
+    env, monkeypatch, token
+):
+    client, maker, redis, _ = env
+    await _add_user(maker, "root")
+    await csrf_token(client)  # 세션에는 정상 토큰이 있다
+
+    async def must_not_run(*_args, **_kwargs):
+        raise AssertionError("CSRF 실패인데 자격 확인을 했다")
+
+    monkeypatch.setattr(admin_auth, "verify_credentials", must_not_run)
+    response = await _post_login(client, **({} if token is None else {"csrf_token": token}))
+
+    assert response.status_code == 403
+    assert admin_auth.CSRF_FAILED_MESSAGE in response.text
+    assert await redis.keys("*") == []  # 레이트 리밋 카운터도 건드리지 않는다
+    assert (await client.get("/admin/")).status_code == 302
+
+
+async def test_post_without_any_session_is_403(env):
+    client, maker, *_ = env
+    await _add_user(maker, "root")
+
+    response = await _post_login(client, csrf_token="anything")
+
+    assert response.status_code == 403
+
+
+async def test_rerendered_form_after_403_lets_the_user_retry(env):
+    client, maker, *_ = env
+    await _add_user(maker, "root")
+
+    rejected = await _post_login(client)  # 토큰 없이(예: 만료된 탭)
+    token = _CSRF_INPUT.search(rejected.text).group(1)
+    retried = await _post_login(client, csrf_token=token)
+
+    assert rejected.status_code == 403
+    assert retried.status_code == 302
+
+
+async def test_token_from_another_session_is_rejected(env):
+    client, maker, *_ = env
+    await _add_user(maker, "root")
+    attacker_token = await csrf_token(client)
+    client.cookies.clear()
+    await csrf_token(client)  # 피해자 세션은 자기 토큰을 갖는다
+
+    response = await _post_login(client, csrf_token=attacker_token)
+
+    assert response.status_code == 403
+
+
+async def test_token_rotates_after_successful_login(env):
+    client, maker, *_ = env
+    await _add_user(maker, "root")
+    before = await csrf_token(client)
+
+    assert (await _post_login(client, csrf_token=before)).status_code == 302
+    after = await csrf_token(client)
+
+    assert after != before
+
+
+async def test_token_comparison_is_constant_time(env, monkeypatch):
+    client, maker, *_ = env
+    await _add_user(maker, "root")
+    token = await csrf_token(client)
+    calls = []
+    real = admin_auth.hmac.compare_digest
+
+    def spy(a, b):
+        calls.append((a, b))
+        return real(a, b)
+
+    monkeypatch.setattr(admin_auth.hmac, "compare_digest", spy)
+    assert (await _post_login(client, csrf_token=token)).status_code == 302
+    # hmac 모듈은 세션 쿠키 서명 검증도 쓴다 — CSRF 비교 호출이 그중에 있는지 본다.
+    assert (token.encode(), token.encode()) in calls
+
+
+async def test_non_ascii_token_is_rejected_not_500(env):
+    client, maker, *_ = env
+    await _add_user(maker, "root")
+    await csrf_token(client)
+
+    assert (await _post_login(client, csrf_token="토큰")).status_code == 403
 
 
 # =============================================================================
@@ -496,15 +620,22 @@ async def test_admin_session_cookie_is_never_set_outside_admin():
 # 등록된 모든 관리 화면 — 로그인한 슈퍼유저의 목록·필터·상세 (admin-login F-006)
 # =============================================================================
 def _filter_params(view) -> list[dict[str, str]]:
-    """뷰의 필터마다 쿼리 1건 — bool 은 true, 연산 필터는 equals 1(문자열·숫자 모두 유효)."""
+    """뷰의 필터마다 쿼리 — bool 은 true, 날짜 필터는 연산 3종 + 잘못된 입력 1건,
+    연산 필터는 equals 1(문자열·숫자 모두 유효)."""
     from sqladmin.filters import BooleanFilter
+
+    from app.core.admin_filters import LocalDateFilter
 
     params = []
     for flt in view.column_filters:
+        name = flt.parameter_name
         if isinstance(flt, BooleanFilter):
-            params.append({flt.parameter_name: "true"})
+            params.append({name: "true"})
+        elif isinstance(flt, LocalDateFilter):
+            params += [{name: "2026-10-19", f"{name}_op": op} for op, _ in flt.OPERATIONS]
+            params.append({name: "not-a-date", f"{name}_op": "on"})  # 500 이 아니라 필터 없이 200
         else:
-            params.append({flt.parameter_name: "1", f"{flt.parameter_name}_op": "equals"})
+            params.append({name: "1", f"{name}_op": "equals"})
     return params
 
 
@@ -530,7 +661,7 @@ async def test_every_admin_list_page_and_filter_returns_200(env, view):
     assert (await _login(client, "root")).status_code == 302
 
     assert (await client.get(f"/admin/{view.identity}/list")).status_code == 200
-    # 필터가 없는 뷰(catalog·reports)는 목록만 본다. 필터가 있는 뷰는 필터마다 쿼리 1건.
+    # 모든 뷰가 필터를 가진다(최소 created_at 날짜 필터). 필터마다 쿼리를 돌린다.
     for params in _filter_params(view):
         response = await client.get(f"/admin/{view.identity}/list", params=params)
         assert response.status_code == 200, (view.identity, params)
@@ -548,5 +679,44 @@ async def test_admin_detail_page_returns_200(env):
 
 
 def test_filter_queries_are_actually_exercised():
-    """대조군 — 목록 테스트가 필터를 하나도 돌리지 않는 헛통과가 아니다(5개 뷰 14개 필터)."""
-    assert sum(len(_filter_params(v)) for v in _admin_views()) == 14
+    """대조군 — 목록 테스트가 필터를 하나도 돌리지 않는 헛통과가 아니다
+    (기존 14개 + 7개 뷰의 날짜 필터 × 4 쿼리)."""
+    assert sum(len(_filter_params(v)) for v in _admin_views()) == 14 + 7 * 4
+
+
+def test_every_view_with_created_at_has_the_local_date_filter():
+    """security-ops-hardening ADR-004 — created_at 이 있는 모든 관리 목록은 날짜로 거를 수 있다."""
+    from app.core.admin_filters import LocalDateFilter
+
+    missing = [
+        view.identity
+        for view in _admin_views()
+        if hasattr(view.model, "created_at")
+        and not any(
+            isinstance(f, LocalDateFilter) and f.parameter_name == "created_at"
+            for f in view.column_filters
+        )
+    ]
+    assert missing == []
+    assert len(_admin_views()) == 7
+
+
+async def test_date_filter_narrows_the_real_list_page(env):
+    """실제 목록 화면 — 오늘(TIME_ZONE) 가입한 root 는 '같은 날' 에 보이고 '이전' 에는 안 보인다."""
+    from config import timezone_settings
+
+    client, maker, *_ = env
+    await _add_user(maker, "root")
+    await _add_user(maker, "datefilterprobe")
+    assert (await _login(client, "root")).status_code == 302
+    today = timezone_settings.now().date().isoformat()
+
+    async def listed(op: str) -> bool:
+        params = {"created_at": today, "created_at_op": op}
+        response = await client.get("/admin/user/list", params=params)
+        assert response.status_code == 200
+        return "datefilterprobe" in response.text
+
+    assert await listed("on") is True
+    assert await listed("on_or_after") is True
+    assert await listed("before") is False
