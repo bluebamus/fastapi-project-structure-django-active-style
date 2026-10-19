@@ -69,7 +69,10 @@ def _build(service_cls, repo):
 @pytest.mark.parametrize("service_cls,method,payload", _CASES)
 async def test_noop_update_returns_existing_not_404(service_cls, method, payload):
     """update 가 None(no-op)이어도 존재하는 엔티티는 404 없이 그대로 반환된다."""
-    sentinel = SimpleNamespace(id="x1", author_id=None)
+    # UserService 는 변경 전 값(is_active·is_superuser·hashed_password)으로 폐기를 판정한다(ADR-010).
+    sentinel = SimpleNamespace(
+        id="x1", author_id=None, is_active=True, is_superuser=False, hashed_password="h"
+    )
     service = _build(service_cls, _StubRepo(sentinel))
     result = await getattr(service, method)("x1", payload, _ADMIN)
     assert result is sentinel

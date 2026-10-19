@@ -14,7 +14,8 @@ Dependency(또는 컨텍스트)가 맡는다.
 """
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any, NamedTuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,19 +37,49 @@ from app.features.user.schemas.user_schema import UserCreate, UserUpdate
 _PRIVILEGED_FIELDS = frozenset({"is_active", "is_superuser"})
 
 
+# 접근 폐기 판정에 쓰는 필드 — 변경 전후 값을 비교한다.
+REVOKING_FIELDS = ("is_active", "is_superuser", "hashed_password")
+
+
+class Revocation(NamedTuple):
+    """끊을 것 — 관리 세션용 집합과 API refresh 용 집합."""
+
+    admin_sessions: bool
+    refresh: bool
+
+
+NOTHING = Revocation(admin_sessions=False, refresh=False)
+DELETED = Revocation(admin_sessions=True, refresh=True)
+
+
+def revocation_for(before: Mapping[str, Any], after: Mapping[str, Any]) -> Revocation:
+    """변경 전후로 끊을 것을 정한다 — **규칙은 여기 한 곳**(API ``UserService``·관리 화면 ``UserAdmin`` 공용).
+
+    비활성화·슈퍼유저 해제(강등)·비밀번호 해시 변경이면 관리 세션과 refresh 를 모두 끊는다
+    (service-hardening 결정 — 강등도 refresh 폐기, admin-session-hardening ADR-010). 그 밖의 수정은 유지.
+    """
+    lost = (
+        bool(before["is_active"] and not after["is_active"])
+        or bool(before["is_superuser"] and not after["is_superuser"])
+        or before["hashed_password"] != after["hashed_password"]
+    )
+    return Revocation(admin_sessions=lost, refresh=lost)
+
+
 async def revoke_user_access(
     refresh_store: RefreshTokenStore | None,
     admin_sessions: AdminSessionStore | None,
     user_id: str,
+    what: Revocation = DELETED,
 ) -> None:
-    """사용자의 접근을 끊는 **하나의 폐기 함수** — refresh family 와 /admin 관리 세션(``None`` 은 건너뜀).
+    """``what`` 이 정한 집합만 끊는 **하나의 폐기 함수**(``None`` 저장소는 건너뜀).
 
-    API(``UserService``)와 관리 화면(``UserAdmin``)이 같은 함수를 부른다(admin-session-hardening ADR-008·ADR-009).
-    두 곳 모두 DB 변경을 커밋하기 **전에** 부른다 — Redis 오류면 예외로 커밋을 막는다(fail-closed).
+    API(``UserService``)와 관리 화면(``UserAdmin``)이 같은 함수를 부른다. 두 곳 모두 DB 변경을 커밋하기
+    **전에** 부른다 — Redis 오류면 예외로 커밋을 막는다(fail-closed).
     """
-    if refresh_store is not None:
+    if what.refresh and refresh_store is not None:
         await refresh_store.revoke_user(user_id)
-    if admin_sessions is not None:
+    if what.admin_sessions and admin_sessions is not None:
         await admin_sessions.revoke_user(user_id)
 
 
@@ -71,9 +102,9 @@ class UserService(BaseService):
         # None = 관리 화면이 꺼져 있다(ADMIN_DISABLED=true) — 폐기할 관리 세션이 없다.
         self.admin_sessions = admin_sessions
 
-    async def _revoke_sessions(self, user_id: str) -> None:
-        """refresh family 와 /admin 관리 세션을 모두 끊는다(비활성화·강등·삭제)."""
-        await revoke_user_access(self.refresh_store, self.admin_sessions, user_id)
+    async def _revoke_sessions(self, user_id: str, what: Revocation = DELETED) -> None:
+        """``what`` 에 따라 refresh family 와 /admin 관리 세션을 끊는다."""
+        await revoke_user_access(self.refresh_store, self.admin_sessions, user_id, what)
 
     async def create_user(self, data: UserCreate) -> User:
         """사용자를 생성한다. 사용자명 중복 시 UsernameDuplicateException."""
@@ -124,10 +155,11 @@ class UserService(BaseService):
         if not principal.is_superuser and _PRIVILEGED_FIELDS & changes.keys():
             raise PrivilegedFieldException()
         existing = await self._get(user_id)  # 존재 보장(없으면 404)
-        if changes.get("is_active") is False or changes.get("is_superuser") is False:
-            # 비활성화·강등이면 기존 로그인 세션을 끊는다 — 이미 발급된 access 토큰은
-            # 만료(기본 15분)까지 남는다(R-201). /admin 세션은 즉시 끊긴다.
-            await self._revoke_sessions(user_id)
+        # 비활성화·강등이면 기존 로그인 세션을 끊는다 — 판정은 관리 화면과 같은 ``revocation_for``.
+        # 이미 발급된 access 토큰은 만료(기본 15분)까지 남는다(R-201). /admin 세션은 즉시 끊긴다.
+        before = {f: getattr(existing, f) for f in REVOKING_FIELDS}
+        after = {f: changes.get(f, before[f]) for f in REVOKING_FIELDS}
+        await self._revoke_sessions(user_id, revocation_for(before, after))
         updated = await self.repository.update(user_id, changes)
         # updated 가 None 이면 변경행 0(동일 값 no-op, MySQL changed-rows 의미). 존재는 이미
         # 보장됐으므로 404 가 아니라 현재 엔티티를 반환한다.

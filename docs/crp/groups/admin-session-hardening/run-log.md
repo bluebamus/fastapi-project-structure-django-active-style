@@ -92,3 +92,18 @@
 - **감독자 정정(REQ-004, F-009):** 강등은 관리 세션만, 판정 `revocation_for` 하나가 두 집합을 돌려준다(ADR-009). API `UserService` 는 강등에도 refresh 를 폐기해 불일치 — R-707, 결정 대기.
 - **검사:** ruff check·format --check 통과, mypy 206 파일 이상 없음, `pytest -m "not mysql"` 1312 passed · 44 deselected · skip 0(Round 2 대비 +8), `.env` 없는 저장소 밖 클론 같은 수, review_gate static·structure·supply·docs 통과, alembic 변경 없음.
 - **수렴 판정:** `CONVERGED` (Open Fix 0)
+### Round 4 — 2026-10-19 — REQ-005 R-707 결정 반영 (같은 브랜치 `fix/admin-ui-revoke-precommit`)
+- **Fix:** F-010 → **Fixed**(ADR-010, ADR-009 Superseded, R-707 해소). 판정 `revocation_for`·`Revocation`·`DELETED`·`REVOKING_FIELDS` 와 폐기 `revoke_user_access(..., what)` 를 `app/features/user/services/user_service.py` 로 옮기고, `UserService.update_user`(변경 전후 값)·`delete_user` 와 `UserAdmin` 이 같은 함수를 쓴다. 강등도 refresh 폐기.
+- **테스트:** 관리 화면 강등 기대값을 refresh 폐기로, 판정 표의 강등 행을 `(True, True)` 로 바꿨다. API 비활성화가 회전 거부에 기대지 않고 family 를 폐기하는지 보는 `tests/test_user_permissions.py::test_deactivation_revokes_the_family_itself` 를 더했다(기존 `test_deactivation_revokes_refresh_tokens` 는 폐기 없이도 회전의 비활성 거부로 통과해 비활성화 조건 변이를 잡지 못했다). `test_demotion_revokes_refresh_tokens` 는 그대로 통과.
+- **fail-on-revert(규칙 한 곳 변이가 두 경로를 모두 깨는지):**
+
+| 되돌린 것(`user_service.revocation_for`·`update_user`) | 깨진 테스트 | 결과 |
+|---|---|---|
+| 강등 조건 제거 | API `test_demotion_revokes_refresh_tokens` + 관리 화면 `test_admin_ui_edit_revokes_sessions_and_refresh_of_that_user`[demote] + 판정 표 | 3 실패(두 경로 모두) |
+| 비활성화 조건 제거 | API `test_deactivation_revokes_the_family_itself` + 관리 화면 [deactivate] | 2 실패(두 경로 모두) |
+| 강등 refresh 를 유지로 | API `test_demotion_revokes_refresh_tokens` + 관리 화면 [demote] | 2 실패(두 경로 모두) |
+| API 가 판정 대신 항상 폐기 | `test_profile_update_keeps_refresh_tokens` | 실패 |
+
+- **동작이 바뀐 기존 테스트:** `tests/test_update_noop.py` 의 가짜 엔티티에 `is_active`·`is_superuser`·`hashed_password` 를 더했다(`update_user` 가 변경 전 값으로 판정한다).
+- **검사:** ruff check·format --check 통과, mypy 206 파일 이상 없음, `pytest -m "not mysql"` 1313 passed · 44 deselected · skip 0(저장소 안·`.env` 없는 클론), review_gate static·structure·supply·docs 통과.
+- **수렴 판정:** `CONVERGED` (Open Fix 0)

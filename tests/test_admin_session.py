@@ -597,13 +597,13 @@ async def _db_user(maker, user_id: str):
 
 @pytest.mark.parametrize(
     ("change", "refresh_revoked"),
-    [({"is_active": None}, True), ({"is_superuser": None}, False)],
+    [({"is_active": None}, True), ({"is_superuser": None}, True)],
     ids=["deactivate", "demote"],
 )
 async def test_admin_ui_edit_revokes_sessions_and_refresh_of_that_user(
     env, change, refresh_revoked
 ):
-    """비활성화는 관리 세션 + refresh, 강등은 관리 세션만(refresh 는 회전 때 DB 권한으로 재발급)."""
+    """비활성화·강등 모두 관리 세션 + refresh 폐기 — API UserService 와 같은 규칙(ADR-010)."""
     client, maker, redis, *_ = env
     target_id, browsers = await _target_with_two_browsers(env)
 
@@ -625,7 +625,11 @@ async def test_admin_ui_edit_revokes_sessions_and_refresh_of_that_user(
     ("before", "after", "expected"),
     [
         ((True, True, "h"), (False, True, "h"), (True, True)),  # 비활성화
-        ((True, True, "h"), (True, False, "h"), (True, False)),  # 강등 — refresh 유지
+        (
+            (True, True, "h"),
+            (True, False, "h"),
+            (True, True),
+        ),  # 강등 — refresh 도 폐기(API 와 같은 규칙)
         ((True, True, "h"), (True, True, "h2"), (True, True)),  # 비밀번호 해시 변경
         ((True, True, "h"), (True, True, "h"), (False, False)),  # 일반 수정
         ((False, False, "h"), (False, False, "h"), (False, False)),  # 이미 비활성·일반
@@ -634,7 +638,7 @@ async def test_admin_ui_edit_revokes_sessions_and_refresh_of_that_user(
     ids=["deactivate", "demote", "password", "plain", "already-off", "promote"],
 )
 def test_revocation_for_returns_both_sets_from_one_rule(before, after, expected):
-    from app.features.user.admin import DELETED, Revocation, revocation_for
+    from app.features.user.services.user_service import DELETED, Revocation, revocation_for
 
     keys = ("is_active", "is_superuser", "hashed_password")
     result = revocation_for(
