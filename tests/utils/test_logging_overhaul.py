@@ -611,7 +611,7 @@ def test_warns_when_files_are_on_in_a_spawned_worker_process(monkeypatch, tmp_pa
         assert bool(found) is warns
 
 
-def test_listener_is_restarted_after_fork():
+def test_listener_is_restarted_after_fork(monkeypatch):
     """prefork 자식은 listener 스레드를 물려받지 못한다 — 같은 큐·핸들러로 다시 세운다."""
     import queue
     from logging.handlers import QueueListener
@@ -623,6 +623,7 @@ def test_listener_is_restarted_after_fork():
     inherited = QueueListener(queue.Queue(), buf_handler)  # fork 로 복제된, 스레드 없는 listener
     saved = queue_logging._listener
     queue_logging._listener = inherited
+    monkeypatch.setattr(queue_logging, "_listener_pid", -1)  # 부모 프로세스가 시작한 listener
     try:
         assert queue_logging.restart_queue_listener_after_fork() is True
         inherited.queue.put_nowait(logging.makeLogRecord({"msg": "from-child"}))
@@ -630,6 +631,21 @@ def test_listener_is_restarted_after_fork():
     finally:
         queue_logging._listener = saved
     assert "from-child" in io_buffer.getvalue()
+
+
+def test_listener_is_not_restarted_in_the_same_process(monkeypatch):
+    """solo 풀은 worker_process_init 을 **같은 프로세스**에서 보낸다 — 살아 있는 listener 옆에 둘째를 세우지 않는다."""
+    import os
+    import queue
+    from logging.handlers import QueueListener
+
+    from app.utils.logs import queue_logging
+
+    live = QueueListener(queue.Queue(), logging.NullHandler())
+    monkeypatch.setattr(queue_logging, "_listener", live)
+    monkeypatch.setattr(queue_logging, "_listener_pid", os.getpid())
+    assert queue_logging.restart_queue_listener_after_fork() is False
+    assert queue_logging._listener is live
 
 
 def test_worker_process_init_restarts_the_listener(monkeypatch):

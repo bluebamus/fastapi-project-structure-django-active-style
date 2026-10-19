@@ -28,6 +28,7 @@
 
 from __future__ import annotations
 
+import os
 import queue
 import threading
 from logging.handlers import QueueHandler, QueueListener
@@ -74,6 +75,8 @@ class BoundedQueueHandler(QueueHandler):
 # 프로세스당 하나. `python main.py` 와 `uvicorn main:app` 양쪽에서 bootstrap 이
 # **정확히 한 번** 일어나야 하므로 모듈 전역에 둔다.
 _listener: QueueListener | None = None
+# listener 를 시작한 프로세스. fork 한 자식인지(스레드가 없는지) 이것으로 안다.
+_listener_pid: int | None = None
 _lock = threading.Lock()
 
 
@@ -87,7 +90,7 @@ def start_queue_listener(handler: BoundedQueueHandler | None) -> bool:
     Returns:
         이번 호출이 listener 를 **새로 시작했으면** True.
     """
-    global _listener
+    global _listener, _listener_pid
     if handler is None:
         return False
     with _lock:
@@ -98,6 +101,7 @@ def start_queue_listener(handler: BoundedQueueHandler | None) -> bool:
             return False
         listener.start()
         _listener = listener
+        _listener_pid = os.getpid()
         return True
 
 
@@ -106,18 +110,20 @@ def restart_queue_listener_after_fork() -> bool:
 
     그대로 두면 자식의 레코드는 아무도 비우지 않는 큐에 쌓이다 상한에서 버려진다(파일에 안 남음).
     같은 큐·같은 파일 핸들러로 새 listener 를 시작한다. 자식은 이 시점에 단일 스레드라 잠금을 쓰지 않는다.
+    solo 풀은 같은 신호를 **같은 프로세스**에서 보낸다 — listener 를 시작한 프로세스면 아무것도 하지 않는다.
 
     Returns:
-        새 listener 를 시작했으면 True(파일 로그가 없는 환경이면 False).
+        새 listener 를 시작했으면 True(파일 로그가 없거나 같은 프로세스면 False).
     """
-    global _listener
+    global _listener, _listener_pid
     inherited = _listener
-    if inherited is None:
+    if inherited is None or _listener_pid == os.getpid():
         return False
     _listener = QueueListener(
         inherited.queue, *inherited.handlers, respect_handler_level=inherited.respect_handler_level
     )
     _listener.start()
+    _listener_pid = os.getpid()
     return True
 
 
