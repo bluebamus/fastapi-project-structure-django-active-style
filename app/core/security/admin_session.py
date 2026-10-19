@@ -42,6 +42,10 @@ ADMIN_SESSION_COOKIE = "admin_session"
 ADMIN_SESSION_PATH = "/admin"
 # 로그인 성공 등 세션 ID 를 새로 발급해야 할 때 scope 에 세우는 표시(``rotate_session``).
 _ROTATE_FLAG = "admin_session.rotate"
+# 이 요청의 세션 저장소 — 관리 화면 코드(예: UserAdmin 의 폐기 훅)가 ``session_store_of`` 로 꺼낸다.
+_STORE_KEY = "admin_session.store"
+# 요청 안의 폐기가 Redis 오류로 실패했다는 표시 — 응답을 503 으로 바꾼다(``revoke_user_sessions``).
+_REVOKE_FAILED = "admin_session.revoke_failed"
 STORE_UNAVAILABLE_MESSAGE = "관리 세션 저장소(Redis)를 사용할 수 없습니다. 잠시 후 다시 시도하세요."
 
 
@@ -104,8 +108,14 @@ class AdminSessionStore:
             return None
         return record
 
-    async def save(self, sid: str, data: dict[str, Any], created_at: float) -> None:
-        """내용을 쓰고 TTL 을 다시 맞춘다. 로그인한 세션이면 사용자 인덱스에 올린다."""
+    async def save(
+        self, sid: str, data: dict[str, Any], created_at: float, *, create: bool = False
+    ) -> None:
+        """내용을 쓰고 TTL 을 다시 맞춘다. 로그인한 세션이면 사용자 인덱스에 올린다.
+
+        ``create=False``(기존 세션)는 키가 아직 있을 때만 쓴다(``SET XX``) — 같은 요청 안에서
+        폐기된 세션(예: 관리 화면에서 자기 자신을 강등)을 응답 끝의 저장이 되살리지 않게.
+        """
         ttl = self._ttl(created_at)
         user_id = data.get("user_id")
         if ttl <= 0:
@@ -113,12 +123,13 @@ class AdminSessionStore:
             return
         key = self.key(sid)
         payload = json.dumps({"data": data, "user_id": user_id, "created_at": created_at})
-        async with self._redis.pipeline(transaction=True) as pipe:
-            pipe.set(key, payload, ex=ttl)
-            if user_id:
+        if not await self._redis.set(key, payload, ex=ttl, xx=not create):
+            return
+        if user_id:
+            async with self._redis.pipeline(transaction=True) as pipe:
                 pipe.sadd(self.user_key(user_id), key)
                 pipe.expire(self.user_key(user_id), self.max_age)
-            await pipe.execute()
+                await pipe.execute()
 
     async def touch(self, sid: str, created_at: float) -> None:
         """내용은 그대로 두고 미사용 만료만 다시 센다(절대 만료는 넘지 않는다)."""
@@ -142,6 +153,27 @@ class AdminSessionStore:
         # redis-py 의 SMEMBERS 반환 타입은 동기·비동기 합집합이라 좁혀 준다.
         keys = await cast(Awaitable[set[bytes]], self._redis.smembers(user_key))
         await self._redis.delete(user_key, *keys)
+
+
+def session_store_of(request: Request) -> AdminSessionStore:
+    """이 요청에 ``RedisSessionMiddleware`` 가 쓰는 세션 저장소(관리 하위 앱 안에서만 있다)."""
+    store = request.scope.get(_STORE_KEY)
+    if not isinstance(store, AdminSessionStore):
+        raise RuntimeError("관리 세션 저장소가 없습니다 — /admin 하위 앱 밖에서 불렀다.")
+    return store
+
+
+async def revoke_user_sessions(request: Request, user_id: object) -> None:
+    """관리 화면 요청 안에서 그 사용자의 세션을 모두 폐기한다(``AdminSessionStore.revoke_user``).
+
+    Redis 오류는 다시 올리되, 먼저 이 응답을 503 으로 바꾸라고 표시한다 — sqladmin 은 모델
+    훅의 예외를 삼켜 400 폼·목록 오류로 그리므로, 표시가 없으면 폐기 실패가 성공처럼 지나간다.
+    """
+    try:
+        await session_store_of(request).revoke_user(user_id)
+    except RedisError:
+        request.scope[_REVOKE_FAILED] = True
+        raise
 
 
 def rotate_session(request: Request) -> None:
@@ -186,10 +218,13 @@ class RedisSessionMiddleware:
             record = await store.load(sid) if sid else None
             initial = dict(record.data) if record else {}
             scope["session"] = dict(initial)
+            scope[_STORE_KEY] = store
 
             async def send_wrapper(message: Message) -> None:
                 nonlocal started
                 if message["type"] == "http.response.start":
+                    if scope.get(_REVOKE_FAILED):
+                        raise RedisError("관리 세션 폐기 실패")
                     cookie = await self._commit(scope, store, sid, record, initial)
                     if cookie:
                         MutableHeaders(scope=message).append("Set-Cookie", cookie)
@@ -223,7 +258,7 @@ class RedisSessionMiddleware:
             if record is not None and sid:
                 await store.delete(sid, record.data.get("user_id"))
             new_sid = secrets.token_urlsafe(32)
-            await store.save(new_sid, session, store.now())
+            await store.save(new_sid, session, store.now(), create=True)
             return (
                 f"{ADMIN_SESSION_COOKIE}={new_sid}; path={ADMIN_SESSION_PATH}; "
                 f"Max-Age={store.max_age}{self._flags}"

@@ -612,7 +612,7 @@ async def test_planted_session_id_is_a_valid_admin_session(env):
     client, maker, redis, _ = env
     user_id = await _add_user(maker, "root")
     store = session_store(redis)
-    await store.save(SID, {"user_id": user_id}, store.now())
+    await store.save(SID, {"user_id": user_id}, store.now(), create=True)
 
     response = await client.get("/admin/", headers={"Cookie": f"{ADMIN_SESSION_COOKIE}={SID}"})
 
