@@ -42,6 +42,7 @@ import asyncio
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any, Final
 
 from sqlalchemy import URL, text
 from sqlalchemy.ext.asyncio import (
@@ -65,6 +66,14 @@ from config import db_settings
 logger = get_logger("database")
 
 
+# 모든 엔진이 펼치는 안전 옵션의 정본 (writer·reader·background·Alembic).
+# hide_parameters: DB 예외의 str()·SQLAlchemy 로그에서 바인드 값(이메일·해시·토큰 등)을 빼고
+# "[SQL parameters hidden due to hide_parameters=True]" 로 바꾼다. SQL 문은 남아 진단은 된다.
+# 값이 키워드 형태가 아니라 RedactingFilter 로는 못 지우므로 엔진에서 막는다.
+# 새 엔진을 만들면 반드시 `**ENGINE_SAFETY_OPTIONS` 를 넣는다 — tests/core/test_hide_parameters.py.
+ENGINE_SAFETY_OPTIONS: Final[dict[str, Any]] = {"hide_parameters": True}
+
+
 # =============================================================================
 # 메인 엔진 (FastAPI 요청용) = primary(writer)
 # =============================================================================
@@ -81,6 +90,7 @@ engine = create_async_engine(
     pool_timeout=30,  # 풀에서 연결 대기 시간 (초)
     pool_recycle=280,  # MySQL 기본 wait_timeout(28800s), 클라우드는 보통 300s
     pool_pre_ping=True,
+    **ENGINE_SAFETY_OPTIONS,
     pool_reset_on_return="rollback",  # 반환 시 롤백으로 세션 초기화
     connect_args={
         "connect_timeout": 10,  # DB 연결 타임아웃 (초)
@@ -111,6 +121,7 @@ def _create_read_engine(url: URL) -> AsyncEngine:
         pool_recycle=280,
         pool_pre_ping=True,
         pool_reset_on_return="rollback",
+        **ENGINE_SAFETY_OPTIONS,
         connect_args={
             "connect_timeout": 10,
             "charset": "utf8mb4",
@@ -170,6 +181,7 @@ background_engine = create_async_engine(
     pool_recycle=280,
     pool_pre_ping=True,
     pool_reset_on_return="rollback",
+    **ENGINE_SAFETY_OPTIONS,
     connect_args={
         "connect_timeout": 10,
         "charset": "utf8mb4",
