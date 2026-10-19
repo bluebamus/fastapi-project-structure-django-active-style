@@ -25,10 +25,14 @@ Note:
     관리 화면을 쓰지 않는 배포는 ADMIN_DISABLED=true 로 둔다.
 """
 
+from typing import Any
+
 from sqladmin import ModelView
 from sqladmin.filters import BooleanFilter
+from starlette.requests import Request
 
 from app.core.admin_filters import LocalDateFilter
+from app.core.security.admin_session import revoke_user_sessions
 from app.features.user.models.models import User
 
 
@@ -128,6 +132,42 @@ class UserAdmin(ModelView, model=User):
         User.created_at: "가입 시각",
         User.updated_at: "수정 시각",
     }
+
+    # =========================================================================
+    # 관리 세션 즉시 폐기 (admin-session-hardening ADR-007)
+    # =========================================================================
+    # 관리 화면에서 비활성화·슈퍼유저 해제·비밀번호 변경·삭제하면 그 사용자의 /admin 세션을
+    # 전부 지운다(다른 브라우저 포함, 자기 자신이면 지금 세션도). 일반 수정은 세션을 유지한다.
+    # 폐기는 커밋 뒤에 일어난다. Redis 오류면 응답이 503 이 된다(fail-closed — sqladmin 이 훅 예외를
+    # 삼켜도 ``revoke_user_sessions`` 의 표시를 세션 미들웨어가 본다). 변경 자체는 저장됐고,
+    # 매 요청 DB 확인이 다음 요청부터 그 사용자를 막는다.
+    async def on_model_change(
+        self, data: dict, model: Any, is_created: bool, request: Request
+    ) -> None:
+        # 폼 값을 넣기 전의 상태를 기억한다 — after_model_change 가 변경 전후를 비교한다.
+        request.state.user_before = {f: getattr(model, f, None) for f in _REVOKING_FIELDS}
+
+    async def after_model_change(
+        self, data: dict, model: Any, is_created: bool, request: Request
+    ) -> None:
+        before = getattr(request.state, "user_before", None)
+        if not is_created and before is not None and loses_admin_access(before, model):
+            await revoke_user_sessions(request, model.id)
+
+    async def after_model_delete(self, model: Any, request: Request) -> None:
+        await revoke_user_sessions(request, model.id)
+
+
+_REVOKING_FIELDS = ("is_active", "is_superuser", "hashed_password")
+
+
+def loses_admin_access(before: dict[str, Any], after: Any) -> bool:
+    """비활성화·슈퍼유저 해제·비밀번호 변경이면 참(관리 세션을 끊어야 한다)."""
+    return bool(
+        (before["is_active"] and not after.is_active)
+        or (before["is_superuser"] and not after.is_superuser)
+        or before["hashed_password"] != after.hashed_password
+    )
 
 
 # AppRegistry 가 이 모듈의 ``admin_views`` 를 자동으로 발견해 SQLAdmin 에 등록한다.

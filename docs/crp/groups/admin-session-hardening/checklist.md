@@ -17,3 +17,8 @@
 - [x] (F-004) 405 `Allow` 현행 유지 — ADR-006, R-706, log-redaction-fixes R-408
 - [x] 모든 문서 반영 — README(기능·환경 표·운영 확인 2b·관리 화면 절·문제 해결·CRP 목록)·ARCHITECTURE(§4·§10.3·§10.4·§14)·DEVELOPMENT(§9·§12)·admin-auth-guide.html(세션 구조·시퀀스·쿠키/Redis 키 표·만료·CSRF 흐름·위협 모델·문제 해결)·server-lifecycle-guide.html·CRP
 - [x] fail-on-revert(run-log), ruff·mypy, `pytest -m "not mysql"` skip 0(저장소 안 + `.env` 없는 클론), 게이트, 실기동 스모크
+## Round 2 — 2026-10-19 REQ-002(R-705 해소) — 완료 (브랜치 `fix/admin-ui-revoke`)
+- [x] sqladmin 0.32 훅 확인 — `_queries.py` 의 수정(`on_model_change` → 값 반영 → 커밋 → `after_model_change`)·삭제(`on_model_delete` → 커밋 → `after_model_delete`) 순서, `application.py` 의 edit·delete 가 훅 예외를 삼킴
+- [x] (F-007) `UserAdmin.on_model_change`·`after_model_change`·`after_model_delete`, `loses_admin_access`, `revoke_user_sessions`·`session_store_of`, 실패 표시 → 503, 기존 세션 저장 `SET XX`
+- [x] 문서 — admin-auth-guide 폐기 표·설명, README 관리 화면 절, CRP append(ADR-007, F-007, R-705 해소), docs/review 상태
+- [x] fail-on-revert(run-log Round 2), ruff·mypy, `pytest -m "not mysql"` skip 0(저장소 안 + `.env` 없는 클론)

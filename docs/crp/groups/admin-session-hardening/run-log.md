@@ -49,3 +49,21 @@
 - alembic head `a7c3e9f1b2d4` 단일(리비전 추가 없음).
 - 실기동 스모크(uvicorn 실제 HTTP + fakeredis TCP 서버 + SQLite 파일 DB, 저장소 밖 임시 스크립트): 로그인 302 → 쿠키 43자·사용자 id 없음 → Redis 키 `admin:sess:<64hex>` 1개(세션 ID 미포함) → 생성 토큰 없음 403 / 폼 토큰 302 → 삭제 토큰 없음 403 / 헤더 200 → 기간 필터(옛 기간 미표시·열린 구간 표시) 200 → GET 로그아웃 405 → POST 로그아웃 302 → 이전 쿠키 사본 302 /admin/login → Redis 세션 키 0개.
 - **수렴 판정:** `CONVERGED` (Open Fix 0)
+
+### Round 2 — 2026-10-19 — REQ-002 R-705 해소 (브랜치 `fix/admin-ui-revoke`, base main `0ba9d85`)
+- **Fix:** F-007 → **Fixed**(ADR-007, 커밋 `a8526ee`). `UserAdmin` 의 `on_model_change`·`after_model_change`·`after_model_delete`, `app/core/security/admin_session.py` 의 `session_store_of`·`revoke_user_sessions`·실패 표시 → 503·기존 세션 저장 `SET XX`.
+- **조사:** sqladmin 0.32 `_queries.py` — 수정은 `on_model_change` → 값 반영 → commit → `after_model_change`, 삭제는 `on_model_delete` → delete → commit → `after_model_delete`. `application.py` 의 edit·delete 는 `update_model`·`delete_model` 예외를 잡아 400 폼·목록 `error` 로 그린다 — 그래서 실패 표시를 미들웨어가 503 으로 바꾼다.
+- **동작이 바뀐 기존 테스트:** `test_planted_session_id_is_a_valid_admin_session` 이 새 세션을 `create=True` 로 심는다(기존 세션 저장은 키가 있을 때만 쓴다).
+- **fail-on-revert:** 대상 파일을 작업 폴더 밖 `admin-ui-revoke\backup\` 에 복사해 두고 변이 후 복원(복원 후 대상 57건 재실행 통과).
+
+| 되돌린 것 | 돌린 테스트 | 결과 |
+|---|---|---|
+| 수정 훅의 폐기 호출 제거 | `test_admin_ui_edit_revokes_every_session_of_that_user`(비활성화·강등) | 2 실패 |
+| 삭제 훅의 폐기 호출 제거 | `test_admin_ui_delete_revokes_every_session_of_that_user` | 실패 |
+| 변경 전후 비교 없이 항상 폐기 | `test_admin_ui_plain_edit_keeps_sessions` | 실패 |
+| 비밀번호 변경 비교 제거 | `test_password_change_through_the_admin_hooks_revokes_sessions` | 실패 |
+| 기존 세션 저장의 `SET XX` 제거 | `test_save_does_not_resurrect_a_revoked_session` | 실패(처음 고른 자기 강등 테스트는 세션 내용이 안 바뀌어 TTL 갱신 경로라 통과 — 저장 경로 테스트를 더했다) |
+| 미들웨어가 폐기 실패 표시를 안 봄 | `test_revoke_failure_is_503_not_silently_ignored` | 실패(수정 400·삭제 200 으로 삼켜짐) |
+
+- **검사:** ruff check·format --check 통과, mypy 206 파일 이상 없음, `pytest -m "not mysql"` 1304 passed · 44 deselected · skip 0(Round 1 대비 +8), `.env` 없는 저장소 밖 클론 같은 수, alembic 변경 없음.
+- **수렴 판정:** `CONVERGED` (Open Fix 0)

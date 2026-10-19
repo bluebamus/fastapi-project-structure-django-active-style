@@ -13,3 +13,4 @@
 | F-004 | — | REQ-001 "405 문제는 현행 유지한다" | — | Accept-out-of-scope | **Accepted** | Round 1 | 같은 경로를 메서드별 라우트로 나눈 경우 405 `Allow` 에 첫 라우트의 메서드만 실린다. 사용자 결정으로 유지(ADR-006, R-706). |
 | F-005 | — | Round 0 조사 | — | Wont-fix | **확인 — 해당 없음** | Round 1 | 비밀번호 변경 경로(API·관리 화면)가 없다 — `UserAdmin` 은 `hashed_password` 를 폼에서 제외하고 `create_superuser --set-password` 는 스크립트다. 폐기 훅을 걸 지점이 없어 문서에 "생기면 같은 훅" 으로 남겼다. |
 | F-006 | — | Round 0 조사 | — | Wont-fix | **확인 — 해당 없음** | Round 1 | 사용자 정의 `@action`(GET 라우트)은 이 저장소에 없다. 가져오기(`can_import`)를 켠 뷰도 없다 — 미들웨어·스크립트는 그래도 덮는다(헤더). |
+| F-007 | LOW | REQ-002, R-705 | INV-7 | Fix | **Fixed** | Round 2 | 관리 화면에서 사용자를 비활성화·강등·삭제해도 다른 브라우저 세션이 Redis 에 남아 다음 요청의 DB 확인까지 기다렸다. **조치:** `UserAdmin` 훅 + `revoke_user_sessions`(ADR-007). |

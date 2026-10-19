@@ -538,3 +538,154 @@ async def test_range_filter_template_renders_two_dates_and_quick_links(env):
     assert "data-range-start" in html and "data-range-end" in html
     assert 'name="created_at_op" value="range"' in html
     assert "created_at_op=range" in html and "최근 7일" in html
+
+
+# =============================================================================
+# 관리 화면 직접 수정·삭제의 즉시 폐기 (admin-session-hardening ADR-007, R-705 해소)
+# =============================================================================
+async def _target_with_two_browsers(env):
+    """운영자 root 로그인 + 대상 target 이 두 브라우저로 로그인한 상태."""
+    client, maker, redis, _, new_client = env
+    await _logged_in(env)
+    target_id = await _add_user(maker, "target")
+    browsers = [new_client(), new_client()]
+    for browser in browsers:
+        assert (await _login(browser, "target")).status_code == 302
+    assert len(await redis.smembers(f"admin:user_sessions:{target_id}")) == 2
+    return target_id, browsers
+
+
+async def _edit_user(client, user_id: str, **overrides) -> int:
+    """관리 화면 수정 폼 제출 — 체크박스는 값이 있으면 켜짐, None 이면 빠져 꺼짐."""
+    form = {
+        "username": "target",
+        "email": "target@example.com",
+        "is_active": "y",
+        "is_superuser": "y",
+        **overrides,
+    }
+    data = {k: v for k, v in form.items() if v is not None}
+    data |= {"save": "Save", "csrf_token": await page_token(client)}
+    return (await client.post(f"/admin/user/edit/{user_id}", data=data)).status_code
+
+
+async def _live_sessions(redis, user_id: str) -> tuple[int, int]:
+    """(사용자 인덱스 크기, 실제로 살아 있는 세션 키 수)."""
+    keys = await redis.smembers(f"admin:user_sessions:{user_id}")
+    alive = [key for key in keys if await redis.exists(key)]
+    return len(keys), len(alive)
+
+
+@pytest.mark.parametrize(
+    "change", [{"is_active": None}, {"is_superuser": None}], ids=["deactivate", "demote"]
+)
+async def test_admin_ui_edit_revokes_every_session_of_that_user(env, change):
+    client, _, redis, *_ = env
+    target_id, browsers = await _target_with_two_browsers(env)
+
+    assert await _edit_user(client, target_id, **change) == 302
+
+    assert await _live_sessions(redis, target_id) == (0, 0)
+    for browser in browsers:
+        assert (await browser.get("/admin/")).status_code == 302
+    assert (await client.get("/admin/")).status_code == 200  # 운영자 세션은 그대로
+
+
+async def test_admin_ui_plain_edit_keeps_sessions(env):
+    client, _, redis, *_ = env
+    target_id, browsers = await _target_with_two_browsers(env)
+
+    assert await _edit_user(client, target_id, email="renamed@example.com") == 302
+
+    assert await _live_sessions(redis, target_id) == (2, 2)
+    for browser in browsers:
+        assert (await browser.get("/admin/")).status_code == 200
+
+
+async def test_admin_ui_delete_revokes_every_session_of_that_user(env):
+    client, _, redis, *_ = env
+    target_id, browsers = await _target_with_two_browsers(env)
+    token = await page_token(client)
+
+    response = await client.request(
+        "DELETE", f"/admin/user/delete?pks={target_id}", headers={"X-CSRF-Token": token}
+    )
+
+    assert response.status_code == 200
+    assert await _live_sessions(redis, target_id) == (0, 0)
+    for browser in browsers:
+        assert (await browser.get("/admin/")).status_code == 302
+
+
+async def test_password_change_through_the_admin_hooks_revokes_sessions(env):
+    """폼은 비밀번호를 노출하지 않는다 — 훅이 hashed_password 변경도 폐기 사유로 보는지 직접 본다."""
+    from starlette.requests import Request
+
+    from app.core.security import admin_session
+    from app.core.security.dependencies import get_password_hasher
+    from app.features.user.admin import UserAdmin
+    from app.features.user.models.models import User
+
+    _, maker, redis, *_ = env
+    target_id, browsers = await _target_with_two_browsers(env)
+    async with maker() as session:
+        user = await session.get(User, target_id)
+    request = Request({"type": "http", "state": {}, admin_session._STORE_KEY: session_store(redis)})
+    view = UserAdmin()
+
+    await view.on_model_change({}, user, False, request)
+    user.hashed_password = get_password_hasher().hash("another-horse-2")
+    await view.after_model_change({}, user, False, request)
+
+    assert await _live_sessions(redis, target_id) == (0, 0)
+    for browser in browsers:
+        assert (await browser.get("/admin/")).status_code == 302
+
+
+async def test_self_demotion_ends_the_current_session_too(env):
+    client, _, redis, *_ = env
+    root_id = await _logged_in(env)
+
+    status = await _edit_user(
+        client, root_id, username="root", email="root@example.com", is_superuser=None
+    )
+
+    assert status == 302
+    assert await redis.keys("admin:sess:*") == []  # 응답 끝의 저장이 세션을 되살리지 않았다
+    assert (await client.get("/admin/")).status_code == 302
+
+
+async def test_revoke_failure_is_503_not_silently_ignored(env, monkeypatch):
+    from app.features.user.models.models import User
+
+    client, maker, *_ = env
+    target_id, _ = await _target_with_two_browsers(env)
+
+    async def broken(self, user_id):
+        raise RedisConnectionError("down")
+
+    monkeypatch.setattr(AdminSessionStore, "revoke_user", broken)
+
+    assert await _edit_user(client, target_id, is_active=None) == 503
+    token = await page_token(client)
+    other = await _add_user(maker, "other")
+    deleted = await client.request(
+        "DELETE", f"/admin/user/delete?pks={other}", headers={"X-CSRF-Token": token}
+    )
+    assert deleted.status_code == 503  # 삭제 경로도 sqladmin 이 삼킨 오류를 성공으로 넘기지 않는다
+    async with maker() as session:
+        assert (await session.get(User, target_id)).is_active is False  # 변경은 커밋됐다
+
+
+async def test_save_does_not_resurrect_a_revoked_session():
+    """폐기된 세션을 같은 요청 끝의 저장(세션 내용이 바뀐 경우)이 되살리지 않는다(SET XX)."""
+    redis = FakeAsyncRedis()
+    store = session_store(redis)
+    await store.save("sid", {"user_id": "u1"}, store.now(), create=True)
+    await store.revoke_user("u1")
+
+    await store.save("sid", {"user_id": "u1", "csrf_token": "t"}, store.now())
+
+    assert await redis.keys("admin:*") == []
+    await store.save("sid", {"user_id": "u1"}, store.now(), create=True)  # 새 세션은 만든다
+    assert await redis.exists(store.key("sid"))

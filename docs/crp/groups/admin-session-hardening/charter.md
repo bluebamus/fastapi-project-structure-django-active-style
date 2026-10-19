@@ -60,3 +60,4 @@
 
 ## 4. 변경 이력
 - v0.1 (2026-10-19): 최초 작성. REQ-001 구현 완료 기준으로 기록.
+- v0.2 (2026-10-19): REQ-002(R-705 해소) — 인벤토리에 `app/features/user/admin.py`(폐기 훅), `app/core/security/admin_session.py`(`session_store_of`·`revoke_user_sessions`·`SET XX`) 추가. INV-7: 관리 화면 비활성화·슈퍼유저 해제·삭제·(훅 경유) 비밀번호 변경은 그 사용자의 세션 키·인덱스를 0 으로, 일반 수정은 유지, 자기 강등은 지금 세션도 끊고, 폐기 실패는 503, 폐기된 세션은 같은 요청의 저장으로 되살아나지 않는다. (검사: `tests/test_admin_session.py` 의 `test_admin_ui_*`·`test_password_change_through_the_admin_hooks_revokes_sessions`·`test_self_demotion_ends_the_current_session_too`·`test_revoke_failure_is_503_not_silently_ignored`·`test_save_does_not_resurrect_a_revoked_session`)
