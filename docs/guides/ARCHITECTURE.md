@@ -263,7 +263,7 @@ ASGI lifespan 진입
 | `middleware_settings` | `UserInfoMiddleware` (활성·제외 규칙·민감 query 키), `ClientIPResolver`(`TRUSTED_PROXY_HOPS`) |
 | `redis_settings` | startup Redis ping client, Celery broker/backend |
 | `jwt_settings` | `TokenService`(서명·검증·수명·iss/aud·leeway), 로그인·가입 rate limit(`AUTH_*`) |
-| `session_settings` | `SESSION_SECRET_KEY` 는 `/admin` 세션 쿠키(`admin_session`)의 서명 키이고 배포 게이트가 검사한다. `UserInfoMiddleware` 는 `SESSION_COOKIE_NAME` 쿠키를 session_id 로 **기록만** 한다. API 인증에 쓰는 쿠키 세션은 없다(§10.3) |
+| `session_settings` | `SESSION_SECRET_KEY` 는 `/admin` 관리 세션의 Redis 키 HMAC 키이고(`get_admin_session_store`) 배포 게이트가 검사한다. `ADMIN_SESSION_MAX_AGE_SECONDS`·`ADMIN_SESSION_IDLE_SECONDS` 가 관리 세션의 절대·미사용 만료다. `UserInfoMiddleware` 는 `SESSION_COOKIE_NAME` 쿠키를 session_id 로 **기록만** 한다. API 인증에 쓰는 쿠키 세션은 없다(§10.3) |
 | `api_settings` · `smtp_settings` · `upload_settings` | **선언만 있고 앱 코드가 쓰지 않는다.** |
 
 설정 클래스가 있다고 기능이 있는 것은 아닙니다. SMTP 발송·API 쿠키 세션·업로드 처리·Redis 캐시는
@@ -699,23 +699,36 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
   `verify_credentials`(Argon2·bcrypt 재해시·비활성 거부)를 쓰고, 슈퍼유저가 아니면 실패입니다. 실패
   사유는 구분하지 않습니다(400). 시도 수는 API 와 같은 `AUTH_LOGIN_*` 한도로 키를 따로 셉니다
   (`admin:rl:`, 초과 시 로그인 화면을 429 + `Retry-After` 로).
-- 세션은 `/admin` 하위 앱에만 붙은 starlette `SessionMiddleware` 의 서명 쿠키입니다 — 이름
-  `admin_session`, `Path=/admin`, `SameSite=Strict`, HttpOnly, 8시간, staging/production 은 Secure, 서명
-  키 `SESSION_SECRET_KEY`. 성공하면 세션을 비우고 사용자 id 만 넣습니다(세션 고정 방지). 매 요청 DB 를
-  다시 봐서 강등·비활성화는 다음 요청부터 막힙니다.
-- **세션은 관리 화면 전용입니다.** 메인 앱에는 `SessionMiddleware` 가 없고, API 보호 경로는 Bearer
+- 세션은 `/admin` 하위 앱에만 붙은 **Redis 서버 세션**입니다(`app/core/security/admin_session.py` —
+  저장소 `AdminSessionStore`, ASGI 미들웨어 `RedisSessionMiddleware`). 쿠키 `admin_session`(`Path=/admin`,
+  `SameSite=Strict`, HttpOnly, Max-Age=절대 만료, staging/production 은 Secure)에는 `secrets.token_urlsafe(32)`
+  세션 ID 만 있고, 내용 `{"data", "user_id", "created_at"}` 은 Redis `admin:sess:{HMAC-SHA256(SESSION_SECRET_KEY, ID)}`
+  에 있습니다(TTL = min(미사용, 절대 만료까지 남은 시간), 요청마다 갱신). 사용자별 인덱스
+  `admin:user_sessions:{user_id}` 로 한 사용자의 세션을 한 번에 지웁니다. 로그인 성공은 세션을 비우고
+  사용자 id·새 CSRF 토큰을 넣은 뒤 `rotate_session` 으로 **세션 ID 를 새로 발급하고 이전 키를 지웁니다**.
+  로그아웃·`authenticate` 거부는 키를 지우고, 사용자 서비스의 비활성화·강등·삭제는 refresh 폐기와 같은
+  지점에서 `AdminSessionStore.revoke_user` 를 부릅니다(`get_user_service` 가 주입, `ADMIN_DISABLED=true` 면
+  `None`). 매 요청 DB 확인도 유지합니다(이중 방어). Redis 오류는 503 입니다(fail-closed).
+- **세션은 관리 화면 전용입니다.** 메인 앱에는 세션 미들웨어가 없고, API 보호 경로는 Bearer
   토큰만 봅니다 — 관리 세션 쿠키로 API 를 호출해도 401 입니다. 회귀 가드: `tests/test_admin_login.py`
   의 세션 범위 테스트.
 - 로그인 화면은 `app/templates/admin/sqladmin/login.html`(Bootstrap 5.3.8 CSS, SRI 고정, JS 없음)이
   sqladmin 기본 화면을 덮어씁니다(`templates_dir` 의 FileSystemLoader 가 먼저 찾는다).
-- **로그인 폼 CSRF**(synchronizer token): 화면을 그릴 때 템플릿 전역 함수 `csrf_token(request)`
-  (`AdminAuthBackend.csrf_token`)가 세션에 `secrets.token_urlsafe(32)` 토큰을 두고 hidden 필드로 싣습니다.
-  POST 는 레이트 리밋·자격 확인 **전에** 폼 값과 세션 값을 `hmac.compare_digest` 로 비교해 없거나
-  다르면 403 으로 다시 그립니다. 로그인 성공의 `session.clear()` 가 토큰을 회전합니다. 로그인 이후
-  sqladmin 폼·GET 로그아웃은 대상이 아닙니다(`SameSite=Strict`·`Path=/admin`).
+- **CSRF**(synchronizer token, 세션에 하나): 템플릿 전역 함수 `csrf_token(request)`(`AdminAuthBackend.csrf_token`)
+  가 세션에 `secrets.token_urlsafe(32)` 토큰을 둡니다. 로그인 폼은 hidden 필드로 싣고 `login()` 이 레이트
+  리밋·자격 확인 **전에** `csrf_valid`(bytes `hmac.compare_digest`)로 비교합니다. 로그인 이후의 모든
+  POST·PUT·PATCH·DELETE(생성·수정·삭제·일괄 삭제·가져오기·로그아웃)는 하위 앱의 `AdminCsrfMiddleware` 가
+  헤더 `X-CSRF-Token` 또는 폼 필드 `csrf_token`(본문 버퍼링 후 receive 재생)을 같은 함수로 비교해 403 으로
+  막습니다(로그인 POST 는 건너뜀 — 검사는 한 번). 토큰은 `app/templates/admin/sqladmin/base.html`(원본
+  `sqladmin_original/base.html` 상속, `head_tail` 블록만 추가)의 meta 와 인라인 스크립트가 폼 제출·XHR·fetch
+  에 붙입니다. 로그아웃은 `_make_logout_post_only` 가 POST 전용으로 바꾸고(GET 405) 스크립트가 링크를
+  POST 폼으로 바꿉니다. sqladmin 원본이 어긋나면 `test_packaged_templates_still_fit_the_base_override` 가 실패합니다.
 - **목록 날짜 필터**: `created_at` 이 있는 모든 뷰가 core 의 `LocalDateFilter`(`app/core/admin_filters.py`)를
   씁니다. 입력 `YYYY-MM-DD` 를 `TIME_ZONE` 의 [자정, 다음 자정) 으로 보고 UTC aware 범위로 바꿔 질의합니다
-  (같은 날 / 이후(포함) / 이전(미포함)). 기본 `OperationColumnFilter` 는 `UTCDateTime` 을 날짜로 보지
+  (같은 날 / 이후(포함) / 이전(미포함) / 기간 `YYYY-MM-DD~YYYY-MM-DD` — 시작일 00:00 ≤ t < 종료일 다음날 00:00,
+  한쪽만 있으면 열린 구간, 역순·형식 오류는 필터 미적용). 전용 템플릿
+  `sqladmin/filters/local_date_filter.html`(sqladmin 이 필터 객체의 `template` 을 include 한다)이 날짜 입력
+  두 개를 한 값으로 합쳐 보내고, 빠른 선택(오늘·최근 7일·30일)은 기간 링크입니다. 기본 `OperationColumnFilter` 는 `UTCDateTime` 을 날짜로 보지
   못해 문자열을 바인딩하고 500 이 났습니다. 잘못된 입력은 필터 없이 목록을 보여 주고 WARNING 을 남깁니다.
 - `ADMIN_DISABLED=true` 면 `/admin` 이 아예 없습니다(404). sqladmin·관리 세션 미들웨어·인증 백엔드를
   만들지 않고 OpenAPI·`/docs`·오류 응답·헤더·기동 로그 어디에도 관리 경로가 나오지 않습니다
@@ -732,7 +745,7 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
 | 작성자 | 작성자 컬럼 도입 전의 글(`author_id` NULL)은 슈퍼유저만 수정한다. `author` 표시 이름은 작성 시점의 username 이라 이름을 바꿔도 따라가지 않는다 |
 | 참조 무결성 | `Reply.post_id` 는 FK 없는 문자열 — 게시글 존재 검증·삭제 전파 정책 없음 |
 | 로그인 보호 | 고정 창 rate limit(창 경계에서 최대 2배 통과, API·`/admin` 공통). 계정 잠금은 없다 |
-| 관리 세션 | 서명 쿠키라 서버 쪽 폐기 목록이 없다 — 로그아웃은 브라우저 쿠키를 비울 뿐이고, 복사된 쿠키 값은 만료(8시간)까지 서명상 유효하다(매 요청 DB 확인으로 강등·비활성화만 즉시 끊긴다). 로그인 폼은 CSRF 토큰을 싣지만, 로그인 이후 sqladmin 폼·GET 로그아웃은 `SameSite=Strict` 에 의존한다 |
+| 관리 세션 | Redis 서버 세션 — 로그아웃·강등·비활성화·삭제는 서버에서 즉시 폐기된다. Redis 장애 중에는 관리 화면이 503 이다. sqladmin 의 사용자 정의 `@action` 은 GET 이라 CSRF 검사 대상이 아니다(이 저장소에는 없다). 관리 화면에서 직접 편집한 강등은 다음 요청의 DB 확인으로 끊긴다 |
 | 토큰 폐기 | refresh 는 family 단위로 폐기된다(재사용 탐지·로그아웃). access 토큰은 만료(기본 15분)까지 유효하다 |
 | 접속 로그 개인정보 | `query_string` 은 민감 키 값만 가리고 나머지와 `referer`·`session_id` 쿠키는 원문 저장한다 — **사용자 결정으로 유지**(log-redaction-fixes ADR-003). 보존 기간은 `ACCESS_LOG_RETENTION_DAYS`(기본 365일, beat 가 매일 삭제 — §7.1). 조회 API 는 슈퍼유저 전용 |
 | CORS | 기본 `CORS_ALLOW_ORIGINS=["*"]`, credentials false (staging/production 은 게이트가 `*` 를 거부) |
@@ -845,6 +858,7 @@ CI(`.github/workflows/ci.yml`)는 두 job 입니다: gate job 이 `static struct
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-19 | **admin-session-hardening**: 관리 세션을 서명 쿠키에서 Redis 서버 세션으로(세션 ID 회전·즉시 폐기·절대/미사용 만료, `ADMIN_SESSION_*`), 로그인 이후 모든 상태 변경 요청 CSRF·POST 로그아웃, 날짜 필터 기간 연산(§10.3·§10.4). `itsdangerous` 의존성 제거. |
 | 2026-10-19 | **security-ops-hardening**: 모든 엔진에 `hide_parameters=True`(정본 `ENGINE_SAFETY_OPTIONS`, §8.1). 접속 로그 보존 기간 `ACCESS_LOG_RETENTION_DAYS` 와 beat 배치 삭제(§7.1·§11). 관리 로그인 폼 CSRF 토큰, 관리 목록 `created_at` 날짜 필터(§10.3). |
 | 2026-10-13 | **log-redaction-fixes**: 로그 마스킹이 예외 traceback·체인·`stack_info`·`Bearer` 토큰까지 덮고 uvicorn CLI·Celery 워커 핸들러에도 붙는다(§5). Starlette `HTTPException` 의 헤더를 응답에 싣는다(§9). Redis 최소 버전 7.0 을 명령에서 도출해 기동 시 확인한다(§6). 커버리지 하한 기본 0(§13). |
 | 2026-09-17 | **문서 일관성 정리**: 개발 가이드를 `DEVELOPMENT.md` 로 이름을 바꾸고, 재구성 때 지웠던 HTML 안내서 2종(`server-lifecycle-guide.html`·`feature-development-guide.html`)을 현행 코드·이 문서와 맞춰 복원했다(표·목록 원문은 Markdown 이 소유). 코드 변경: blog·reply·sns·user 쓰기 핸들러를 "DTO 검증 → commit" 순서로 맞췄다. |
