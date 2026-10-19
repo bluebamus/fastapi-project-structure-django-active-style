@@ -37,16 +37,17 @@ _PRIVILEGED_FIELDS = frozenset({"is_active", "is_superuser"})
 
 
 async def revoke_user_access(
-    refresh_store: RefreshTokenStore,
+    refresh_store: RefreshTokenStore | None,
     admin_sessions: AdminSessionStore | None,
     user_id: str,
 ) -> None:
-    """사용자의 모든 접근을 끊는 **하나의 폐기 집합** — refresh family 와 /admin 관리 세션.
+    """사용자의 접근을 끊는 **하나의 폐기 함수** — refresh family 와 /admin 관리 세션(``None`` 은 건너뜀).
 
-    API(``UserService``)와 관리 화면(``UserAdmin``)이 같은 함수를 부른다(admin-session-hardening ADR-008).
+    API(``UserService``)와 관리 화면(``UserAdmin``)이 같은 함수를 부른다(admin-session-hardening ADR-008·ADR-009).
     두 곳 모두 DB 변경을 커밋하기 **전에** 부른다 — Redis 오류면 예외로 커밋을 막는다(fail-closed).
     """
-    await refresh_store.revoke_user(user_id)
+    if refresh_store is not None:
+        await refresh_store.revoke_user(user_id)
     if admin_sessions is not None:
         await admin_sessions.revoke_user(user_id)
 

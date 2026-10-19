@@ -85,6 +85,10 @@
 | 삭제 폐기를 커밋 뒤(`after_model_delete`)로 되돌림 | `test_revoke_failure_blocks_the_delete_commit` | 실패 |
 | 수정 폐기를 커밋 뒤(`after_model_change`)로 되돌림 | `test_revoke_failure_blocks_the_edit_commit`(2건) | 2 실패 |
 | 기존 세션 저장 `SET XX` 제거 | `test_save_does_not_resurrect_a_revoked_session` | 실패 |
+| (정정 F-009) 강등에도 refresh 폐기 | `test_admin_ui_edit_revokes_sessions_and_refresh_of_that_user`·`test_revocation_for_returns_both_sets_from_one_rule` | 2 실패 |
+| (정정 F-009) 강등을 관리 세션 폐기 조건에서 제외 | 같은 두 테스트 | 2 실패 |
+| (정정 F-009) refresh 판정을 무시하고 항상 refresh 폐기 | `test_admin_ui_edit_revokes_sessions_and_refresh_of_that_user` | 실패 |
 
-- **검사:** ruff check·format --check 통과, mypy 206 파일 이상 없음, `pytest -m "not mysql"` 1306 passed · 44 deselected · skip 0(Round 2 대비 +2), `.env` 없는 저장소 밖 클론 같은 수, review_gate static·structure·supply·docs 통과, alembic 변경 없음.
+- **감독자 정정(REQ-004, F-009):** 강등은 관리 세션만, 판정 `revocation_for` 하나가 두 집합을 돌려준다(ADR-009). API `UserService` 는 강등에도 refresh 를 폐기해 불일치 — R-707, 결정 대기.
+- **검사:** ruff check·format --check 통과, mypy 206 파일 이상 없음, `pytest -m "not mysql"` 1312 passed · 44 deselected · skip 0(Round 2 대비 +8), `.env` 없는 저장소 밖 클론 같은 수, review_gate static·structure·supply·docs 통과, alembic 변경 없음.
 - **수렴 판정:** `CONVERGED` (Open Fix 0)

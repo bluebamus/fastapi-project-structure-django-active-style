@@ -15,3 +15,4 @@
 | F-006 | — | Round 0 조사 | — | Wont-fix | **확인 — 해당 없음** | Round 1 | 사용자 정의 `@action`(GET 라우트)은 이 저장소에 없다. 가져오기(`can_import`)를 켠 뷰도 없다 — 미들웨어·스크립트는 그래도 덮는다(헤더). |
 | F-007 | LOW | REQ-002, R-705 | INV-7 | Fix | **Fixed** | Round 2 | 관리 화면에서 사용자를 비활성화·강등·삭제해도 다른 브라우저 세션이 Redis 에 남아 다음 요청의 DB 확인까지 기다렸다. **조치:** `UserAdmin` 훅 + `revoke_user_sessions`(ADR-007). |
 | F-008 | LOW | REQ-003, F-007 후속 | INV-7 | Fix | **Fixed** | Round 3 | F-007 의 관리 화면 폐기는 커밋 뒤라 Redis 오류 시 "DB 는 비활성화됨 + 세션은 살아 있음" 이 남았고(503 으로 알릴 뿐), API refresh 토큰은 끊지 않았다(UserService 와 폐기 집합이 달랐다). **조치:** 커밋 전 훅 + `revoke_user_access` 공유, 503 변환 장치 제거(ADR-008). |
+| F-009 | LOW | REQ-004(감독자 정정) | INV-7 | Fix | **Fixed** | Round 3 | F-008 직후 구현은 강등에도 API refresh 를 폐기했다. 강등된 사용자는 일반 사용자로 API 를 계속 쓰고 refresh 회전이 DB 권한으로 재발급하므로 과한 폐기였다. **조치:** `revocation_for` 하나가 관리 세션·refresh 두 집합을 돌려주고 강등은 관리 세션만(ADR-009). API `UserService` 와의 불일치는 R-707. |

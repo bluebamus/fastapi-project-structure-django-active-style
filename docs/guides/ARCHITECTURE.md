@@ -709,8 +709,9 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
   로그아웃·`authenticate` 거부는 키를 지우고, 사용자 서비스의 비활성화·강등·삭제는 refresh 폐기와 같은
   지점에서 `AdminSessionStore.revoke_user` 를 부릅니다(`get_user_service` 가 주입, `ADMIN_DISABLED=true` 면
   `None`). 관리 화면에서 직접 고친 경우는 `UserAdmin` 의 커밋 전 훅 `on_model_change`(비활성화·슈퍼유저 해제·비밀번호
-  해시 변경일 때만, 변경 전후 비교)·`on_model_delete` 가 `UserService` 와 같은 폐기 집합 `revoke_user_access`
-  (refresh family + 관리 세션)를 부릅니다. Redis 폐기가 실패하면 예외로 커밋이 막혀 DB 변경이 남지 않습니다(fail-closed).
+  해시 변경일 때만, 변경 전후 비교)·`on_model_delete` 가 `UserService` 와 같은 폐기 함수 `revoke_user_access`
+  를 부릅니다. 판정 함수 `revocation_for` 하나가 두 집합을 정합니다 — 관리 세션: 비활성화·슈퍼유저 해제·비밀번호
+  해시 변경·삭제, refresh: 비활성화·비밀번호 해시 변경·삭제(강등은 유지 — 회전 때 DB 권한으로 재발급). Redis 폐기가 실패하면 예외로 커밋이 막혀 DB 변경이 남지 않습니다(fail-closed).
   자기 강등은 지금 세션도 끊습니다. 매 요청 DB 확인도 유지합니다(이중 방어). Redis 오류는 503 입니다(fail-closed).
 - **세션은 관리 화면 전용입니다.** 메인 앱에는 세션 미들웨어가 없고, API 보호 경로는 Bearer
   토큰만 봅니다 — 관리 세션 쿠키로 API 를 호출해도 401 입니다. 회귀 가드: `tests/test_admin_login.py`

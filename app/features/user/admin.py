@@ -25,7 +25,7 @@ Note:
     관리 화면을 쓰지 않는 배포는 ADMIN_DISABLED=true 로 둔다.
 """
 
-from typing import Any
+from typing import Any, NamedTuple
 
 from sqladmin import ModelView
 from sqladmin.filters import BooleanFilter
@@ -138,9 +138,11 @@ class UserAdmin(ModelView, model=User):
     # =========================================================================
     # 접근 즉시 폐기 (admin-session-hardening ADR-008 — ADR-007 대체)
     # =========================================================================
-    # 관리 화면에서 비활성화·슈퍼유저 해제·비밀번호 해시 변경·삭제하면 그 사용자의 /admin 세션과
-    # API refresh 토큰을 전부 끊는다(``revoke_user_access`` — UserService 와 같은 폐기 집합). 다른 브라우저
-    # 포함, 자기 자신이면 지금 세션도. 일반 수정은 유지한다.
+    # 관리 화면에서 비활성화·슈퍼유저 해제·비밀번호 해시 변경·삭제하면 그 사용자의 /admin 세션을 전부
+    # 끊는다(다른 브라우저 포함, 자기 자신이면 지금 세션도). API refresh 토큰은 비활성화·비밀번호 해시
+    # 변경·삭제일 때만 끊는다 — 강등된 사용자는 일반 사용자로 API 를 계속 쓰고, refresh 회전이 DB 값으로
+    # 권한을 다시 발급한다(ADR-009). 판정은 ``revocation_for`` 하나, 폐기는 ``revoke_user_access`` 하나.
+    # 일반 수정은 둘 다 유지한다.
     # 커밋 **전** 훅(on_model_change·on_model_delete)에서 부른다 — sqladmin 0.32 는 이 훅을 세션 안,
     # commit 앞에서 부르므로 Redis 오류가 나면 예외가 commit 을 건너뛰고(롤백) sqladmin 이 오류를
     # 폼·목록에 그린다. "DB 는 비활성화됨 + 세션은 살아 있음" 이 남지 않는다.
@@ -151,30 +153,47 @@ class UserAdmin(ModelView, model=User):
             return
         before = {f: getattr(model, f, None) for f in _REVOKING_FIELDS}
         after = {f: data.get(f, before[f]) for f in _REVOKING_FIELDS}  # 폼에 없는 필드는 그대로
-        if loses_admin_access(before, after):
-            await _revoke(request, model.id)
+        await _revoke(request, model.id, revocation_for(before, after))
 
     async def on_model_delete(self, model: Any, request: Request) -> None:
-        await _revoke(request, model.id)
+        await _revoke(request, model.id, DELETED)
 
 
 _REVOKING_FIELDS = ("is_active", "is_superuser", "hashed_password")
 
 
-def loses_admin_access(before: dict[str, Any], after: dict[str, Any]) -> bool:
-    """비활성화·슈퍼유저 해제·비밀번호 해시 변경이면 참(접근을 끊어야 한다)."""
-    return bool(
-        (before["is_active"] and not after["is_active"])
-        or (before["is_superuser"] and not after["is_superuser"])
-        or before["hashed_password"] != after["hashed_password"]
+class Revocation(NamedTuple):
+    """끊을 것 — 관리 세션용 집합과 API refresh 용 집합."""
+
+    admin_sessions: bool
+    refresh: bool
+
+
+DELETED = Revocation(admin_sessions=True, refresh=True)
+
+
+def revocation_for(before: dict[str, Any], after: dict[str, Any]) -> Revocation:
+    """변경 전후로 끊을 것을 정한다(조건은 여기 한 곳).
+
+    - 비활성화·비밀번호 해시 변경: 관리 세션 + refresh
+    - 슈퍼유저 해제(강등): 관리 세션만 — refresh 는 유지(회전 때 DB 값으로 권한을 다시 발급한다)
+    """
+    deactivated = bool(before["is_active"] and not after["is_active"])
+    demoted = bool(before["is_superuser"] and not after["is_superuser"])
+    password_changed = before["hashed_password"] != after["hashed_password"]
+    return Revocation(
+        admin_sessions=deactivated or demoted or password_changed,
+        refresh=deactivated or password_changed,
     )
 
 
-async def _revoke(request: Request, user_id: str) -> None:
-    """이 요청의 Redis(세션 미들웨어의 저장소)로 refresh 저장소를 만들어 같은 폐기 집합을 부른다."""
+async def _revoke(request: Request, user_id: str, what: Revocation) -> None:
+    """이 요청의 Redis(세션 미들웨어의 저장소)로 refresh 저장소를 만들어 같은 폐기 함수를 부른다."""
+    if not (what.admin_sessions or what.refresh):
+        return
     sessions = session_store_of(request)
-    refresh = get_refresh_token_store(sessions.redis, get_token_service())
-    await revoke_user_access(refresh, sessions, user_id)
+    refresh = get_refresh_token_store(sessions.redis, get_token_service()) if what.refresh else None
+    await revoke_user_access(refresh, sessions if what.admin_sessions else None, user_id)
 
 
 # AppRegistry 가 이 모듈의 ``admin_views`` 를 자동으로 발견해 SQLAdmin 에 등록한다.
