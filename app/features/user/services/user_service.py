@@ -36,6 +36,21 @@ from app.features.user.schemas.user_schema import UserCreate, UserUpdate
 _PRIVILEGED_FIELDS = frozenset({"is_active", "is_superuser"})
 
 
+async def revoke_user_access(
+    refresh_store: RefreshTokenStore,
+    admin_sessions: AdminSessionStore | None,
+    user_id: str,
+) -> None:
+    """사용자의 모든 접근을 끊는 **하나의 폐기 집합** — refresh family 와 /admin 관리 세션.
+
+    API(``UserService``)와 관리 화면(``UserAdmin``)이 같은 함수를 부른다(admin-session-hardening ADR-008).
+    두 곳 모두 DB 변경을 커밋하기 **전에** 부른다 — Redis 오류면 예외로 커밋을 막는다(fail-closed).
+    """
+    await refresh_store.revoke_user(user_id)
+    if admin_sessions is not None:
+        await admin_sessions.revoke_user(user_id)
+
+
 class UserService(BaseService):
     """사용자 비즈니스 로직 (세션 기반)."""
 
@@ -57,9 +72,7 @@ class UserService(BaseService):
 
     async def _revoke_sessions(self, user_id: str) -> None:
         """refresh family 와 /admin 관리 세션을 모두 끊는다(비활성화·강등·삭제)."""
-        await self.refresh_store.revoke_user(user_id)
-        if self.admin_sessions is not None:
-            await self.admin_sessions.revoke_user(user_id)
+        await revoke_user_access(self.refresh_store, self.admin_sessions, user_id)
 
     async def create_user(self, data: UserCreate) -> User:
         """사용자를 생성한다. 사용자명 중복 시 UsernameDuplicateException."""
