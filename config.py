@@ -1014,12 +1014,6 @@ class SessionSettings(BaseSettings):
         description="/admin 관리 세션 미사용 만료(초, 절대 만료 이하)",
     )
 
-    # 세션 만료 시간 (초, 기본값 24시간)
-    SESSION_EXPIRE_SECONDS: int = Field(
-        default=86400,
-        description="세션 만료 시간(초)",
-    )
-
     @model_validator(mode="after")
     def _idle_within_max_age(self) -> "SessionSettings":
         """미사용 만료가 절대 만료보다 길면 미사용 만료는 의미가 없다 — 설정 실수로 본다."""
@@ -1028,143 +1022,6 @@ class SessionSettings(BaseSettings):
                 "ADMIN_SESSION_IDLE_SECONDS 는 ADMIN_SESSION_MAX_AGE_SECONDS 이하여야 합니다."
             )
         return self
-
-
-# =============================================================================
-# SMTP 이메일 설정
-# =============================================================================
-class SMTPSettings(BaseSettings):
-    """이메일 발송(SMTP) 설정.
-
-    Note:
-        이메일 발송 모듈은 아직 없다. 설정만 config 에 로드해 두고, 발송 기능을
-        구현할 때 `from config import smtp_settings` 로 가져다 쓴다.
-    """
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
-
-    # SMTP 서버 주소 (로컬 개발: localhost, Gmail: smtp.gmail.com)
-    SMTP_SERVER: str = Field(
-        default="localhost",
-        description="SMTP 서버 주소",
-    )
-
-    # SMTP 서버 포트 (25: 비암호화, 587: TLS, 465: SSL)
-    SMTP_PORT: int = Field(
-        default=25,
-        description="SMTP 서버 포트",
-    )
-
-    # SMTP 인증 사용자명 (보통 이메일 주소)
-    SMTP_USERNAME: str = Field(
-        default="",
-        description="SMTP 사용자명",
-    )
-
-    # SMTP 인증 비밀번호 (Gmail 은 앱 비밀번호 사용)
-    SMTP_PASSWORD: str = Field(
-        default="",
-        description="SMTP 비밀번호",
-    )
-
-    # 발신자 이메일 주소 (미설정 시 SMTP_USERNAME 사용)
-    SMTP_FROM_EMAIL: str | None = Field(
-        default=None,
-        description="발신자 이메일 주소",
-    )
-
-    # 발신자 이름 (미설정 시 PROJECT_NAME 사용)
-    SMTP_FROM_NAME: str | None = Field(
-        default=None,
-        description="발신자 이름",
-    )
-
-    # TLS 사용 여부 (포트 587)
-    SMTP_TLS: bool = Field(
-        default=False,
-        description="TLS 사용 여부",
-    )
-
-    # SSL 사용 여부 (포트 465)
-    SMTP_SSL: bool = Field(
-        default=False,
-        description="SSL 사용 여부",
-    )
-
-    @model_validator(mode="after")
-    def _reject_tls_with_ssl(self) -> "SMTPSettings":
-        """TLS 와 SSL 을 동시에 켜는 건 의미가 없다(포트별로 하나만 쓴다)."""
-        if self.SMTP_TLS and self.SMTP_SSL:
-            raise ValueError(
-                "SMTP_TLS 와 SMTP_SSL 은 동시에 켤 수 없습니다. "
-                "포트 587 이면 TLS, 465 면 SSL 하나만 사용하세요."
-            )
-        return self
-
-
-# =============================================================================
-# 이미지 업로드 설정
-# =============================================================================
-class UploadSettings(BaseSettings):
-    """파일·이미지 업로드 설정.
-
-    Note:
-        업로드 핸들러는 아직 없다. 설정만 config 에 로드해 둔다.
-    """
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
-
-    # 업로드 파일 저장 경로 (프로젝트 루트 기준 상대 경로)
-    UPLOAD_DIR: str = Field(
-        default="uploads",
-        description="업로드 파일 저장 경로",
-    )
-
-    # 업로드 이미지 최대 크기 (MB)
-    UPLOAD_IMAGE_SIZE_LIMIT: int = Field(
-        default=20,
-        description="업로드 이미지 최대 크기(MB)",
-    )
-
-    # 업로드된 이미지 자동 리사이즈 활성화
-    UPLOAD_IMAGE_RESIZE: bool = Field(
-        default=False,
-        description="이미지 자동 리사이즈 활성화",
-    )
-
-    # 리사이즈 최대 너비 (px, UPLOAD_IMAGE_RESIZE=true 시 적용)
-    UPLOAD_IMAGE_RESIZE_WIDTH: int = Field(
-        default=1200,
-        description="리사이즈 최대 너비(px)",
-    )
-
-    # 리사이즈 최대 높이 (px, UPLOAD_IMAGE_RESIZE=true 시 적용)
-    UPLOAD_IMAGE_RESIZE_HEIGHT: int = Field(
-        default=2800,
-        description="리사이즈 최대 높이(px)",
-    )
-
-    # 이미지 압축 품질 (0-100)
-    UPLOAD_IMAGE_QUALITY: int = Field(
-        default=85,
-        ge=0,
-        le=100,
-        description="이미지 압축 품질(0-100)",
-    )
-
-    # 허용되는 이미지 확장자
-    UPLOAD_ALLOWED_EXTENSIONS: list[str] = Field(
-        default=[".jpg", ".jpeg", ".png", ".gif", ".webp"],
-        description="허용 이미지 확장자",
-    )
 
 
 # =============================================================================
@@ -1230,18 +1087,6 @@ def get_session_settings() -> SessionSettings:
     return SessionSettings()
 
 
-@lru_cache
-def get_smtp_settings() -> SMTPSettings:
-    """SMTP 설정 인스턴스 반환 (캐싱)"""
-    return SMTPSettings()
-
-
-@lru_cache
-def get_upload_settings() -> UploadSettings:
-    """업로드 설정 인스턴스 반환 (캐싱)"""
-    return UploadSettings()
-
-
 # =============================================================================
 # 편의를 위한 전역 설정 인스턴스
 # =============================================================================
@@ -1257,8 +1102,6 @@ middleware_settings = get_middleware_settings()
 jwt_settings = get_jwt_settings()
 api_settings = get_api_settings()
 session_settings = get_session_settings()
-smtp_settings = get_smtp_settings()
-upload_settings = get_upload_settings()
 
 
 # =============================================================================
@@ -1360,9 +1203,8 @@ def validate_deployment_safety() -> None:
         - placeholder secret  : ``is_placeholder_secret`` 가 참인 서명·세션 키
         - 짧은 secret         : 서명·세션 키가 ``SECRET_KEY_MIN_LENGTH`` 미만
         - 같은 JWT 키         : access == refresh
-        - placeholder 비밀번호  : ``MYSQL_PASSWORD``(빈 값 포함) · ``REDIS_PASSWORD`` ·
-          ``SMTP_PASSWORD``. 뒤 둘은 빈 값이 정당한 구성(인증 없는 사설망 Redis,
-          메일 미사용)이라 **값이 있을 때만** 본다.
+        - placeholder 비밀번호  : ``MYSQL_PASSWORD``(빈 값 포함) · ``REDIS_PASSWORD``.
+          뒤의 것은 빈 값이 정당한 구성(인증 없는 사설망 Redis)이라 **값이 있을 때만** 본다.
 
     staging/production 만:
         - ``DEBUG=true``      : 상세 오류·문서 노출
@@ -1397,16 +1239,13 @@ def validate_deployment_safety() -> None:
         elif name != "MYSQL_PASSWORD" and len(value.strip()) < SECRET_KEY_MIN_LENGTH:
             problems.append(f"{name} 이 {SECRET_KEY_MIN_LENGTH}자보다 짧습니다. 새로 생성하세요.")
 
-    # 이 둘은 비어 있는 것이 정상 구성일 수 있다(인증 없는 사설망 Redis, 메일 미사용).
+    # Redis 비밀번호는 비어 있는 것이 정상 구성일 수 있다(인증 없는 사설망 Redis).
     # 빈 값을 위반으로 보면 멀쩡한 배포가 막히므로, **설정된 값이 예시일 때만** 잡는다.
-    for name, optional in (
-        ("REDIS_PASSWORD", redis_settings.REDIS_PASSWORD),
-        ("SMTP_PASSWORD", smtp_settings.SMTP_PASSWORD),
-    ):
-        if optional and is_placeholder_secret(optional):
-            problems.append(
-                f"{name} 이 기본 placeholder 입니다. 실제 값으로 바꾸거나, 쓰지 않으면 비우세요."
-            )
+    redis_password = redis_settings.REDIS_PASSWORD
+    if redis_password and is_placeholder_secret(redis_password):
+        problems.append(
+            "REDIS_PASSWORD 이 기본 placeholder 입니다. 실제 값으로 바꾸거나, 쓰지 않으면 비우세요."
+        )
 
     if jwt_settings.ACCESS_TOKEN_SECRET_KEY == jwt_settings.REFRESH_TOKEN_SECRET_KEY:
         # 같은 키로 서명하면 refresh 토큰이 access 토큰으로도 검증을 통과한다.

@@ -263,10 +263,10 @@ ASGI lifespan 진입
 | `middleware_settings` | `UserInfoMiddleware` (활성·제외 규칙·민감 query 키), `ClientIPResolver`(`TRUSTED_PROXY_HOPS`) |
 | `redis_settings` | startup Redis ping client, Celery broker/backend |
 | `jwt_settings` | `TokenService`(서명·검증·수명·iss/aud·leeway), 로그인·가입 rate limit(`AUTH_*`) |
-| `session_settings` | `SESSION_SECRET_KEY` 는 `/admin` 관리 세션의 Redis 키 HMAC 키이고(`get_admin_session_store`) 배포 게이트가 검사한다. `ADMIN_SESSION_MAX_AGE_SECONDS`·`ADMIN_SESSION_IDLE_SECONDS` 가 관리 세션의 절대·미사용 만료다. `UserInfoMiddleware` 는 `SESSION_COOKIE_NAME` 쿠키를 session_id 로 **기록만** 한다. API 인증에 쓰는 쿠키 세션은 없다(§10.3) |
-| `api_settings` · `smtp_settings` · `upload_settings` | **선언만 있고 앱 코드가 쓰지 않는다.** |
+| `session_settings` | `SESSION_SECRET_KEY` 는 `/admin` 관리 세션의 Redis 키 HMAC 키이고(`get_admin_session_store`) 배포 게이트가 검사한다. `ADMIN_SESSION_MAX_AGE_SECONDS`·`ADMIN_SESSION_IDLE_SECONDS` 가 관리 세션의 절대·미사용 만료다(기본값은 README [세션·토큰 만료](../../README.md#세션토큰-만료)). `UserInfoMiddleware` 는 `SESSION_COOKIE_NAME` 쿠키를 session_id 로 **기록만** 한다. API 인증에 쓰는 쿠키 세션은 없다(§10.3) |
+| `api_settings` | **선언만 있고 앱 코드가 쓰지 않는다.** |
 
-설정 클래스가 있다고 기능이 있는 것은 아닙니다. SMTP 발송·API 쿠키 세션·업로드 처리·Redis 캐시는
+설정 클래스가 있다고 기능이 있는 것은 아닙니다. API 쿠키 세션·Redis 캐시는
 구현돼 있지 않고, `API_VERSION` 을 바꿔도 라우터 prefix(`/v1/...`)는 바뀌지 않습니다.
 `LogSettings` 의 `LOG_CONSOLE_ENABLED`·`LOG_CONSOLE_FORMAT`·`LOG_FILE_FORMAT`·`LOG_DATE_FORMAT` 도
 현재 로깅 구성에서 읽지 않습니다(§5).
@@ -277,7 +277,6 @@ ASGI lifespan 진입
 |---|---|
 | `DatabaseSettings._validate_routing()` | 복제 활성인데 라우터가 꺼짐 / replica 목록이 빔 / 잘못된 replica host 표기 |
 | `CORSSettings._reject_wildcard_with_credentials()` | 와일드카드 Origin + credentials |
-| `SMTPSettings._reject_tls_with_ssl()` | `SMTP_TLS` 와 `SMTP_SSL` 동시 활성 |
 | `validate_env_source()` | `.env` 가 없으면 필수 값이 환경 변수로 와야 함(아래) |
 | `validate_deployment_safety()` | 아래 배포 게이트 |
 
@@ -298,8 +297,8 @@ test 외 **모든 ENV**(개발 환경 포함 — 기본값·예시 값 그대로
   옛 예시 파일의 `your-...-change-this` 형식도 여기에 걸린다. 32자 미만도 위반
 - access/refresh 서명 키가 같음
 - placeholder 인 `MYSQL_PASSWORD` — 같은 `is_placeholder_secret()` 판정이고, **빈 값도 위반**이다
-  (무인증 DB 계정). `REDIS_PASSWORD`·`SMTP_PASSWORD` 는 빈 값이 정당한 구성(인증 없는 사설망
-  Redis, 메일 미사용)이라 **값이 있을 때만** 본다
+  (무인증 DB 계정). `REDIS_PASSWORD` 는 빈 값이 정당한 구성(인증 없는 사설망 Redis)이라
+  **값이 있을 때만** 본다
 
 staging/production 만:
 
@@ -646,8 +645,7 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
 
 | 설정 | 기본값 |
 |---|---|
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | 15 |
-| `REFRESH_TOKEN_EXPIRE_DAYS` | 7 |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` / `REFRESH_TOKEN_EXPIRE_DAYS` | README [세션·토큰 만료](../../README.md#세션토큰-만료) 표 |
 | `JWT_ALGORITHM` | HS256 (HS256/HS384/HS512 만 허용) |
 | `JWT_ISSUER` / `JWT_AUDIENCE` | `fastapi-project-structure` / `fastapi-project-structure-api` |
 | `JWT_LEEWAY_SECONDS` | 10 |
@@ -862,6 +860,7 @@ CI(`.github/workflows/ci.yml`)는 두 job 입니다: gate job 이 `static struct
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-19 | **config-cleanup**: 읽는 코드가 없던 `SMTP_*`(`SMTPSettings`)·`UPLOAD_*`(`UploadSettings`)·`SESSION_EXPIRE_SECONDS` 를 삭제했다(남은 `.env` 줄은 `extra="ignore"` 로 무시). 세션·토큰 만료의 정본은 README 표 하나다. 사용처 없는 설정 필드가 다시 생기지 않게 계약 테스트를 더했다. |
 | 2026-10-19 | **admin-session-hardening**: 관리 세션을 서명 쿠키에서 Redis 서버 세션으로(세션 ID 회전·즉시 폐기·절대/미사용 만료, `ADMIN_SESSION_*`), 로그인 이후 모든 상태 변경 요청 CSRF·POST 로그아웃, 날짜 필터 기간 연산(§10.3·§10.4). `itsdangerous` 의존성 제거. |
 | 2026-10-19 | **security-ops-hardening**: 모든 엔진에 `hide_parameters=True`(정본 `ENGINE_SAFETY_OPTIONS`, §8.1). 접속 로그 보존 기간 `ACCESS_LOG_RETENTION_DAYS` 와 beat 배치 삭제(§7.1·§11). 관리 로그인 폼 CSRF 토큰, 관리 목록 `created_at` 날짜 필터(§10.3). |
 | 2026-10-13 | **log-redaction-fixes**: 로그 마스킹이 예외 traceback·체인·`stack_info`·`Bearer` 토큰까지 덮고 uvicorn CLI·Celery 워커 핸들러에도 붙는다(§5). Starlette `HTTPException` 의 헤더를 응답에 싣는다(§9). Redis 최소 버전 7.0 을 명령에서 도출해 기동 시 확인한다(§6). 커버리지 하한 기본 0(§13). |
