@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from typing import Any
 from zoneinfo import ZoneInfo
+
+from uvicorn.logging import AccessFormatter
 
 from config import timezone_settings
 
@@ -47,3 +50,13 @@ class TzFormatter(logging.Formatter):
         if not getattr(record, "classname", None):
             record.classname = "-"
         return super().format(record)
+
+
+class TzAccessFormatter(TzFormatter, AccessFormatter):
+    """uvicorn 접속 줄용 — args 5개를 client_addr·request_line·status_code 로 푸는 일은 uvicorn
+    ``AccessFormatter`` 가, 시각·시간대·tzname 은 ``TzFormatter`` 가 한다(R-804). 색은 끈다.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.use_colors = False

@@ -119,7 +119,11 @@ def setup_uvicorn_logging() -> dict:
         },
         "formatters": {
             "default": _formatter(log_settings.LOG_CONSOLE_FORMAT, use_utc=use_utc),
-            "access": _formatter(access_fmt, use_utc=use_utc),
+            # 접속 줄은 args 를 요청 라인 필드로 푸는 전용 포매터가 필요하다(R-804).
+            "access": {
+                **_formatter(access_fmt, use_utc=use_utc),
+                "()": "app.utils.logs.formatters.TzAccessFormatter",
+            },
         },
         "handlers": {}
         if not console

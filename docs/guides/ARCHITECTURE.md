@@ -328,7 +328,8 @@ staging/production 만:
   development 는 시각 끝에 `.밀리초` 를 붙입니다. 설정 로드 때 샘플 레코드를 한 번 렌더해 모르는 필드·괄호
   불일치·잘못된 지정자를 설정 오류로 막고, 빈 날짜 형식도 막습니다.
 - 적용 범위: 앱 root 의 콘솔·파일 핸들러, `python main.py` 의 uvicorn 로거(`setup_uvicorn_logging()` —
-  `uvicorn.access` 는 요청 라인 전용 형식을 유지하고 날짜 형식만 따름). `uvicorn main:app` CLI 와 Celery
+  `uvicorn.access` 는 요청 라인 전용 형식을 유지하고 날짜 형식만 따름 — 포매터 `TzAccessFormatter` 가 uvicorn
+  `AccessFormatter` 처럼 args 를 요청 라인으로 풀고 시각은 `TzFormatter` 로 찍는다). `uvicorn main:app` CLI 와 Celery
   워커가 스스로 세운 콘솔 핸들러는 각자의 기본 형식을 그대로 씁니다(기본 출력 유지).
 - 콘솔 on/off: `LOG_CONSOLE_ENABLED=false` 면 콘솔 핸들러를 붙이지 않습니다. 판단은
   `app/utils/logs/config.py` 의 `console_enabled()` 한 곳이고, 앱 root(`build_dictconfig()`)·
@@ -350,7 +351,9 @@ staging/production 만:
 **마스킹 범위.** 메시지만이 아니라 예외 traceback(체인 `raise … from` 포함)과 `stack_info` 도 같은
 규칙으로 가립니다. 필터가 `exc_info` 를 traceback 문자열로 미리 렌더해 `exc_text` 에 고정한 뒤 가리고,
 포매터는 `exc_text` 가 있으면 다시 만들지 않으므로 핸들러는 가린 본문을 찍습니다. 예외 타입·파일·줄 번호는
-남습니다. 정규식(정본)은 `app/utils/logs/filters.py` 의 `redact()` 하나이고, 우리 dictConfig 밖에서 생긴
+남습니다. 비밀값이 로그 인자 하나 안에 있으면 그 인자만 가려 args 모양을 지킵니다 — 접속 줄 포매터가 args 를
+풀어 요청 라인을 만들기 때문입니다(`?token=` 이 든 요청도 줄이 사라지지 않음). 틀과 인자에 걸쳐 있으면(`password=%s`)
+전개한 문자열을 가리고 args 를 비웁니다. 정규식(정본)은 `app/utils/logs/filters.py` 의 `redact()` 하나이고, 우리 dictConfig 밖에서 생긴
 핸들러에도 같은 필터를 답니다 — `uvicorn main:app`(CLI)이 앱 import 전에 세운 uvicorn 기본 핸들러는
 `configure_logging()` 이, Celery 워커가 root 를 가로채며 붙인 핸들러는 `after_setup_logger`·
 `after_setup_task_logger` 신호(`app/celery/worker_lifecycle.py`)가 붙입니다. SQLAlchemy 등 나머지
@@ -871,6 +874,7 @@ CI(`.github/workflows/ci.yml`)는 두 job 입니다: gate job 이 `static struct
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-19 | **config-cleanup R-804**: `python main.py` 의 uvicorn 접속 줄이 매번 logging 오류로 사라지던 결함(포매터가 args 를 요청 라인 필드로 풀지 못함)을 `TzAccessFormatter` 로 고쳤다. `?token=` 처럼 비밀값이 든 요청은 두 경로(`python main.py`·`uvicorn main:app`) 모두 마스킹이 args 를 비워 같은 오류가 났다 — 이제 인자 단위로 가린다(§5). |
 | 2026-10-19 | **config-cleanup 2차**: `API_VERSION`(`ApiSettings`)을 삭제했다(URL 버전은 router 의 `/v1/...`). `LOG_CONSOLE_FORMAT`·`LOG_FILE_FORMAT`·`LOG_DATE_FORMAT`·`LOG_CONSOLE_ENABLED` 를 로깅 구성에 연결했다 — 기본값은 기존 하드코딩 형식과 같고, 잘못된 형식은 기동 오류, 출력이 모두 꺼지면 stderr 경고(§5). 설정 사용 계약 테스트의 예외 목록을 없앴다. |
 | 2026-10-19 | **config-cleanup**: 읽는 코드가 없던 `SMTP_*`(`SMTPSettings`)·`UPLOAD_*`(`UploadSettings`)·`SESSION_EXPIRE_SECONDS` 를 삭제했다(남은 `.env` 줄은 `extra="ignore"` 로 무시). 세션·토큰 만료의 정본은 README 표 하나다. 사용처 없는 설정 필드가 다시 생기지 않게 계약 테스트를 더했다. |
 | 2026-10-19 | **admin-session-hardening**: 관리 세션을 서명 쿠키에서 Redis 서버 세션으로(세션 ID 회전·즉시 폐기·절대/미사용 만료, `ADMIN_SESSION_*`), 로그인 이후 모든 상태 변경 요청 CSRF·POST 로그아웃, 날짜 필터 기간 연산(§10.3·§10.4). `itsdangerous` 의존성 제거. |

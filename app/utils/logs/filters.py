@@ -131,10 +131,16 @@ class RedactingFilter(logging.Filter):
             message = record.getMessage()
         except Exception:  # pragma: no cover - 포매팅 실패는 로깅이 알아서 보고한다
             return True
-        redacted = redact(message)
-        if redacted != message:
-            record.msg = redacted
-            record.args = ()
+        if redact(message) != message:
+            # 비밀값이 인자 하나 안에 있으면 그 인자만 가려 args 모양을 지킨다 — uvicorn AccessFormatter 는
+            # 접속 줄의 args 5개를 풀어 요청 라인을 만든다(R-804). 틀과 인자에 걸쳐 있어
+            # (`password=%s`) 인자만으로 못 가리면 전개한 문자열을 가리고 args 를 비운다.
+            if isinstance(record.args, tuple):
+                record.args = tuple(redact(a) if isinstance(a, str) else a for a in record.args)
+            partial = record.getMessage()
+            if redact(partial) != partial:
+                record.msg = redact(message)
+                record.args = ()
         if record.exc_info and not record.exc_text:
             record.exc_text = _EXC_FORMATTER.formatException(record.exc_info)
         if record.exc_text:
