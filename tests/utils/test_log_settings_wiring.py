@@ -147,7 +147,7 @@ def test_file_format_shapes_file_lines(monkeypatch, tmp_path):
             for handler in listener.handlers:
                 handler.close()
 
-    app_log = next(p for p in tmp_path.iterdir() if p.name.endswith("_app.log"))
+    app_log = tmp_path / "app.log"  # logging-overhaul L5 — 웹 프로세스 파일
     assert re.fullmatch(
         r"F\|INFO\|\d{2}/\d{2}/\d{4}\|hello", app_log.read_text(encoding="utf-8").strip()
     )

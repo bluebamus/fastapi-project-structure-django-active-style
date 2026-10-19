@@ -18,7 +18,7 @@ from app.utils.logs.config import (
     console_enabled,
     file_enabled,
 )
-from app.utils.logs.filters import redact_handlers, set_secret_values
+from app.utils.logs.filters import known_app_names, redact_handlers, set_secret_values
 from app.utils.logs.queue_logging import BoundedQueueHandler, start_queue_listener
 from config import log_secret_values, log_settings
 
@@ -47,6 +47,12 @@ def configure_logging(force: bool = False) -> None:
             "[logging] 경고: LOG_CONSOLE_ENABLED=false 이고 파일 로그도 없어"
             f" (ENV={_env()}, LOG_FILE_ENABLED={log_settings.LOG_FILE_ENABLED})"
             " 로그가 어디에도 출력되지 않습니다.\n"
+        )
+    # 모르는 헤더는 경고만 한다 — 아직 없는 기능 이름을 미리 적어 둘 수 있다.
+    unknown = sorted(set(log_settings.get_app_levels()) - known_app_names())
+    if unknown:
+        logging.getLogger(__name__).warning(
+            "LOG_APP_LEVELS 에 모르는 헤더가 있습니다(무시하지 않고 그대로 둡니다): %s", unknown
         )
     # `uvicorn main:app`(CLI) 은 앱 import **전에** 자기 기본 핸들러를 uvicorn 로거에 붙인다
     # (propagate=False). 그 핸들러에도 같은 규칙(마스킹·콘솔 on/off)을 적용한다 — 안 그러면

@@ -144,9 +144,10 @@ def test_production_adds_rotating_file_handlers(monkeypatch, tmp_path):
 
     for name in ("file", "error_file"):
         handler = cfg["handlers"][name]
-        assert handler["class"] == "logging.handlers.RotatingFileHandler"
-        assert handler["backupCount"] == logs_config.log_settings.LOG_BACKUP_COUNT
-        assert handler["maxBytes"] == logs_config.log_settings.LOG_MAX_SIZE_MB * 1024 * 1024
+        # 날짜 + 크기 + 보관일수 (logging-overhaul L6)
+        assert handler["()"] == "app.utils.logs.handlers.DailyRotatingFileHandler"
+        assert handler["retention_days"] == logs_config.log_settings.LOG_RETENTION_DAYS
+        assert handler["max_bytes"] == logs_config.log_settings.LOG_MAX_SIZE_MB * 1024 * 1024
         # 핸들러마다 컨텍스트 필터가 붙어야 appname/classname 이 채워진다.
         assert handler["filters"] == ["context", "redact"]
         assert str(tmp_path) in handler["filename"]

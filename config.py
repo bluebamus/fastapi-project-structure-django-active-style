@@ -586,6 +586,23 @@ LOG_REQUIRED_FIELDS = (
 )
 
 
+LOG_LEVEL_NAMES = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
+
+def _parse_app_levels(value: str) -> dict[str, str]:
+    """``"blog=DEBUG, celery=info"`` → ``{"blog": "DEBUG", "celery": "INFO"}``. 빈 항목은 건너뛴다."""
+    levels: dict[str, str] = {}
+    for item in filter(None, (part.strip() for part in value.split(","))):
+        name, sep, level = (s.strip() for s in item.partition("="))
+        if not sep or not name or level.upper() not in LOG_LEVEL_NAMES:
+            raise ValueError(
+                f"LOG_APP_LEVELS 항목 {item!r} 이 잘못됐습니다 — '헤더=레벨' 꼴, "
+                f"레벨은 {'/'.join(LOG_LEVEL_NAMES)} (예: blog=DEBUG,celery=INFO)"
+            )
+        levels[name] = level.upper()
+    return levels
+
+
 class LogSettings(BaseSettings):
     """
     로깅 설정
@@ -661,28 +678,29 @@ class LogSettings(BaseSettings):
         description="로그 디렉토리 경로",
     )
 
-    # 앱 로그 파일명 패턴 ({date}는 YYYY-MM-DD로 치환)
-    LOG_APP_FILENAME: str = Field(
-        default="{date}_app.log",
-        description="앱 로그 파일명 패턴",
-    )
+    # 파일 이름은 프로세스 종류가 정한다(설정 없음): 웹 app.log·error.log, Celery celery.log·celery-error.log.
+    # 매일 UTC 자정에 `app.log.YYYY-MM-DD` 로 교체된다(app/utils/logs/handlers.py).
 
-    # 에러 로그 파일명 패턴 ({date}는 YYYY-MM-DD로 치환)
-    LOG_ERROR_FILENAME: str = Field(
-        default="{date}_error.log",
-        description="에러 로그 파일명 패턴",
-    )
-
-    # 단일 로그 파일 최대 크기 (MB)
+    # 하루 안에서 이 크기(MB)를 넘으면 `app.log.YYYY-MM-DD.1`, `.2`… 로 나눈다. 0 이면 나누지 않는다.
     LOG_MAX_SIZE_MB: int = Field(
         default=10,
+        ge=0,
         description="로그 파일 최대 크기(MB)",
     )
 
-    # 보관할 백업 로그 파일 개수
-    LOG_BACKUP_COUNT: int = Field(
-        default=5,
-        description="백업 로그 파일 개수",
+    # 교체된 로그 파일 보관 일수. 교체 시점에 이보다 오래된 날짜 파일(분할 파일 포함)을 지운다.
+    # 0 = 지우지 않음. 음수는 설정 오류. (예전 LOG_BACKUP_COUNT 를 대체한다.)
+    LOG_RETENTION_DAYS: int = Field(
+        default=30,
+        ge=0,
+        description="로그 파일 보관 일수 (0 = 삭제 안 함)",
+    )
+
+    # 헤더(app=)별 최소 레벨. 예: "blog=DEBUG,celery=INFO,sqlalchemy=WARNING" (빈 값 허용).
+    # 지정 없는 헤더는 LOG_LEVEL 을 따른다. 잘못된 형식·레벨은 설정 오류, 모르는 헤더는 기동 시 경고만.
+    LOG_APP_LEVELS: str = Field(
+        default="",
+        description="헤더별 로그 레벨",
     )
 
     # === 포맷 설정 ===
@@ -735,6 +753,16 @@ class LogSettings(BaseSettings):
                 f"필수: {' '.join('{' + n + '}' for n in LOG_REQUIRED_FIELDS)}"
             )
         return value
+
+    @field_validator("LOG_APP_LEVELS")
+    @classmethod
+    def _app_levels_parse(cls, value: str) -> str:
+        _parse_app_levels(value)
+        return value
+
+    def get_app_levels(self) -> dict[str, str]:
+        """LOG_APP_LEVELS 를 ``{헤더: 레벨}`` 로 — 레벨은 대문자 표준 이름."""
+        return _parse_app_levels(self.LOG_APP_LEVELS)
 
     @field_validator("LOG_DATE_FORMAT")
     @classmethod

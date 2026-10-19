@@ -79,6 +79,13 @@ def _class_from_stack() -> str:
     return "-"
 
 
+def known_app_names() -> set[str]:
+    """헤더로 나올 수 있는 이름 — 고정 라벨 + ``app/features/*`` 기능 디렉터리(LOG_APP_LEVELS 경고용)."""
+    features = Path(__file__).resolve().parents[2] / "features"
+    found = {p.name for p in features.iterdir() if p.is_dir() and not p.name.startswith("_")}
+    return {"app", "core", "celery", "utils", "migrations", "ext", *_EXTERNAL_APPS.values(), *found}
+
+
 class ContextFilter(logging.Filter):
     """record 에 appname/classname 을 채운다."""
 
@@ -88,6 +95,23 @@ class ContextFilter(logging.Filter):
         if not getattr(record, "classname", None):
             record.classname = _class_from_stack()
         return True
+
+
+class AppLevelFilter(logging.Filter):
+    """헤더(``appname``)별 최소 레벨(LOG_APP_LEVELS) — ContextFilter 바로 뒤, 모든 핸들러에 둔다.
+
+    지정 없는 헤더는 ``default``(LOG_LEVEL)를 따른다. 로거 레벨은 전체 최솟값으로 내려 두어야
+    레코드가 여기까지 온다(``build_dictconfig``). Django 의 ``LOGGING["loggers"][이름]["level"]`` 자리다.
+    """
+
+    def __init__(self, levels: dict[str, str] | None = None, default: str = "NOTSET") -> None:
+        super().__init__()
+        names = logging.getLevelNamesMapping()
+        self.levels = {app: names[level] for app, level in (levels or {}).items()}
+        self.default = names[default]
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno >= self.levels.get(getattr(record, "appname", ""), self.default)
 
 
 # =============================================================================

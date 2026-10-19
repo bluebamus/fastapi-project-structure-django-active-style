@@ -4,8 +4,12 @@
 """
 
 import logging
+import os
 import re
 import sys
+import time
+from datetime import UTC, datetime, timedelta
+from logging.config import dictConfig
 
 import pytest
 from pydantic import ValidationError
@@ -193,3 +197,226 @@ def test_configure_logging_installs_secret_values(monkeypatch, secrets):
     monkeypatch.setattr(logs_setup, "start_queue_listener", lambda handler: False)
     logs_setup.configure_logging()
     assert "installed-secret-xyz" not in redact("k=installed-secret-xyz!")
+
+
+# =============================================================================
+# L4. 앱별 레벨 — LOG_APP_LEVELS
+# =============================================================================
+def test_app_levels_parse_and_validate():
+    settings = LogSettings(_env_file=None, LOG_APP_LEVELS=" blog=debug , celery=INFO,,")
+    assert settings.get_app_levels() == {"blog": "DEBUG", "celery": "INFO"}
+    assert LogSettings(_env_file=None, LOG_APP_LEVELS="").get_app_levels() == {}
+
+
+@pytest.mark.parametrize("value", ["blog=LOUD", "blog", "=INFO", "blog=INFO=x", "blog=10"])
+def test_bad_app_levels_are_a_settings_error(value):
+    with pytest.raises(ValidationError, match="LOG_APP_LEVELS"):
+        LogSettings(_env_file=None, LOG_APP_LEVELS=value)
+
+
+def _labeled(appname, level):
+    record = logging.LogRecord("x", level, __file__, 1, "m", (), None)
+    record.appname = appname
+    return record
+
+
+def test_app_level_filter_drops_records_below_the_header_level():
+    from app.utils.logs.filters import AppLevelFilter
+
+    f = AppLevelFilter(levels={"blog": "DEBUG", "sqlalchemy": "WARNING"}, default="INFO")
+    assert f.filter(_labeled("blog", logging.DEBUG))
+    assert not f.filter(_labeled("sqlalchemy", logging.INFO))
+    assert f.filter(_labeled("sqlalchemy", logging.WARNING))
+    assert not f.filter(_labeled("core", logging.DEBUG))  # 지정 없음 → LOG_LEVEL
+    assert f.filter(_labeled("core", logging.INFO))
+
+
+def _build(monkeypatch, tmp_path, env="production", **log):
+    from app.utils.logs import config as logs_config
+
+    monkeypatch.setattr(logs_config.app_settings, "ENV", env, raising=False)
+    monkeypatch.setattr(logs_config.log_settings, "LOG_DIR", str(tmp_path), raising=False)
+    for key, value in log.items():
+        monkeypatch.setattr(logs_config.log_settings, key, value, raising=False)
+    return logs_config.build_dictconfig()
+
+
+def test_root_level_is_lowered_to_the_minimum_and_filter_is_on_every_handler(monkeypatch, tmp_path):
+    cfg = _build(
+        monkeypatch, tmp_path, LOG_LEVEL="INFO", LOG_APP_LEVELS="blog=DEBUG", LOG_FILE_ENABLED=True
+    )
+    assert cfg["root"]["level"] == "DEBUG"
+    assert cfg["filters"]["app_levels"]["levels"] == {"blog": "DEBUG"}
+    assert cfg["filters"]["app_levels"]["default"] == "INFO"
+    for name in ("console", "queue"):
+        filters = cfg["handlers"][name]["filters"]
+        assert filters[:2] == ["context", "app_levels"], (name, filters)
+
+
+def test_app_levels_end_to_end(monkeypatch, tmp_path):
+    """blog=DEBUG 만 DEBUG 가 나오고, 다른 헤더는 LOG_LEVEL(INFO) 을 따른다."""
+    from tests.utils.test_log_redaction import (
+        _app_config_on_probe_logger,
+        _capture,
+        _isolated_loggers,
+    )
+
+    cfg = _build(
+        monkeypatch,
+        tmp_path,
+        env="development",
+        LOG_LEVEL="INFO",
+        LOG_CONSOLE_LEVEL="DEBUG",
+        LOG_APP_LEVELS="blog=DEBUG",
+    )
+    with _isolated_loggers("redaction-probe"):
+        dictConfig(_app_config_on_probe_logger(cfg))
+        probe = logging.getLogger("redaction-probe")
+        buf = _capture(probe)
+        probe.debug("app-debug")
+        probe.debug("blog-debug", extra={"appname": "blog"})
+        probe.info("app-info")
+    text = buf.getvalue()
+    assert "blog-debug" in text and "app-info" in text
+    assert "app-debug" not in text
+
+
+def test_unknown_app_level_header_only_warns(monkeypatch, caplog):
+    from app.utils.logs import setup as logs_setup
+
+    monkeypatch.setattr(logs_setup.log_settings, "LOG_APP_LEVELS", "blog=DEBUG,nosuchapp=INFO")
+    monkeypatch.setattr(logs_setup, "dictConfig", lambda cfg: None)
+    monkeypatch.setattr(logs_setup, "_configured", False)
+    monkeypatch.setattr(logs_setup, "start_queue_listener", lambda handler: False)
+    with caplog.at_level(logging.WARNING):
+        logs_setup.configure_logging()
+    warned = [r.getMessage() for r in caplog.records if "LOG_APP_LEVELS" in r.getMessage()]
+    assert len(warned) == 1, warned
+    assert "nosuchapp" in warned[0] and "'blog'" not in warned[0]
+
+
+# =============================================================================
+# L5. 파일 분할 — 프로세스별 + 에러
+# =============================================================================
+@pytest.mark.parametrize(
+    ("process", "main", "error"),
+    [("app", "app.log", "error.log"), ("celery", "celery.log", "celery-error.log")],
+)
+def test_file_names_follow_the_process_kind(monkeypatch, tmp_path, process, main, error):
+    from app.utils.logs import config as logs_config
+
+    monkeypatch.setattr(logs_config, "_process", process)
+    cfg = _build(monkeypatch, tmp_path, LOG_FILE_ENABLED=True)
+    assert os.path.basename(cfg["handlers"]["file"]["filename"]) == main
+    assert os.path.basename(cfg["handlers"]["error_file"]["filename"]) == error
+    for name in ("file", "error_file"):
+        handler = cfg["handlers"][name]
+        assert handler["()"] == "app.utils.logs.handlers.DailyRotatingFileHandler"
+        assert handler["retention_days"] == logs_config.log_settings.LOG_RETENTION_DAYS
+
+
+def test_set_process_rejects_unknown_kind():
+    from app.utils.logs import config as logs_config
+
+    with pytest.raises(ValueError):
+        logs_config.set_process("beat")
+
+
+# =============================================================================
+# L6. 회전 · 보관 — 날짜 + 크기 + 보관일수 (tmp 경로의 실제 파일)
+# =============================================================================
+def _handler(tmp_path, **kw):
+    from app.utils.logs.handlers import DailyRotatingFileHandler
+
+    handler = DailyRotatingFileHandler(str(tmp_path / "app.log"), **kw)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    return handler
+
+
+def _emit(handler, msg):
+    handler.emit(logging.LogRecord("x", logging.INFO, __file__, 1, msg, (), None))
+
+
+def _day(days_ago=0):
+    return (datetime.now(UTC).date() - timedelta(days=days_ago)).isoformat()
+
+
+def test_midnight_rollover_renames_to_the_previous_day(tmp_path):
+    handler = _handler(tmp_path)
+    try:
+        _emit(handler, "yesterday line")
+        handler.rolloverAt = int(time.time()) - 1  # 자정이 지났다
+        _emit(handler, "today line")
+    finally:
+        handler.close()
+    rolled = tmp_path / f"app.log.{_day(1)}"
+    assert rolled.read_text(encoding="utf-8").strip() == "yesterday line"
+    assert (tmp_path / "app.log").read_text(encoding="utf-8").strip() == "today line"
+    assert handler.rolloverAt > time.time()
+
+
+def test_size_overflow_splits_within_the_day(tmp_path):
+    handler = _handler(tmp_path, max_bytes=30)
+    try:
+        for i in range(4):
+            _emit(handler, f"line-{i}-xxxxxxxxxxxxxxx")  # 줄마다 25바이트 남짓 — 줄마다 넘친다
+    finally:
+        handler.close()
+    names = sorted(p.name for p in tmp_path.iterdir())
+    today = _day()
+    assert names == ["app.log", f"app.log.{today}", f"app.log.{today}.1", f"app.log.{today}.2"]
+    assert (tmp_path / f"app.log.{today}").read_text(encoding="utf-8").startswith("line-0")
+    assert (tmp_path / "app.log").read_text(encoding="utf-8").startswith("line-3")
+
+
+def _seed(tmp_path, *names):
+    for name in names:
+        (tmp_path / name).write_text("old\n", encoding="utf-8")
+
+
+def test_retention_keeps_exactly_n_days_and_deletes_older_including_splits(tmp_path):
+    _seed(
+        tmp_path,
+        f"app.log.{_day(7)}",
+        f"app.log.{_day(7)}.1",
+        f"app.log.{_day(8)}",
+        f"app.log.{_day(8)}.3",
+        f"app.log.{_day(30)}",
+        "error.log.2000-01-01",  # 다른 파일의 이력은 건드리지 않는다
+    )
+    handler = _handler(tmp_path, retention_days=7)
+    try:
+        _emit(handler, "a")
+        handler.rolloverAt = int(time.time()) - 1
+        _emit(handler, "b")
+    finally:
+        handler.close()
+    names = {p.name for p in tmp_path.iterdir()}
+    assert f"app.log.{_day(7)}" in names and f"app.log.{_day(7)}.1" in names
+    assert not {f"app.log.{_day(8)}", f"app.log.{_day(8)}.3", f"app.log.{_day(30)}"} & names
+    assert "error.log.2000-01-01" in names
+
+
+def test_retention_zero_deletes_nothing(tmp_path):
+    _seed(tmp_path, "app.log.2000-01-01", "app.log.2000-01-01.1")
+    handler = _handler(tmp_path, retention_days=0)
+    try:
+        _emit(handler, "a")
+        handler.rolloverAt = int(time.time()) - 1
+        _emit(handler, "b")
+    finally:
+        handler.close()
+    names = {p.name for p in tmp_path.iterdir()}
+    assert {"app.log.2000-01-01", "app.log.2000-01-01.1"} <= names
+
+
+def test_negative_retention_is_a_settings_error():
+    with pytest.raises(ValidationError, match="LOG_RETENTION_DAYS"):
+        LogSettings(_env_file=None, LOG_RETENTION_DAYS=-1)
+
+
+def test_removed_file_settings_are_gone():
+    fields = LogSettings.model_fields
+    for name in ("LOG_BACKUP_COUNT", "LOG_APP_FILENAME", "LOG_ERROR_FILENAME"):
+        assert name not in fields
+    assert fields["LOG_RETENTION_DAYS"].default == 30
