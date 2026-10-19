@@ -44,8 +44,6 @@ ADMIN_SESSION_PATH = "/admin"
 _ROTATE_FLAG = "admin_session.rotate"
 # 이 요청의 세션 저장소 — 관리 화면 코드(예: UserAdmin 의 폐기 훅)가 ``session_store_of`` 로 꺼낸다.
 _STORE_KEY = "admin_session.store"
-# 요청 안의 폐기가 Redis 오류로 실패했다는 표시 — 응답을 503 으로 바꾼다(``revoke_user_sessions``).
-_REVOKE_FAILED = "admin_session.revoke_failed"
 STORE_UNAVAILABLE_MESSAGE = "관리 세션 저장소(Redis)를 사용할 수 없습니다. 잠시 후 다시 시도하세요."
 
 
@@ -80,6 +78,11 @@ class AdminSessionStore:
         self.max_age = max_age
         self.idle = idle
         self._clock = clock
+
+    @property
+    def redis(self) -> Redis:
+        """이 저장소의 Redis 클라이언트 — 같은 요청에서 다른 저장소(refresh)를 만들 때 쓴다."""
+        return self._redis
 
     def now(self) -> float:
         return self._clock()
@@ -163,19 +166,6 @@ def session_store_of(request: Request) -> AdminSessionStore:
     return store
 
 
-async def revoke_user_sessions(request: Request, user_id: object) -> None:
-    """관리 화면 요청 안에서 그 사용자의 세션을 모두 폐기한다(``AdminSessionStore.revoke_user``).
-
-    Redis 오류는 다시 올리되, 먼저 이 응답을 503 으로 바꾸라고 표시한다 — sqladmin 은 모델
-    훅의 예외를 삼켜 400 폼·목록 오류로 그리므로, 표시가 없으면 폐기 실패가 성공처럼 지나간다.
-    """
-    try:
-        await session_store_of(request).revoke_user(user_id)
-    except RedisError:
-        request.scope[_REVOKE_FAILED] = True
-        raise
-
-
 def rotate_session(request: Request) -> None:
     """이 응답에서 세션 ID 를 새로 발급하고 이전 키를 지우라고 미들웨어에 알린다(세션 고정 방지)."""
     request.scope[_ROTATE_FLAG] = True
@@ -223,8 +213,6 @@ class RedisSessionMiddleware:
             async def send_wrapper(message: Message) -> None:
                 nonlocal started
                 if message["type"] == "http.response.start":
-                    if scope.get(_REVOKE_FAILED):
-                        raise RedisError("관리 세션 폐기 실패")
                     cookie = await self._commit(scope, store, sid, record, initial)
                     if cookie:
                         MutableHeaders(scope=message).append("Set-Cookie", cookie)

@@ -22,3 +22,10 @@
 - [x] (F-007) `UserAdmin.on_model_change`·`after_model_change`·`after_model_delete`, `loses_admin_access`, `revoke_user_sessions`·`session_store_of`, 실패 표시 → 503, 기존 세션 저장 `SET XX`
 - [x] 문서 — admin-auth-guide 폐기 표·설명, README 관리 화면 절, CRP append(ADR-007, F-007, R-705 해소), docs/review 상태
 - [x] fail-on-revert(run-log Round 2), ruff·mypy, `pytest -m "not mysql"` skip 0(저장소 안 + `.env` 없는 클론)
+## Round 3 — 2026-10-19 REQ-003(커밋 전 폐기·refresh 포함) — 완료 (브랜치 `fix/admin-ui-revoke-precommit`)
+- [x] sqladmin 0.32 `_queries.py` 확인 — `on_model_change`·`on_model_delete` 는 세션 안, commit 앞에서 불린다(예외 = 커밋 없음·롤백). `application.py` 의 edit·delete 는 그 예외를 400 폼·목록 `error` 로 그린다
+- [x] (F-010) R-707 결정 — 판정 `revocation_for`·폐기 `revoke_user_access` 를 `user_service.py` 한 곳으로, `UserService.update_user`·`delete_user` 도 사용, 강등도 refresh 폐기(ADR-010), API 비활성화의 family 폐기를 직접 보는 테스트 추가
+- [x] (F-009) 감독자 정정 — `revocation_for` 하나가 두 집합(관리 세션·refresh)을 돌려주고 강등은 관리 세션만, `revoke_user_access` 는 `None` 쪽 건너뜀, API `UserService` 불일치는 R-707
+- [x] (F-008) `UserAdmin.on_model_change`·`on_model_delete` 로 이동, `revoke_user_access`(refresh + 관리 세션) 공유, `AdminSessionStore.redis`, 503 변환 장치 제거, 변경 전후 비교·`SET XX` 유지
+- [x] 문서 — admin-auth-guide 실패 경로·폐기 표·설명, README, ARCHITECTURE, CRP append(ADR-007 Superseded → ADR-008, F-008, R-705 개정), docs/review 상태
+- [x] fail-on-revert(run-log Round 3), ruff·mypy, `pytest -m "not mysql"` skip 0(저장소 안 + `.env` 없는 클론)

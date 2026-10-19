@@ -67,3 +67,43 @@
 
 - **검사:** ruff check·format --check 통과, mypy 206 파일 이상 없음, `pytest -m "not mysql"` 1304 passed · 44 deselected · skip 0(Round 1 대비 +8), `.env` 없는 저장소 밖 클론 같은 수, alembic 변경 없음.
 - **수렴 판정:** `CONVERGED` (Open Fix 0)
+
+### Round 3 — 2026-10-19 — REQ-003 커밋 전 폐기·refresh 포함 (브랜치 `fix/admin-ui-revoke-precommit`, base main `d76e658`)
+- **Fix:** F-008 → **Fixed**(ADR-008, ADR-007 Superseded).
+- **조사:** sqladmin 0.32 `_queries.py` — `_update_async` 는 `async with session_maker()` 안에서 `on_model_change` → 값 반영 → `commit` → `after_model_change`, `_delete_async` 는 `on_model_delete` → `delete` → `commit` → `after_model_delete`. on_* 예외는 commit 전에 전파되고 세션 컨텍스트 종료로 롤백된다. `application.py` 의 edit 는 예외를 400 폼 오류로, delete 는 목록 `error` 파라미터로 그린다.
+- **503 변환 장치 판단:** 제거. 커밋 뒤 폐기에서는 실패가 "DB 변경됨 + 세션 살아 있음" 을 남겨 성공처럼 보이지 않게 503 으로 바꿔야 했지만, 커밋 전 폐기에서는 실패가 변경 자체를 막는다 — sqladmin 이 오류를 400·목록 오류로 그려도 상태는 일관되고 운영자에게 실패가 보인다. 지킬 것이 없는 장치라 `revoke_user_sessions`·`_REVOKE_FAILED`·미들웨어 검사를 지웠다.
+- **동작이 바뀐 기존 테스트:** R-705 절을 새 동작으로 교체 — 각 폐기 테스트가 refresh family 폐기도 보고, `test_revoke_failure_is_503_not_silently_ignored`(503 이지만 DB 커밋됨)는 `test_revoke_failure_blocks_the_edit_commit`(관리 세션·refresh 각각 실패 → 400, DB 그대로, 세션 그대로)·`test_revoke_failure_blocks_the_delete_commit`(목록 오류, 사용자 남음)으로 바꿨다. 비밀번호 테스트는 커밋 전 훅에 `data={"hashed_password": ...}` 를 넣는다(해시가 같으면 유지도 확인).
+- **fail-on-revert:** 대상 파일을 작업 폴더 밖 `admin-ui-precommit\backup\` 에 복사해 두고 변이 후 복원(복원 후 대상 60건 재실행 통과).
+
+| 되돌린 것 | 돌린 테스트 | 결과 |
+|---|---|---|
+| 커밋 전 수정 훅의 폐기 호출 제거 | `test_admin_ui_edit_revokes_sessions_and_refresh_of_that_user`(비활성화·강등) | 2 실패 |
+| 커밋 전 삭제 훅의 폐기 호출 제거 | `test_admin_ui_delete_revokes_sessions_and_refresh_of_that_user` | 실패 |
+| 변경 전후 비교 없이 항상 폐기 | `test_admin_ui_plain_edit_keeps_sessions_and_refresh` | 실패 |
+| 비밀번호 해시 비교 제거 | `test_password_hash_change_through_the_admin_hook_revokes_access` | 실패 |
+| 폐기 집합에서 refresh 제거 | 수정·삭제 폐기 테스트 3건 | 3 실패 |
+| 삭제 폐기를 커밋 뒤(`after_model_delete`)로 되돌림 | `test_revoke_failure_blocks_the_delete_commit` | 실패 |
+| 수정 폐기를 커밋 뒤(`after_model_change`)로 되돌림 | `test_revoke_failure_blocks_the_edit_commit`(2건) | 2 실패 |
+| 기존 세션 저장 `SET XX` 제거 | `test_save_does_not_resurrect_a_revoked_session` | 실패 |
+| (정정 F-009) 강등에도 refresh 폐기 | `test_admin_ui_edit_revokes_sessions_and_refresh_of_that_user`·`test_revocation_for_returns_both_sets_from_one_rule` | 2 실패 |
+| (정정 F-009) 강등을 관리 세션 폐기 조건에서 제외 | 같은 두 테스트 | 2 실패 |
+| (정정 F-009) refresh 판정을 무시하고 항상 refresh 폐기 | `test_admin_ui_edit_revokes_sessions_and_refresh_of_that_user` | 실패 |
+
+- **감독자 정정(REQ-004, F-009):** 강등은 관리 세션만, 판정 `revocation_for` 하나가 두 집합을 돌려준다(ADR-009). API `UserService` 는 강등에도 refresh 를 폐기해 불일치 — R-707, 결정 대기.
+- **검사:** ruff check·format --check 통과, mypy 206 파일 이상 없음, `pytest -m "not mysql"` 1312 passed · 44 deselected · skip 0(Round 2 대비 +8), `.env` 없는 저장소 밖 클론 같은 수, review_gate static·structure·supply·docs 통과, alembic 변경 없음.
+- **수렴 판정:** `CONVERGED` (Open Fix 0)
+### Round 4 — 2026-10-19 — REQ-005 R-707 결정 반영 (같은 브랜치 `fix/admin-ui-revoke-precommit`)
+- **Fix:** F-010 → **Fixed**(ADR-010, ADR-009 Superseded, R-707 해소). 판정 `revocation_for`·`Revocation`·`DELETED`·`REVOKING_FIELDS` 와 폐기 `revoke_user_access(..., what)` 를 `app/features/user/services/user_service.py` 로 옮기고, `UserService.update_user`(변경 전후 값)·`delete_user` 와 `UserAdmin` 이 같은 함수를 쓴다. 강등도 refresh 폐기.
+- **테스트:** 관리 화면 강등 기대값을 refresh 폐기로, 판정 표의 강등 행을 `(True, True)` 로 바꿨다. API 비활성화가 회전 거부에 기대지 않고 family 를 폐기하는지 보는 `tests/test_user_permissions.py::test_deactivation_revokes_the_family_itself` 를 더했다(기존 `test_deactivation_revokes_refresh_tokens` 는 폐기 없이도 회전의 비활성 거부로 통과해 비활성화 조건 변이를 잡지 못했다). `test_demotion_revokes_refresh_tokens` 는 그대로 통과.
+- **fail-on-revert(규칙 한 곳 변이가 두 경로를 모두 깨는지):**
+
+| 되돌린 것(`user_service.revocation_for`·`update_user`) | 깨진 테스트 | 결과 |
+|---|---|---|
+| 강등 조건 제거 | API `test_demotion_revokes_refresh_tokens` + 관리 화면 `test_admin_ui_edit_revokes_sessions_and_refresh_of_that_user`[demote] + 판정 표 | 3 실패(두 경로 모두) |
+| 비활성화 조건 제거 | API `test_deactivation_revokes_the_family_itself` + 관리 화면 [deactivate] | 2 실패(두 경로 모두) |
+| 강등 refresh 를 유지로 | API `test_demotion_revokes_refresh_tokens` + 관리 화면 [demote] | 2 실패(두 경로 모두) |
+| API 가 판정 대신 항상 폐기 | `test_profile_update_keeps_refresh_tokens` | 실패 |
+
+- **동작이 바뀐 기존 테스트:** `tests/test_update_noop.py` 의 가짜 엔티티에 `is_active`·`is_superuser`·`hashed_password` 를 더했다(`update_user` 가 변경 전 값으로 판정한다).
+- **검사:** ruff check·format --check 통과, mypy 206 파일 이상 없음, `pytest -m "not mysql"` 1313 passed · 44 deselected · skip 0(저장소 안·`.env` 없는 클론), review_gate static·structure·supply·docs 통과.
+- **수렴 판정:** `CONVERGED` (Open Fix 0)

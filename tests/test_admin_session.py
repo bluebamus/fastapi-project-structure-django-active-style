@@ -541,10 +541,11 @@ async def test_range_filter_template_renders_two_dates_and_quick_links(env):
 
 
 # =============================================================================
-# 관리 화면 직접 수정·삭제의 즉시 폐기 (admin-session-hardening ADR-007, R-705 해소)
+# 관리 화면 직접 수정·삭제의 즉시 폐기 — 커밋 전, 세션 + refresh
+# (admin-session-hardening ADR-008 — ADR-007 대체, R-705 해소)
 # =============================================================================
 async def _target_with_two_browsers(env):
-    """운영자 root 로그인 + 대상 target 이 두 브라우저로 로그인한 상태."""
+    """운영자 root 로그인 + 대상 target 이 두 브라우저로 로그인하고 API refresh family 하나를 가진 상태."""
     client, maker, redis, _, new_client = env
     await _logged_in(env)
     target_id = await _add_user(maker, "target")
@@ -552,7 +553,18 @@ async def _target_with_two_browsers(env):
     for browser in browsers:
         assert (await _login(browser, "target")).status_code == 302
     assert len(await redis.smembers(f"admin:user_sessions:{target_id}")) == 2
+    await _refresh_store(redis).register("jti-target", target_id, "fam-target")
     return target_id, browsers
+
+
+def _refresh_store(redis):
+    from app.core.security.dependencies import get_refresh_token_store, get_token_service
+
+    return get_refresh_token_store(redis, get_token_service())
+
+
+async def _refresh_revoked(redis) -> bool:
+    return await _refresh_store(redis).is_family_revoked("fam-target")
 
 
 async def _edit_user(client, user_id: str, **overrides) -> int:
@@ -576,34 +588,82 @@ async def _live_sessions(redis, user_id: str) -> tuple[int, int]:
     return len(keys), len(alive)
 
 
+async def _db_user(maker, user_id: str):
+    from app.features.user.models.models import User
+
+    async with maker() as session:
+        return await session.get(User, user_id)
+
+
 @pytest.mark.parametrize(
-    "change", [{"is_active": None}, {"is_superuser": None}], ids=["deactivate", "demote"]
+    ("change", "refresh_revoked"),
+    [({"is_active": None}, True), ({"is_superuser": None}, True)],
+    ids=["deactivate", "demote"],
 )
-async def test_admin_ui_edit_revokes_every_session_of_that_user(env, change):
-    client, _, redis, *_ = env
+async def test_admin_ui_edit_revokes_sessions_and_refresh_of_that_user(
+    env, change, refresh_revoked
+):
+    """비활성화·강등 모두 관리 세션 + refresh 폐기 — API UserService 와 같은 규칙(ADR-010)."""
+    client, maker, redis, *_ = env
     target_id, browsers = await _target_with_two_browsers(env)
 
     assert await _edit_user(client, target_id, **change) == 302
 
     assert await _live_sessions(redis, target_id) == (0, 0)
+    assert await _refresh_revoked(redis) is refresh_revoked
     for browser in browsers:
         assert (await browser.get("/admin/")).status_code == 302
     assert (await client.get("/admin/")).status_code == 200  # 운영자 세션은 그대로
+    user = await _db_user(maker, target_id)
+    assert (user.is_active, user.is_superuser) == (
+        "is_active" not in change,
+        "is_superuser" not in change,
+    )
 
 
-async def test_admin_ui_plain_edit_keeps_sessions(env):
-    client, _, redis, *_ = env
+@pytest.mark.parametrize(
+    ("before", "after", "expected"),
+    [
+        ((True, True, "h"), (False, True, "h"), (True, True)),  # 비활성화
+        (
+            (True, True, "h"),
+            (True, False, "h"),
+            (True, True),
+        ),  # 강등 — refresh 도 폐기(API 와 같은 규칙)
+        ((True, True, "h"), (True, True, "h2"), (True, True)),  # 비밀번호 해시 변경
+        ((True, True, "h"), (True, True, "h"), (False, False)),  # 일반 수정
+        ((False, False, "h"), (False, False, "h"), (False, False)),  # 이미 비활성·일반
+        ((True, False, "h"), (True, True, "h"), (False, False)),  # 승격은 폐기 아님
+    ],
+    ids=["deactivate", "demote", "password", "plain", "already-off", "promote"],
+)
+def test_revocation_for_returns_both_sets_from_one_rule(before, after, expected):
+    from app.features.user.services.user_service import DELETED, Revocation, revocation_for
+
+    keys = ("is_active", "is_superuser", "hashed_password")
+    result = revocation_for(
+        dict(zip(keys, before, strict=False)), dict(zip(keys, after, strict=False))
+    )
+
+    assert result == Revocation(*expected)
+    assert DELETED == Revocation(admin_sessions=True, refresh=True)
+
+
+async def test_admin_ui_plain_edit_keeps_sessions_and_refresh(env):
+    client, maker, redis, *_ = env
     target_id, browsers = await _target_with_two_browsers(env)
 
     assert await _edit_user(client, target_id, email="renamed@example.com") == 302
 
     assert await _live_sessions(redis, target_id) == (2, 2)
+    assert await _refresh_revoked(redis) is False
+    assert (await _db_user(maker, target_id)).email == "renamed@example.com"
     for browser in browsers:
         assert (await browser.get("/admin/")).status_code == 200
 
 
-async def test_admin_ui_delete_revokes_every_session_of_that_user(env):
-    client, _, redis, *_ = env
+async def test_admin_ui_delete_revokes_sessions_and_refresh_of_that_user(env):
+    client, maker, redis, *_ = env
     target_id, browsers = await _target_with_two_browsers(env)
     token = await page_token(client)
 
@@ -612,32 +672,34 @@ async def test_admin_ui_delete_revokes_every_session_of_that_user(env):
     )
 
     assert response.status_code == 200
+    assert "error=" not in response.text
+    assert await _db_user(maker, target_id) is None
     assert await _live_sessions(redis, target_id) == (0, 0)
+    assert await _refresh_revoked(redis) is True
     for browser in browsers:
         assert (await browser.get("/admin/")).status_code == 302
 
 
-async def test_password_change_through_the_admin_hooks_revokes_sessions(env):
-    """폼은 비밀번호를 노출하지 않는다 — 훅이 hashed_password 변경도 폐기 사유로 보는지 직접 본다."""
+async def test_password_hash_change_through_the_admin_hook_revokes_access(env):
+    """폼은 비밀번호를 노출하지 않는다 — 커밋 전 훅이 hashed_password 변경도 폐기 사유로 보는지 직접 본다."""
     from starlette.requests import Request
 
     from app.core.security import admin_session
     from app.core.security.dependencies import get_password_hasher
     from app.features.user.admin import UserAdmin
-    from app.features.user.models.models import User
 
     _, maker, redis, *_ = env
     target_id, browsers = await _target_with_two_browsers(env)
-    async with maker() as session:
-        user = await session.get(User, target_id)
-    request = Request({"type": "http", "state": {}, admin_session._STORE_KEY: session_store(redis)})
-    view = UserAdmin()
+    user = await _db_user(maker, target_id)
+    request = Request({"type": "http", admin_session._STORE_KEY: session_store(redis)})
+    new_hash = get_password_hasher().hash("another-horse-2")
 
-    await view.on_model_change({}, user, False, request)
-    user.hashed_password = get_password_hasher().hash("another-horse-2")
-    await view.after_model_change({}, user, False, request)
+    await UserAdmin().on_model_change({"email": user.email}, user, False, request)
+    assert await _live_sessions(redis, target_id) == (2, 2)  # 해시가 그대로면 유지
 
+    await UserAdmin().on_model_change({"hashed_password": new_hash}, user, False, request)
     assert await _live_sessions(redis, target_id) == (0, 0)
+    assert await _refresh_revoked(redis) is True
     for browser in browsers:
         assert (await browser.get("/admin/")).status_code == 302
 
@@ -655,9 +717,29 @@ async def test_self_demotion_ends_the_current_session_too(env):
     assert (await client.get("/admin/")).status_code == 302
 
 
-async def test_revoke_failure_is_503_not_silently_ignored(env, monkeypatch):
-    from app.features.user.models.models import User
+@pytest.mark.parametrize("failing", ["admin-sessions", "refresh"])
+async def test_revoke_failure_blocks_the_edit_commit(env, monkeypatch, failing):
+    """Redis 폐기가 실패하면 커밋하지 않는다 — "DB 는 비활성화됨 + 세션은 살아 있음" 이 남지 않는다."""
+    from app.core.security.refresh_store import RefreshTokenStore
 
+    client, maker, redis, *_ = env
+    target_id, browsers = await _target_with_two_browsers(env)
+
+    async def broken(self, user_id):
+        raise RedisConnectionError("down")
+
+    owner = AdminSessionStore if failing == "admin-sessions" else RefreshTokenStore
+    monkeypatch.setattr(owner, "revoke_user", broken)
+
+    status = await _edit_user(client, target_id, is_active=None)
+
+    assert status == 400  # sqladmin 이 훅 예외를 수정 폼 오류로 다시 그린다
+    assert (await _db_user(maker, target_id)).is_active is True  # 커밋되지 않았다
+    for browser in browsers:
+        assert (await browser.get("/admin/")).status_code == 200  # 세션도 그대로 — 일관된 상태
+
+
+async def test_revoke_failure_blocks_the_delete_commit(env, monkeypatch):
     client, maker, *_ = env
     target_id, _ = await _target_with_two_browsers(env)
 
@@ -665,16 +747,14 @@ async def test_revoke_failure_is_503_not_silently_ignored(env, monkeypatch):
         raise RedisConnectionError("down")
 
     monkeypatch.setattr(AdminSessionStore, "revoke_user", broken)
-
-    assert await _edit_user(client, target_id, is_active=None) == 503
     token = await page_token(client)
-    other = await _add_user(maker, "other")
-    deleted = await client.request(
-        "DELETE", f"/admin/user/delete?pks={other}", headers={"X-CSRF-Token": token}
+
+    response = await client.request(
+        "DELETE", f"/admin/user/delete?pks={target_id}", headers={"X-CSRF-Token": token}
     )
-    assert deleted.status_code == 503  # 삭제 경로도 sqladmin 이 삼킨 오류를 성공으로 넘기지 않는다
-    async with maker() as session:
-        assert (await session.get(User, target_id)).is_active is False  # 변경은 커밋됐다
+
+    assert response.status_code == 200 and "error=" in response.text  # 목록에 오류로 표시
+    assert await _db_user(maker, target_id) is not None  # 삭제가 커밋되지 않았다
 
 
 async def test_save_does_not_resurrect_a_revoked_session():

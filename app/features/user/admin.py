@@ -32,8 +32,16 @@ from sqladmin.filters import BooleanFilter
 from starlette.requests import Request
 
 from app.core.admin_filters import LocalDateFilter
-from app.core.security.admin_session import revoke_user_sessions
+from app.core.security.admin_session import session_store_of
+from app.core.security.dependencies import get_refresh_token_store, get_token_service
 from app.features.user.models.models import User
+from app.features.user.services.user_service import (
+    DELETED,
+    REVOKING_FIELDS,
+    Revocation,
+    revocation_for,
+    revoke_user_access,
+)
 
 
 class UserAdmin(ModelView, model=User):
@@ -134,40 +142,35 @@ class UserAdmin(ModelView, model=User):
     }
 
     # =========================================================================
-    # 관리 세션 즉시 폐기 (admin-session-hardening ADR-007)
+    # 접근 즉시 폐기 (admin-session-hardening ADR-008 — ADR-007 대체)
     # =========================================================================
-    # 관리 화면에서 비활성화·슈퍼유저 해제·비밀번호 변경·삭제하면 그 사용자의 /admin 세션을
-    # 전부 지운다(다른 브라우저 포함, 자기 자신이면 지금 세션도). 일반 수정은 세션을 유지한다.
-    # 폐기는 커밋 뒤에 일어난다. Redis 오류면 응답이 503 이 된다(fail-closed — sqladmin 이 훅 예외를
-    # 삼켜도 ``revoke_user_sessions`` 의 표시를 세션 미들웨어가 본다). 변경 자체는 저장됐고,
-    # 매 요청 DB 확인이 다음 요청부터 그 사용자를 막는다.
+    # 관리 화면에서 비활성화·슈퍼유저 해제·비밀번호 해시 변경·삭제하면 그 사용자의 /admin 세션과
+    # API refresh 토큰을 전부 끊는다(다른 브라우저 포함, 자기 자신이면 지금 세션도). 일반 수정은 유지.
+    # 판정 ``revocation_for``·폐기 ``revoke_user_access`` 는 API ``UserService`` 와 같은 함수다 — 이 저장소
+    # 안에서 관리 화면 경로 = API 경로(ADR-010).
+    # 커밋 **전** 훅(on_model_change·on_model_delete)에서 부른다 — sqladmin 0.32 는 이 훅을 세션 안,
+    # commit 앞에서 부르므로 Redis 오류가 나면 예외가 commit 을 건너뛰고(롤백) sqladmin 이 오류를
+    # 폼·목록에 그린다. "DB 는 비활성화됨 + 세션은 살아 있음" 이 남지 않는다.
     async def on_model_change(
         self, data: dict, model: Any, is_created: bool, request: Request
     ) -> None:
-        # 폼 값을 넣기 전의 상태를 기억한다 — after_model_change 가 변경 전후를 비교한다.
-        request.state.user_before = {f: getattr(model, f, None) for f in _REVOKING_FIELDS}
+        if is_created:
+            return
+        before = {f: getattr(model, f, None) for f in REVOKING_FIELDS}
+        after = {f: data.get(f, before[f]) for f in REVOKING_FIELDS}  # 폼에 없는 필드는 그대로
+        await _revoke(request, model.id, revocation_for(before, after))
 
-    async def after_model_change(
-        self, data: dict, model: Any, is_created: bool, request: Request
-    ) -> None:
-        before = getattr(request.state, "user_before", None)
-        if not is_created and before is not None and loses_admin_access(before, model):
-            await revoke_user_sessions(request, model.id)
-
-    async def after_model_delete(self, model: Any, request: Request) -> None:
-        await revoke_user_sessions(request, model.id)
+    async def on_model_delete(self, model: Any, request: Request) -> None:
+        await _revoke(request, model.id, DELETED)
 
 
-_REVOKING_FIELDS = ("is_active", "is_superuser", "hashed_password")
-
-
-def loses_admin_access(before: dict[str, Any], after: Any) -> bool:
-    """비활성화·슈퍼유저 해제·비밀번호 변경이면 참(관리 세션을 끊어야 한다)."""
-    return bool(
-        (before["is_active"] and not after.is_active)
-        or (before["is_superuser"] and not after.is_superuser)
-        or before["hashed_password"] != after.hashed_password
-    )
+async def _revoke(request: Request, user_id: str, what: Revocation) -> None:
+    """이 요청의 Redis(세션 미들웨어의 저장소)로 refresh 저장소를 만들어 같은 폐기 함수를 부른다."""
+    if not (what.admin_sessions or what.refresh):
+        return
+    sessions = session_store_of(request)
+    refresh = get_refresh_token_store(sessions.redis, get_token_service())
+    await revoke_user_access(refresh, sessions, user_id, what)
 
 
 # AppRegistry 가 이 모듈의 ``admin_views`` 를 자동으로 발견해 SQLAdmin 에 등록한다.

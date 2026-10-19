@@ -198,6 +198,18 @@ async def test_deactivation_revokes_refresh_tokens(client):
     assert (await _refresh(client, alice)).status_code == 401
 
 
+async def test_deactivation_revokes_the_family_itself(env):
+    """비활성화 시점에 family 가 폐기 표시된다 — refresh 회전의 비활성 거부에 기대지 않는다
+    (판정 규칙 revocation_for 의 비활성화 조건을 API 경로에서 직접 본다)."""
+    client, _, redis = env
+    alice_id, alice = await _signup(client, "alice")
+    url = f"/api/v1/user/users/{alice_id}"
+
+    await client.patch(url, json={"is_active": False}, headers=superuser_headers())
+
+    assert await redis.exists(f"auth:fam:{_family(alice)}:revoked")
+
+
 async def test_demotion_revokes_refresh_tokens(env):
     client, _, redis = env
     alice_id, alice = await _signup(client, "alice")
