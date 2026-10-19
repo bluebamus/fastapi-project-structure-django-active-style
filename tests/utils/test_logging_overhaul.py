@@ -3,6 +3,7 @@
 각 테스트는 실제 레코드·실제 파일로 확인한다. 회전·보관 테스트는 tmp 경로에서 실제 파일을 만든다.
 """
 
+import io
 import logging
 import os
 import re
@@ -420,3 +421,232 @@ def test_removed_file_settings_are_gone():
     for name in ("LOG_BACKUP_COUNT", "LOG_APP_FILENAME", "LOG_ERROR_FILENAME"):
         assert name not in fields
     assert fields["LOG_RETENTION_DAYS"].default == 30
+
+
+# =============================================================================
+# L1. 포맷 통일 — 앱 · python main.py · uvicorn main:app · Celery(메인+태스크), 콘솔·파일 모두
+#
+# 각 경로를 실제 순서대로 재현한다: 외부 도구가 먼저 자기 핸들러를 세우고(uvicorn LOGGING_CONFIG,
+# Celery 의 root·celery.task 핸들러), 그다음 우리 구성이 적용된다. 출력은 root 콘솔(버퍼)과 실제
+# 파일(tmp)에서 읽는다. 비밀값 원문(L7)이 어느 출력에도 없는지 같은 실행에서 본다.
+# =============================================================================
+LINE = re.compile(
+    r"\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{3})? \S+\] (?P<level>[A-Z]+) +"
+    r"\[app=(?P<app>[^\]]+)\] \[(?P<module>[^:\]]+):(?P<cls>[^:\]]+):(?P<func>[^:\]]+):\d+\] "
+    r"(?P<msg>.*)"
+)
+SITE_UVICORN = f"{SITE}/uvicorn/protocols/http/h11_impl.py"
+SITE_CELERY = f"{SITE}/celery/worker/strategy.py"
+DB_PASSWORD = "Db-Pass-Sentinel-91"
+DB_USER = "dbuser_sentinel"
+JWT_KEY = "jwt-access-key-sentinel-0123456789"
+EXTERNAL = ("uvicorn", "uvicorn.error", "uvicorn.access", "celery", "celery.task")
+
+
+def _external(logger_name, pathname, msg, args=(), func="send"):
+    record = logging.LogRecord(logger_name, logging.INFO, pathname, 7, msg, args, None, func)
+    logging.getLogger(logger_name).handle(record)
+
+
+def _lines(text):
+    lines = [line for line in text.splitlines() if line.strip()]
+    for line in lines:
+        assert LINE.fullmatch(line), f"프로젝트 형식이 아닌 줄: {line!r}"
+    return {LINE.fullmatch(line)["msg"]: LINE.fullmatch(line) for line in lines}
+
+
+@pytest.fixture
+def project_logging(monkeypatch, tmp_path):
+    """실제 configure_logging() 을 root 에 적용하고(파일 켬, tmp LOG_DIR) 끝나면 모두 되돌린다."""
+    import config
+    from app.utils.logs import config as logs_config
+    from app.utils.logs import queue_logging
+    from app.utils.logs import setup as logs_setup
+    from tests.utils.test_log_redaction import _isolated_loggers
+
+    monkeypatch.setattr(logs_config.app_settings, "ENV", "production", raising=False)
+    monkeypatch.setattr(logs_config.log_settings, "LOG_DIR", str(tmp_path), raising=False)
+    monkeypatch.setattr(logs_config.log_settings, "LOG_FILE_ENABLED", True, raising=False)
+    monkeypatch.setattr(logs_config.log_settings, "LOG_LEVEL", "INFO", raising=False)
+    monkeypatch.setattr(logs_config, "_process", "app")
+    monkeypatch.setattr(logs_setup, "_configured", False)
+    monkeypatch.setattr(config.db_settings, "MYSQL_PASSWORD", DB_PASSWORD)
+    monkeypatch.setattr(config.db_settings, "MYSQL_USER", DB_USER)
+    monkeypatch.setattr(config.jwt_settings, "ACCESS_TOKEN_SECRET_KEY", JWT_KEY)
+    with _isolated_loggers(*EXTERNAL):
+        try:
+            yield tmp_path
+        finally:
+            queue_logging.stop_queue_listener_sync()
+            logs_filters.set_secret_values([])
+
+
+def _console(buf):
+    from tests.utils.test_log_redaction import _capture
+
+    return _capture(logging.getLogger()) if buf is None else buf
+
+
+def _assert_no_secret(*texts):
+    for text in texts:
+        for secret in (DB_PASSWORD, DB_USER, JWT_KEY):
+            assert secret not in text, f"비밀값 원문이 남았다: {secret}"
+
+
+def test_web_paths_share_one_format_on_console_and_file(project_logging):
+    """앱 로거 · python main.py(uvicorn 설정 없음) · uvicorn main:app(CLI 기본 핸들러)."""
+    import uvicorn.config
+
+    from app.utils.logs import get_logger
+    from app.utils.logs import setup as logs_setup
+
+    dictConfig(uvicorn.config.LOGGING_CONFIG)  # uvicorn CLI 가 앱 import 전에 하는 일
+    logs_setup.configure_logging()
+    buf = _console(None)
+
+    get_logger("probe").info("app line user=%s pw=%s", DB_USER, DB_PASSWORD)
+    _external(
+        "uvicorn.access",
+        SITE_UVICORN,
+        '%s - "%s %s HTTP/%s" %d',
+        ("1.2.3.4:5", "GET", f"/p?k={JWT_KEY}", "1.1", 200),
+    )
+    _external("uvicorn.error", SITE_UVICORN, "Started server process")
+    logs_setup.configure_logging(force=True)  # listener 를 멈춰 파일을 flush 한다(재구성 경로)
+
+    console = buf.getvalue()
+    app_log = (project_logging / "app.log").read_text(encoding="utf-8")
+    _assert_no_secret(console, app_log)
+    for text in (console, app_log):
+        lines = _lines(text)
+        app_line = next(m for msg, m in lines.items() if msg.startswith("app line"))
+        assert (app_line["app"], app_line["module"]) == ("app", "test_logging_overhaul")
+        access = next(m for msg, m in lines.items() if msg.startswith("1.2.3.4:5"))
+        assert access["app"] == "uvicorn"
+        assert access["msg"] == '1.2.3.4:5 - "GET /p?k=*** HTTP/1.1" 200'
+        assert lines["Started server process"]["app"] == "uvicorn"
+    # CLI 기본 핸들러가 남아 같은 줄을 두 번 찍지 않는다.
+    assert console.count("Started server process") == 1
+    for name in ("uvicorn", "uvicorn.access"):
+        assert logging.getLogger(name).handlers == [] and logging.getLogger(name).propagate
+
+
+def test_celery_worker_and_task_lines_share_the_format(project_logging):
+    """Celery 워커 — root 를 가로챈 핸들러·--logfile·celery.task 핸들러를 거쳐도 같은 형식·헤더."""
+    from app.celery.worker_lifecycle import on_setup_logger
+    from app.utils.logs import config as logs_config
+    from app.utils.logs import setup as logs_setup
+
+    logs_setup.configure_logging()  # 워커도 app.celery.app import 때 한 번 구성된다
+    root = logging.getLogger()
+    logfile = project_logging / "worker.log"
+    # Celery 가 하는 일: root 핸들러를 비우고 자기 핸들러(콘솔 또는 --logfile)를 단다.
+    root.handlers[:] = [logging.StreamHandler(sys.stderr)]
+    task_logger = logging.getLogger("celery.task")
+    task_logger.handlers[:] = [logging.StreamHandler(sys.stderr)]
+    task_logger.propagate = False
+    on_setup_logger(logger=root, logfile=str(logfile))
+    on_setup_logger(logger=task_logger, logfile=str(logfile))
+    buf = _console(None)
+
+    assert logs_config._process == "celery"
+    _external(
+        "app.features.home.tasks",
+        "/x/app/features/home/tasks.py",
+        f"task ran secret={DB_PASSWORD}",
+        func="cleanup",
+    )
+    _external("celery.worker.strategy", SITE_CELERY, "Task received")
+    logs_setup.configure_logging(force=True)  # flush
+
+    console = buf.getvalue()
+    worker_log = logfile.read_text(encoding="utf-8")
+    celery_log = (project_logging / "celery.log").read_text(encoding="utf-8")
+    _assert_no_secret(console, worker_log, celery_log)
+    for text in (console, worker_log, celery_log):
+        lines = _lines(text)
+        assert lines["Task received"]["app"] == "celery"
+        task = next(m for msg, m in lines.items() if msg.startswith("task ran"))
+        assert (task["app"], task["func"]) == ("home", "cleanup")
+        assert console.count("Task received") == 1
+    assert not (project_logging / "app.log").exists() or "Task received" not in (
+        project_logging / "app.log"
+    ).read_text(encoding="utf-8")
+
+
+def test_python_main_passes_no_uvicorn_log_config():
+    """`python main.py` 는 uvicorn 에 자기 형식을 주지 않는다 — uvicorn 로거는 root(프로젝트 형식)로 간다."""
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path("main.py").read_text(encoding="utf-8"))
+    run = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "run"
+    )
+    log_config = next(k.value for k in run.keywords if k.arg == "log_config")
+    assert isinstance(log_config, ast.Constant) and log_config.value is None
+
+
+def test_warns_when_files_are_on_in_a_spawned_worker_process(monkeypatch, tmp_path, caplog):
+    """uvicorn --workers 2 이상은 워커를 spawn 한다 — 같은 파일을 여러 프로세스가 회전시킨다."""
+    import multiprocessing
+
+    from app.utils.logs import config as logs_config
+    from app.utils.logs import setup as logs_setup
+
+    monkeypatch.setattr(logs_config.app_settings, "ENV", "production", raising=False)
+    monkeypatch.setattr(logs_config.log_settings, "LOG_DIR", str(tmp_path), raising=False)
+    monkeypatch.setattr(logs_config.log_settings, "LOG_FILE_ENABLED", True, raising=False)
+    monkeypatch.setattr(logs_setup, "dictConfig", lambda cfg: None)
+    monkeypatch.setattr(logs_setup, "start_queue_listener", lambda handler: False)
+    for parent, warns in ((None, False), (object(), True)):
+        monkeypatch.setattr(multiprocessing, "parent_process", lambda p=parent: p)
+        monkeypatch.setattr(logs_setup, "_configured", False)
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            logs_setup.configure_logging()
+        found = [r for r in caplog.records if "여러 프로세스" in r.getMessage()]
+        assert bool(found) is warns
+
+
+def test_listener_is_restarted_after_fork():
+    """prefork 자식은 listener 스레드를 물려받지 못한다 — 같은 큐·핸들러로 다시 세운다."""
+    import queue
+    from logging.handlers import QueueListener
+
+    from app.utils.logs import queue_logging
+
+    io_buffer = io.StringIO()
+    buf_handler = logging.StreamHandler(io_buffer)
+    inherited = QueueListener(queue.Queue(), buf_handler)  # fork 로 복제된, 스레드 없는 listener
+    saved = queue_logging._listener
+    queue_logging._listener = inherited
+    try:
+        assert queue_logging.restart_queue_listener_after_fork() is True
+        inherited.queue.put_nowait(logging.makeLogRecord({"msg": "from-child"}))
+        queue_logging.stop_queue_listener_sync()
+    finally:
+        queue_logging._listener = saved
+    assert "from-child" in io_buffer.getvalue()
+
+
+def test_worker_process_init_restarts_the_listener(monkeypatch):
+    from app.celery import worker_lifecycle
+    from app.core.db import session as session_module
+    from app.utils.logs import queue_logging
+
+    class _Engine:
+        class sync_engine:  # noqa: N801
+            @staticmethod
+            def dispose(close=True):
+                return None
+
+    monkeypatch.setattr(session_module, "engine", _Engine, raising=False)
+    monkeypatch.setattr(session_module, "background_engine", _Engine, raising=False)
+    monkeypatch.setattr(session_module, "read_engines", [], raising=False)
+    calls = []
+    monkeypatch.setattr(queue_logging, "restart_queue_listener_after_fork", lambda: calls.append(1))
+    worker_lifecycle.on_worker_process_init()
+    assert calls == [1]

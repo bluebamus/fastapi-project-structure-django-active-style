@@ -75,8 +75,8 @@ def _min_level() -> str:
 def console_enabled() -> bool:
     """콘솔(stdout/stderr) 핸들러를 붙일지 — 콘솔을 만드는 **모든 경로**가 이 함수 하나만 본다.
 
-    앱 root(build_dictconfig)·`python main.py` 의 uvicorn(setup_uvicorn_logging)·
-    `uvicorn main:app` CLI 와 Celery 워커가 세운 핸들러(setup.adopt_external_handlers).
+    콘솔 핸들러는 root 에 하나뿐이다(build_dictconfig). uvicorn(두 실행 경로)·Celery 워커의 줄도
+    root 로 전파되므로(setup.adopt_external_handlers·configure_worker_logging) 같이 따른다.
     """
     return log_settings.LOG_CONSOLE_ENABLED
 
@@ -96,7 +96,12 @@ def _formatter(fmt: str, *, use_utc: bool, with_ms: bool = False) -> dict:
     }
 
 
-def build_dictconfig() -> dict:
+def build_dictconfig(logfile: str | None = None) -> dict:
+    """root 구성 — 모든 실행 경로가 이 핸들러 한 벌을 쓴다(logging-overhaul L1).
+
+    Args:
+        logfile: Celery ``--logfile``. 주면 파일 형식·필터로 root 에 직접 붙인다(ENV 무관).
+    """
     env = _env()
     level = _level()
     use_utc = env in ("production", "staging")
@@ -145,6 +150,16 @@ def build_dictconfig() -> dict:
             "filters": ["context", "app_levels", "sql_noise"],
         }
         root_handlers += ["queue"]
+
+    if logfile:
+        handlers["logfile"] = {
+            "class": "logging.handlers.WatchedFileHandler",  # Celery 가 --logfile 에 쓰는 것과 같다
+            "filename": logfile,
+            "encoding": "utf-8",
+            "formatter": "file",
+            "filters": ["context", "app_levels", "redact", "sql_noise"],
+        }
+        root_handlers.append("logfile")
 
     return {
         "version": 1,

@@ -13,7 +13,6 @@ from app.utils.logs import (
     LoggerMixin,
     TzFormatter,
     get_logger,
-    setup_uvicorn_logging,
 )
 from app.utils.logs import config as logs_config
 from app.utils.logs import setup as logs_setup
@@ -192,25 +191,6 @@ def test_dictconfig_has_no_per_app_loggers(monkeypatch, tmp_path):
             "앱별 로거 등록은 ADR-019 의 비목표입니다 — charter §2-4 를 먼저 개정하세요."
         )
         assert cfg["root"]["handlers"], "root 에 핸들러가 없으면 아무 로그도 나가지 않는다"
-
-
-def test_uvicorn_config_isolates_three_loggers():
-    """uvicorn 3종 로거가 각자 핸들러를 갖고 root 로 전파하지 않는다.
-
-    propagate=True 면 앱 root 핸들러가 같은 줄을 한 번 더 찍어 중복 출력이 된다.
-    """
-    cfg = setup_uvicorn_logging()
-
-    assert set(cfg["loggers"]) == {"uvicorn", "uvicorn.error", "uvicorn.access"}
-    for name, spec in cfg["loggers"].items():
-        assert spec["propagate"] is False, f"{name} 이 root 로 전파되면 로그가 중복된다"
-        assert spec["handlers"], f"{name} 에 핸들러가 없다"
-
-    # access 로그만 전용 포맷(요청 라인)을 쓴다.
-    assert cfg["loggers"]["uvicorn.access"]["handlers"] == ["access"]
-    assert "request_line" in cfg["formatters"]["access"]["fmt"]
-    for handler in cfg["handlers"].values():
-        assert handler["filters"] == ["context", "redact"]
 
 
 def test_configure_logging_applies_once(monkeypatch):

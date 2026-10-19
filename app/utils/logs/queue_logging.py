@@ -37,8 +37,10 @@ __all__ = [
     "LOG_QUEUE_MAXSIZE",
     "BoundedQueueHandler",
     "make_log_queue",
+    "restart_queue_listener_after_fork",
     "start_queue_listener",
     "stop_queue_listener",
+    "stop_queue_listener_sync",
 ]
 
 # 큐 상한. 정상 트래픽의 순간 버스트는 흡수하되 무제한 증가는 막는 크기.
@@ -97,6 +99,36 @@ def start_queue_listener(handler: BoundedQueueHandler | None) -> bool:
         listener.start()
         _listener = listener
         return True
+
+
+def restart_queue_listener_after_fork() -> bool:
+    """prefork 자식에서 listener 를 다시 세운다 — fork 는 listener **스레드**를 복제하지 않는다.
+
+    그대로 두면 자식의 레코드는 아무도 비우지 않는 큐에 쌓이다 상한에서 버려진다(파일에 안 남음).
+    같은 큐·같은 파일 핸들러로 새 listener 를 시작한다. 자식은 이 시점에 단일 스레드라 잠금을 쓰지 않는다.
+
+    Returns:
+        새 listener 를 시작했으면 True(파일 로그가 없는 환경이면 False).
+    """
+    global _listener
+    inherited = _listener
+    if inherited is None:
+        return False
+    _listener = QueueListener(
+        inherited.queue, *inherited.handlers, respect_handler_level=inherited.respect_handler_level
+    )
+    _listener.start()
+    return True
+
+
+def stop_queue_listener_sync() -> None:
+    """listener 를 멈추고 남은 레코드를 flush 한다(멱등) — 재구성(configure_logging(force=True)) 전에 부른다."""
+    global _listener
+    with _lock:
+        listener = _listener
+        _listener = None
+    if listener is not None:
+        listener.stop()
 
 
 async def stop_queue_listener() -> None:

@@ -217,19 +217,6 @@ class RedactingFilter(logging.Filter):
         return True
 
 
-def redact_handlers(*loggers: logging.Logger) -> None:
-    """로거에 **이미 붙어 있는** 핸들러에 ``RedactingFilter`` 를 단다(멱등).
-
-    우리 dictConfig 밖에서 만들어진 핸들러용이다 — ``uvicorn main:app`` 이 앱 import 전에
-    세운 uvicorn 기본 핸들러, Celery 워커가 root 를 가로채며 붙인 핸들러. 이 핸들러들은
-    ``propagate=False`` 이거나 root 를 대체해서 우리 핸들러의 필터를 거치지 않는다.
-    """
-    for logger in loggers:
-        for handler in logger.handlers:
-            if not any(isinstance(f, RedactingFilter) for f in handler.filters):
-                handler.addFilter(RedactingFilter())
-
-
 class SQLNoiseFilter(logging.Filter):
     """SQL·드라이버 로거의 DEBUG·INFO 를 차단한다 (계획서 §8, ADR-004).
 

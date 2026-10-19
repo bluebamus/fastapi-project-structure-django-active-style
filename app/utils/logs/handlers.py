@@ -56,7 +56,7 @@ class DailyRotatingFileHandler(TimedRotatingFileHandler):
             day = time.strftime("%Y-%m-%d", time.gmtime(now))
         if self.stream:
             self.stream.close()
-            self.stream = None  # type: ignore[assignment]
+            self.stream = None
         if os.path.exists(self.baseFilename):
             target, number = f"{self.baseFilename}.{day}", 0
             while os.path.exists(target):
