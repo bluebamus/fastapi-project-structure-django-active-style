@@ -89,7 +89,7 @@ def test_secret_inside_one_arg_is_masked_in_place():
     record = _record("dsn=%s", f"mysql://u:{SENTINEL}@h/db")
     RedactingFilter().filter(record)
 
-    assert record.args == ("mysql://u:***@h/db",)
+    assert record.args == ("mysql://***:***@h/db",)  # logging-overhaul L7 — 사용자명도 가린다
     assert SENTINEL not in record.getMessage()
 
 

@@ -17,6 +17,7 @@
 
 import logging
 import os
+import string
 from collections.abc import Mapping
 from datetime import UTC, date, datetime, time, timedelta
 from functools import lru_cache
@@ -573,6 +574,18 @@ class CORSSettings(BaseSettings):
 # =============================================================================
 # 로깅 설정
 # =============================================================================
+# 로그 형식(LOG_CONSOLE_FORMAT·LOG_FILE_FORMAT)에 반드시 있어야 하는 자리표시자.
+LOG_REQUIRED_FIELDS = (
+    "asctime",
+    "levelname",
+    "appname",
+    "module",
+    "classname",
+    "funcName",
+    "message",
+)
+
+
 class LogSettings(BaseSettings):
     """
     로깅 설정
@@ -713,6 +726,14 @@ class LogSettings(BaseSettings):
             logging.Formatter(value, style="{").format(record)
         except (ValueError, KeyError, IndexError, AttributeError, TypeError) as error:
             raise ValueError(f"로그 형식을 렌더할 수 없습니다 ({error!r}): {value!r}") from error
+        # 모든 줄에 시간·레벨·출처·모듈·클래스·함수·메시지가 나와야 한다(logging-overhaul L3).
+        fields = {name for _, name, _, _ in string.Formatter().parse(value) if name}
+        missing = [name for name in LOG_REQUIRED_FIELDS if name not in fields]
+        if missing:
+            raise ValueError(
+                f"로그 형식에 필수 필드가 없습니다: {', '.join(missing)} — "
+                f"필수: {' '.join('{' + n + '}' for n in LOG_REQUIRED_FIELDS)}"
+            )
         return value
 
     @field_validator("LOG_DATE_FORMAT")
@@ -1110,6 +1131,25 @@ redis_settings = get_redis_settings()
 middleware_settings = get_middleware_settings()
 jwt_settings = get_jwt_settings()
 session_settings = get_session_settings()
+
+# 로그에서 원문을 가릴 설정 — (전역 설정 인스턴스 이름, 필드). 새 비밀 설정(`*_USER`·`*_PASSWORD`·
+# `*SECRET*`·`*_KEY`)은 여기에 넣는다 — 빠지면 계약 테스트(tests/utils/test_logging_overhaul.py)가 실패한다.
+LOG_SECRET_SETTINGS = (
+    ("db_settings", "MYSQL_USER"),
+    ("db_settings", "MYSQL_PASSWORD"),
+    ("db_settings", "MYSQL_REPLICA_USER"),
+    ("db_settings", "MYSQL_REPLICA_PASSWORD"),
+    ("redis_settings", "REDIS_PASSWORD"),
+    ("jwt_settings", "ACCESS_TOKEN_SECRET_KEY"),
+    ("jwt_settings", "REFRESH_TOKEN_SECRET_KEY"),
+    ("session_settings", "SESSION_SECRET_KEY"),
+)
+
+
+def log_secret_values() -> list[str]:
+    """LOG_SECRET_SETTINGS 의 현재 값(빈 값 제외) — 로깅이 원문 마스킹에 쓴다."""
+    values = (getattr(globals()[owner], name) for owner, name in LOG_SECRET_SETTINGS)
+    return [v for v in values if isinstance(v, str) and v.strip()]
 
 
 # =============================================================================

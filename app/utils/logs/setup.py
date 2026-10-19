@@ -18,9 +18,9 @@ from app.utils.logs.config import (
     console_enabled,
     file_enabled,
 )
-from app.utils.logs.filters import redact_handlers
+from app.utils.logs.filters import redact_handlers, set_secret_values
 from app.utils.logs.queue_logging import BoundedQueueHandler, start_queue_listener
-from config import log_settings
+from config import log_secret_values, log_settings
 
 _configured = False
 
@@ -39,6 +39,7 @@ def configure_logging(force: bool = False) -> None:
     global _configured
     if _configured and not force:
         return
+    set_secret_values(log_secret_values())
     dictConfig(build_dictconfig())
     if not console_enabled() and not file_enabled():
         # 조용히 로그를 잃지 않게 — 기동은 하되 한 번 알린다(logging 은 꺼져 있으니 stderr 로 직접).

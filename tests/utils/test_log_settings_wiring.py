@@ -268,8 +268,10 @@ def test_invalid_log_format_is_a_settings_error(key, value):
 def test_custom_format_using_project_fields_is_accepted():
     settings = LogSettings(
         _env_file=None,
-        LOG_CONSOLE_FORMAT="{tzname} {appname} {classname} {name} {message}",
-        LOG_FILE_FORMAT="{levelname:8} {message}",
+        LOG_CONSOLE_FORMAT=(
+            "{tzname} {asctime} {levelname} {appname} {module} {classname} {funcName} {name} {message}"
+        ),
+        LOG_FILE_FORMAT="{asctime}|{levelname:8}|{appname}|{module}.{classname}.{funcName}|{message}",
         LOG_DATE_FORMAT="%H:%M",
     )
     assert settings.LOG_DATE_FORMAT == "%H:%M"

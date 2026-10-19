@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import re
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 from types import FrameType
 
@@ -23,18 +24,28 @@ from types import FrameType
 _REPO_ROOT = str(Path(__file__).resolve().parents[3]).replace("\\", "/").rstrip("/").lower() + "/"
 
 
-def _app_from_path(pathname: str) -> str:
-    """소스 경로에서 앱 라벨을 만든다.
+# 저장소 밖 코드의 출처 — 로거 이름의 첫 조각으로 찾는다. 없으면 ``ext``.
+_EXTERNAL_APPS = {
+    "celery": "celery",
+    "kombu": "celery",
+    "uvicorn": "uvicorn",
+    "sqlalchemy": "sqlalchemy",
+    "alembic": "alembic",
+}
 
-    반환값:
+
+def _app_from_path(pathname: str, name: str = "") -> str:
+    """레코드의 출처 라벨(헤더 ``app=``)을 만든다 — 출처 판별은 이 함수 하나다.
+
+    우리 코드(소스 경로로 판별):
         ``<기능명>``  — ``app/features/<name>/**``
         ``core`` · ``celery`` · ``utils`` · ``migrations`` — 해당 하위 시스템
         ``app``  — 그 밖의 **이 저장소 안** 코드(``main.py`` · ``config.py`` · ``tests/**`` 등)
-        ``ext``  — **저장소 밖** 코드(설치된 서드파티 패키지)
+    저장소 밖 코드(로거 이름 ``name`` 으로 판별, ``_EXTERNAL_APPS``):
+        ``celery``(celery·kombu) · ``uvicorn`` · ``sqlalchemy`` · ``alembic``, 그 밖은 ``ext``
 
-    ``ext`` 는 "우리 코드가 아님"을 뜻한다. 예전에는 경로에 ``/app/`` 조각이 있는지로만
-    판별해서 저장소 루트의 ``main.py``·``config.py``·``migrations/`` 가 ``ext`` 로 빠졌다.
-    진입점이 서드파티로 분류되면 이 필드로 우리 코드를 거를 수 없다(LOG-2).
+    예전에는 경로에 ``/app/`` 조각이 있는지로만 판별해서 저장소 루트의 ``main.py``·``config.py``·
+    ``migrations/`` 가 ``ext`` 로 빠졌다. 진입점이 서드파티로 분류되면 이 필드로 우리 코드를 거를 수 없다(LOG-2).
     """
     p = pathname.replace("\\", "/")
     if "/features/" in p:
@@ -42,12 +53,13 @@ def _app_from_path(pathname: str) -> str:
     for seg in ("/app/core/", "/app/celery/", "/app/utils/", "/migrations/"):
         if seg in p:
             return seg.strip("/").rsplit("/", 1)[-1]
+    external = _EXTERNAL_APPS.get(name.split(".", 1)[0], "ext")
     # .venv 는 저장소 루트 **안**에 있으므로 루트 판정보다 먼저 걸러야 한다.
     if "/site-packages/" in p or "/dist-packages/" in p:
-        return "ext"
+        return external
     if "/app/" in p:
         return "app"
-    return "app" if p.lower().startswith(_REPO_ROOT) else "ext"
+    return "app" if p.lower().startswith(_REPO_ROOT) else external
 
 
 def _class_from_stack() -> str:
@@ -72,7 +84,7 @@ class ContextFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         if not getattr(record, "appname", None):
-            record.appname = _app_from_path(record.pathname)
+            record.appname = _app_from_path(record.pathname, record.name)
         if not getattr(record, "classname", None):
             record.classname = _class_from_stack()
         return True
@@ -87,7 +99,8 @@ class ContextFilter(logging.Filter):
 #
 # DSN 마스킹은 config 의 URL 렌더링(`render_as_string(hide_password=True)`)과 같은 의도지만 여기서 다시 구현한다 —
 # 로깅 설정은 config 보다 먼저 세워질 수 있어서 import 순서를 얽지 않는다.
-_DSN_CREDENTIALS = re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://)([^:/@\s]+):([^@\s]+)@")
+# 사용자명이 비어 있는 꼴(`redis://:pw@host`)도 잡는다. 사용자명·비밀번호를 **둘 다** 가린다.
+_DSN_CREDENTIALS = re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://)([^:/@\s]*):([^@\s]+)@")
 _KEYWORD_SECRET = re.compile(
     r"(?i)\b(secret[_-]?key|api[_-]?key|password|passwd|pwd|secret|token)\b"
     r"(\s*[:=]\s*)([\"']?)([^\s\"',;)]+)\3"
@@ -100,15 +113,45 @@ _BEARER_TOKEN = re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9\-._~+/]+=*")
 _EXC_FORMATTER = logging.Formatter()
 
 
-def redact(text: str) -> str:
-    """DSN 자격증명과 secret 형태의 값을 ``***`` 로 바꾼다.
+# 설정에서 모은 비밀값 원문(set_secret_values). 4글자 이상은 어디서든, 짧은 값(주로 계정명)은
+# `user=`·`username=` 꼴에서만 가린다 — 짧은 값을 원문 일치로 가리면 일반 단어가 지워진다.
+SHORT_SECRET_MIN_LENGTH = 4
+_SECRET_VALUES: re.Pattern[str] | None = None
+_SHORT_SECRET_VALUES: re.Pattern[str] | None = None
 
-    호스트·포트·사용자명처럼 진단에 필요한 부분은 남긴다 — 통째로 지우면 로그가
+
+def _alternation(values: list[str]) -> str:
+    return "|".join(re.escape(v) for v in sorted(values, key=len, reverse=True))
+
+
+def set_secret_values(values: Iterable[str | None]) -> None:
+    """``redact()`` 가 원문으로 가릴 비밀값을 정한다(빈 값 제외). ``configure_logging()`` 이 부른다."""
+    global _SECRET_VALUES, _SHORT_SECRET_VALUES
+    found = {v for v in values if v and v.strip()}
+    long_values = [v for v in found if len(v) >= SHORT_SECRET_MIN_LENGTH]
+    short_values = [v for v in found if len(v) < SHORT_SECRET_MIN_LENGTH]
+    _SECRET_VALUES = re.compile(_alternation(long_values)) if long_values else None
+    _SHORT_SECRET_VALUES = (
+        re.compile(rf"(?i)\b(user(?:name)?\s*[:=]\s*[\"']?)(?:{_alternation(short_values)})(?!\w)")
+        if short_values
+        else None
+    )
+
+
+def redact(text: str) -> str:
+    """DSN 자격증명·secret 형태의 값·설정된 비밀값 원문을 ``***`` 로 바꾼다.
+
+    호스트·포트처럼 진단에 필요한 부분은 남긴다 — 통째로 지우면 로그가
     쓸모없어져서 결국 아무도 안 켠다.
     """
-    text = _DSN_CREDENTIALS.sub(r"\1\2:***@", text)
+    text = _DSN_CREDENTIALS.sub(r"\1***:***@", text)
     text = _BEARER_TOKEN.sub(r"\1***", text)
-    return _KEYWORD_SECRET.sub(r"\1\2\3***\3", text)
+    text = _KEYWORD_SECRET.sub(r"\1\2\3***\3", text)
+    if _SECRET_VALUES is not None:
+        text = _SECRET_VALUES.sub("***", text)
+    if _SHORT_SECRET_VALUES is not None:
+        text = _SHORT_SECRET_VALUES.sub(r"\1***", text)
+    return text
 
 
 class RedactingFilter(logging.Filter):
