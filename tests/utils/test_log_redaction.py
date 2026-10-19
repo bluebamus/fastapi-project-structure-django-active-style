@@ -80,9 +80,22 @@ def test_message_without_secret_is_untouched():
     assert _filtered(message) == message
 
 
-def test_args_are_folded_after_redaction():
-    """치환 후에는 args 를 비워 포매터가 두 번 전개하지 않게 한다."""
+def test_secret_inside_one_arg_is_masked_in_place():
+    """비밀값이 인자 하나 안에 있으면 그 인자만 가리고 args 모양은 지킨다 (R-804).
+
+    uvicorn 의 AccessFormatter 는 접속 줄의 args 5개를 풀어 요청 라인을 만든다 — args 를 비우면
+    `?token=` 이 든 요청마다 logging 오류가 나고 그 줄이 사라진다.
+    """
     record = _record("dsn=%s", f"mysql://u:{SENTINEL}@h/db")
+    RedactingFilter().filter(record)
+
+    assert record.args == ("mysql://u:***@h/db",)
+    assert SENTINEL not in record.getMessage()
+
+
+def test_args_are_folded_when_secret_spans_template_and_arg():
+    """`password=%s` 처럼 키워드는 틀에, 값은 인자에 있으면 인자만 봐서는 못 가린다 — 전개 후 가리고 args 를 비운다."""
+    record = _record("password=%s", SENTINEL)
     RedactingFilter().filter(record)
 
     assert record.args in ((), None)
@@ -307,3 +320,65 @@ def test_celery_worker_handlers_get_the_filter():
         _emit(probe)
 
     _assert_redacted(buf.getvalue())
+
+
+# =============================================================================
+# uvicorn 접속 줄 (R-804)
+#
+# uvicorn 은 접속 줄을 `'%s - "%s %s HTTP/%s" %d'` + args 5개로 남기고, 요청 라인 필드
+# (client_addr·request_line·status_code)는 포매터가 args 를 풀어 만든다. 두 경로 모두 실제
+# 모양 그대로 흘려 logging 오류 없이 찍히는지, 마스킹이 유지되는지 본다.
+# =============================================================================
+ACCESS_FMT = '%s - "%s %s HTTP/%s" %d'
+
+
+def _access_line(monkeypatch, capsys, path: str, *, cli: bool, env: str = "production") -> str:
+    import uvicorn.config
+
+    from app.utils.logs import config as logs_config
+    from app.utils.logs import setup_uvicorn_logging
+
+    monkeypatch.setattr(logs_config.app_settings, "ENV", env, raising=False)
+    monkeypatch.setattr(logs_config.log_settings, "LOG_DATE_FORMAT", "%d/%m/%Y", raising=False)
+    with _isolated_loggers("uvicorn", "uvicorn.error", "uvicorn.access"):
+        if cli:
+            dictConfig(uvicorn.config.LOGGING_CONFIG)  # `uvicorn main:app` — uvicorn 자체 포매터
+            from app.utils.logs.setup import adopt_external_handlers
+
+            adopt_external_handlers(
+                logging.getLogger("uvicorn.access")
+            )  # configure_logging() 이 하는 일
+        else:
+            dictConfig(setup_uvicorn_logging())  # `python main.py`
+        access = logging.getLogger("uvicorn.access")
+        buf = _capture(access)
+        access.info(ACCESS_FMT, "1.2.3.4:5", "GET", path, "1.1", 200)
+
+    assert "Logging error" not in capsys.readouterr().err
+    return buf.getvalue().strip()
+
+
+@pytest.mark.parametrize(("env", "tz"), [("production", "UTC"), ("development", None)])
+def test_python_main_access_line_is_formatted(monkeypatch, capsys, env, tz):
+    """`python main.py` 경로 — 요청 라인이 형식대로, 시간대·LOG_DATE_FORMAT 을 따라 찍힌다."""
+    from datetime import datetime
+
+    from config import timezone_settings
+
+    tz = tz or datetime.now(timezone_settings.tz).strftime("%Z")
+    line = _access_line(monkeypatch, capsys, "/api/v1/health", cli=False, env=env)
+
+    assert re.fullmatch(
+        rf"\[\d{{2}}/\d{{2}}/\d{{4}}(\.\d{{3}})? {tz}\] INFO  \[app=uvicorn\] "
+        r'1\.2\.3\.4:5 - "GET /api/v1/health HTTP/1\.1" 200 OK',
+        line,
+    ), line
+
+
+@pytest.mark.parametrize("cli", [False, True], ids=["python-main", "uvicorn-cli"])
+def test_access_line_with_secret_query_is_masked(monkeypatch, capsys, cli):
+    """쿼리 문자열의 비밀값은 가려지고 줄은 사라지지 않는다 — 두 경로 모두."""
+    line = _access_line(monkeypatch, capsys, f"/api/v1/x?token={SENTINEL}", cli=cli)
+
+    assert SENTINEL not in line
+    assert '"GET /api/v1/x?token=*** HTTP/1.1" 200 OK' in line, line

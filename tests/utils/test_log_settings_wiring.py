@@ -114,14 +114,8 @@ def test_uvicorn_log_config_follows_console_and_date_format(monkeypatch, tmp_pat
         error_logger.info("hello")
         access_logger = logging.getLogger("uvicorn.access")
         access_buf = _capture(access_logger)
-        access_logger.info(
-            "x",
-            extra={
-                "client_addr": "1.2.3.4:5",
-                "request_line": "GET / HTTP/1.1",
-                "status_code": 200,
-            },
-        )
+        # uvicorn 이 실제로 남기는 모양 그대로(args 5개) — extra 로 필드를 미리 채우면 R-804 를 가린다.
+        access_logger.info('%s - "%s %s HTTP/%s" %d', "1.2.3.4:5", "GET", "/", "1.1", 200)
 
     assert re.fullmatch(
         r"U\|INFO\|\d{2}/\d{2}/\d{4}\|hello", buf.getvalue().strip()

@@ -10,3 +10,5 @@
 | F-003 | LOW | REQ-001 | INV-1·INV-4 | Fix | **Fixed** | Round 1 | `SESSION_EXPIRE_SECONDS` 가 읽는 코드 없이 남아 "세션 만료 설정" 으로 오해됐다. **조치:** 필드·`.env.example` 줄 삭제, README 세션·토큰 만료 표를 정본으로(ADR-001). |
 | F-004 | LOW | REQ-002 | INV-1 | Fix | **Fixed** | Round 2 | `API_VERSION`(`ApiSettings`) 이 읽는 코드 없이 남아 URL 버전을 정하는 설정처럼 보였다. **조치:** 클래스째 삭제, 남은 키 무시(ADR-004). |
 | F-005 | LOW | REQ-002 | INV-1·INV-5·INV-6 | Fix | **Fixed** | Round 2 | `LOG_CONSOLE_ENABLED`·`LOG_CONSOLE_FORMAT`·`LOG_FILE_FORMAT`·`LOG_DATE_FORMAT` 을 로깅 구성이 읽지 않았고 형식 기본값도 실제 형식과 달랐다. **조치:** 연결(ADR-005·ADR-006), 검증(ADR-007), 기본값 = 기존 형식. |
+| F-006 | LOW | REQ-003 (R-804) | INV-8 | Fix | **Fixed** | Round 3 | `setup_uvicorn_logging()` 의 access 포매터(`TzFormatter`)가 접속 레코드의 args 를 `client_addr`·`request_line`·`status_code` 로 풀지 못해 `python main.py` 로 띄우면 접속 줄마다 logging 오류(KeyError)로 줄이 사라졌다. **조치:** `TzAccessFormatter`(ADR-008). |
+| F-007 | LOW | Round 3 조사 | INV-8 | Fix | **Fixed** | Round 3 | `RedactingFilter` 가 비밀값을 찾으면 args 를 비워, `?token=` 이 든 요청의 접속 줄이 두 경로(`uvicorn main:app` 의 uvicorn `AccessFormatter` 포함) 모두 logging 오류로 사라졌다. **조치:** 인자 단위 마스킹, 못 가리면 예전 방식(ADR-008). |

@@ -21,3 +21,9 @@
 - [x] 계약 테스트 예외 목록 삭제(INV-1 v0.2), 사용자 형식 마스킹 테스트(INV-7)
 - [x] fail-on-revert(run-log Round 2)
 - [x] ruff·mypy, `pytest -m "not mysql"` skip 0(저장소 안 + `.env` 없는 클론), `-m mysql --collect-only`, review_gate 네트워크 없는 그룹, alembic 변경 없음
+
+## Round 3 — 2026-10-19 REQ-003 (R-804) — 완료 (브랜치 `fix/uvicorn-access-log-format`)
+- [x] 원인 확정 — 재현: `python main.py` 경로는 모든 접속 줄, `uvicorn main:app` 경로는 `?token=` 이 든 접속 줄에서 `--- Logging error ---`
+- [x] (F-006) `TzAccessFormatter`, (F-007) 인자 단위 마스킹
+- [x] 테스트 먼저(RED 6건), fail-on-revert(run-log Round 3)
+- [x] ruff·mypy, `pytest -m "not mysql"` skip 0(저장소 안 + `.env` 없는 클론), `-m mysql --collect-only`, review_gate 네트워크 없는 그룹, alembic 변경 없음
