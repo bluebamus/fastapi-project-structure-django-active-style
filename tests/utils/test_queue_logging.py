@@ -178,19 +178,3 @@ def test_opt_in_is_ignored_outside_development(monkeypatch):
     noise_filter = SQLNoiseFilter()
 
     assert noise_filter.filter(_record("sqlalchemy.engine.Engine", logging.DEBUG)) is False
-
-
-def test_uvicorn_log_config_does_not_replace_root_handlers():
-    """uvicorn 이 root 를 재정의하면 queue handler 가 **조용히** 사라진다.
-
-    `uvicorn main:app` 은 앱 import 후 자체 log_config 를 dictConfig 로 적용한다.
-    그 설정에 `root` 키가 있으면 우리가 붙인 queue handler 가 교체되고, 파일 로깅이
-    아무 오류 없이 멈춘다. 증상은 "운영에서 로그 파일이 안 생김" 뿐이라 원인 추적이
-    어렵다. 그래서 구조로 못박는다 (INV-6).
-    """
-    from app.utils.logs import setup_uvicorn_logging
-
-    cfg = setup_uvicorn_logging()
-
-    assert "root" not in cfg, "uvicorn 설정이 root 를 재정의합니다 — queue 가 교체됩니다."
-    assert cfg["disable_existing_loggers"] is False

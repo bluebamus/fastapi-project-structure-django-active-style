@@ -15,7 +15,6 @@ from pydantic import ValidationError
 
 from app.utils.logs import config as logs_config
 from app.utils.logs import setup as logs_setup
-from app.utils.logs import setup_uvicorn_logging
 from app.utils.logs.queue_logging import BoundedQueueHandler
 from config import LogSettings
 from tests.utils.test_log_redaction import _app_config_on_probe_logger, _capture, _isolated_loggers
@@ -99,8 +98,11 @@ def test_development_appends_milliseconds_after_date_format(monkeypatch, tmp_pat
     assert re.fullmatch(r"\d{2}:\d{2}:\d{2}\.\d{3}\|hello", lines[0]), lines
 
 
-def test_uvicorn_log_config_follows_console_and_date_format(monkeypatch, tmp_path):
-    """`python main.py` 경로 — setup_uvicorn_logging() 의 핸들러."""
+def test_uvicorn_lines_follow_console_and_date_format(monkeypatch, tmp_path):
+    """`python main.py` 경로 — uvicorn 로거는 설정 없이 root(앱 콘솔 형식)로 전파된다 (logging-overhaul L1).
+
+    예전에는 접속 줄만 전용 형식을 썼다. 이제 접속 줄도 같은 형식이고 {message} 가 요청 줄이다.
+    """
     _settings(
         monkeypatch,
         tmp_path,
@@ -108,22 +110,22 @@ def test_uvicorn_log_config_follows_console_and_date_format(monkeypatch, tmp_pat
         LOG_DATE_FORMAT="%d/%m/%Y",
     )
     with _isolated_loggers(*UVICORN_LOGGERS):
-        dictConfig(setup_uvicorn_logging())
-        error_logger = logging.getLogger("uvicorn.error")
-        buf = _capture(error_logger)
-        error_logger.info("hello")
-        access_logger = logging.getLogger("uvicorn.access")
-        access_buf = _capture(access_logger)
-        # uvicorn 이 실제로 남기는 모양 그대로(args 5개) — extra 로 필드를 미리 채우면 R-804 를 가린다.
-        access_logger.info('%s - "%s %s HTTP/%s" %d', "1.2.3.4:5", "GET", "/", "1.1", 200)
+        dictConfig(logs_config.build_dictconfig())
+        buf = _capture(logging.getLogger())
+        logging.getLogger("uvicorn.error").info("hello")
+        # uvicorn 이 실제로 남기는 모양 그대로(args 5개).
+        logging.getLogger("uvicorn.access").info(
+            '%s - "%s %s HTTP/%s" %d', "1.2.3.4:5", "GET", "/", "1.1", 200
+        )
 
+    assert buf.getvalue().splitlines() == [
+        line for line in buf.getvalue().splitlines() if line.startswith("U|INFO|")
+    ]
     assert re.fullmatch(
-        r"U\|INFO\|\d{2}/\d{2}/\d{4}\|hello", buf.getvalue().strip()
+        r"U\|INFO\|\d{2}/\d{2}/\d{4}\|hello\n"
+        r'U\|INFO\|\d{2}/\d{2}/\d{4}\|1\.2\.3\.4:5 - "GET / HTTP/1\.1" 200\n',
+        buf.getvalue(),
     ), buf.getvalue()
-    # access 줄은 요청 라인 전용 형식을 유지하되 날짜 형식은 따른다.
-    assert re.match(
-        r"\[\d{2}/\d{2}/\d{4} UTC\] INFO ", access_buf.getvalue()
-    ), access_buf.getvalue()
 
 
 def test_file_format_shapes_file_lines(monkeypatch, tmp_path):
@@ -147,7 +149,7 @@ def test_file_format_shapes_file_lines(monkeypatch, tmp_path):
             for handler in listener.handlers:
                 handler.close()
 
-    app_log = next(p for p in tmp_path.iterdir() if p.name.endswith("_app.log"))
+    app_log = tmp_path / "app.log"  # logging-overhaul L5 — 웹 프로세스 파일
     assert re.fullmatch(
         r"F\|INFO\|\d{2}/\d{2}/\d{4}\|hello", app_log.read_text(encoding="utf-8").strip()
     )
@@ -175,16 +177,6 @@ def test_console_disabled_drops_app_console_handler_keeps_file(monkeypatch, tmp_
     assert logs_config.build_dictconfig()["root"]["handlers"] == []
 
 
-def test_console_disabled_drops_uvicorn_log_config_handlers(monkeypatch, tmp_path):
-    """콘솔이 꺼지면 uvicorn 로거는 핸들러 없이 root(파일)로 전파한다 — 중복 없이 파일에만 남는다."""
-    _settings(monkeypatch, tmp_path, LOG_CONSOLE_ENABLED=False)
-    cfg = setup_uvicorn_logging()
-    assert cfg["handlers"] == {}
-    for name in UVICORN_LOGGERS:
-        assert cfg["loggers"][name]["handlers"] == []
-        assert cfg["loggers"][name]["propagate"] is True
-
-
 def test_console_disabled_strips_uvicorn_cli_default_handlers(monkeypatch, tmp_path):
     """`uvicorn main:app` 경로 — uvicorn 이 앱 import 전에 세운 콘솔 핸들러를 걷어낸다."""
     import uvicorn.config
@@ -203,7 +195,8 @@ def test_console_disabled_strips_uvicorn_cli_default_handlers(monkeypatch, tmp_p
 
 
 @pytest.mark.parametrize("enabled", [True, False])
-def test_celery_worker_console_handler_follows_setting(monkeypatch, tmp_path, enabled):
+def test_celery_task_logger_handlers_go_to_root(monkeypatch, tmp_path, enabled):
+    """celery.task 의 자기 핸들러는 걷히고 root 로 전파된다 — 콘솔 on/off 는 root 의 콘솔 하나가 따른다."""
     from app.celery.worker_lifecycle import on_setup_logger
 
     monkeypatch.setattr(logs_config.log_settings, "LOG_CONSOLE_ENABLED", enabled, raising=False)
@@ -212,9 +205,11 @@ def test_celery_worker_console_handler_follows_setting(monkeypatch, tmp_path, en
         console = logging.StreamHandler(sys.stderr)  # Celery 가 붙이는 콘솔 핸들러 자리
         file_handler = logging.FileHandler(tmp_path / "worker.log", delay=True)
         probe.handlers[:] = [console, file_handler]
+        probe.propagate = False
         on_setup_logger(logger=probe)
-        expected = [console, file_handler] if enabled else [file_handler]
-        assert probe.handlers == expected
+        assert probe.handlers == [] and probe.propagate is True
+        file_handler.close()
+    assert ("console" in logs_config.build_dictconfig()["handlers"]) is enabled
 
 
 # =============================================================================
@@ -268,8 +263,10 @@ def test_invalid_log_format_is_a_settings_error(key, value):
 def test_custom_format_using_project_fields_is_accepted():
     settings = LogSettings(
         _env_file=None,
-        LOG_CONSOLE_FORMAT="{tzname} {appname} {classname} {name} {message}",
-        LOG_FILE_FORMAT="{levelname:8} {message}",
+        LOG_CONSOLE_FORMAT=(
+            "{tzname} {asctime} {levelname} {appname} {module} {classname} {funcName} {name} {message}"
+        ),
+        LOG_FILE_FORMAT="{asctime}|{levelname:8}|{appname}|{module}.{classname}.{funcName}|{message}",
         LOG_DATE_FORMAT="%H:%M",
     )
     assert settings.LOG_DATE_FORMAT == "%H:%M"

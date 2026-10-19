@@ -17,6 +17,7 @@
 
 import logging
 import os
+import string
 from collections.abc import Mapping
 from datetime import UTC, date, datetime, time, timedelta
 from functools import lru_cache
@@ -573,6 +574,35 @@ class CORSSettings(BaseSettings):
 # =============================================================================
 # 로깅 설정
 # =============================================================================
+# 로그 형식(LOG_CONSOLE_FORMAT·LOG_FILE_FORMAT)에 반드시 있어야 하는 자리표시자.
+LOG_REQUIRED_FIELDS = (
+    "asctime",
+    "levelname",
+    "appname",
+    "module",
+    "classname",
+    "funcName",
+    "message",
+)
+
+
+LOG_LEVEL_NAMES = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
+
+def _parse_app_levels(value: str) -> dict[str, str]:
+    """``"blog=DEBUG, celery=info"`` → ``{"blog": "DEBUG", "celery": "INFO"}``. 빈 항목은 건너뛴다."""
+    levels: dict[str, str] = {}
+    for item in filter(None, (part.strip() for part in value.split(","))):
+        name, sep, level = (s.strip() for s in item.partition("="))
+        if not sep or not name or level.upper() not in LOG_LEVEL_NAMES:
+            raise ValueError(
+                f"LOG_APP_LEVELS 항목 {item!r} 이 잘못됐습니다 — '헤더=레벨' 꼴, "
+                f"레벨은 {'/'.join(LOG_LEVEL_NAMES)} (예: blog=DEBUG,celery=INFO)"
+            )
+        levels[name] = level.upper()
+    return levels
+
+
 class LogSettings(BaseSettings):
     """
     로깅 설정
@@ -648,28 +678,29 @@ class LogSettings(BaseSettings):
         description="로그 디렉토리 경로",
     )
 
-    # 앱 로그 파일명 패턴 ({date}는 YYYY-MM-DD로 치환)
-    LOG_APP_FILENAME: str = Field(
-        default="{date}_app.log",
-        description="앱 로그 파일명 패턴",
-    )
+    # 파일 이름은 프로세스 종류가 정한다(설정 없음): 웹 app.log·error.log, Celery celery.log·celery-error.log.
+    # 매일 UTC 자정에 `app.log.YYYY-MM-DD` 로 교체된다(app/utils/logs/handlers.py).
 
-    # 에러 로그 파일명 패턴 ({date}는 YYYY-MM-DD로 치환)
-    LOG_ERROR_FILENAME: str = Field(
-        default="{date}_error.log",
-        description="에러 로그 파일명 패턴",
-    )
-
-    # 단일 로그 파일 최대 크기 (MB)
+    # 하루 안에서 이 크기(MB)를 넘으면 `app.log.YYYY-MM-DD.1`, `.2`… 로 나눈다. 0 이면 나누지 않는다.
     LOG_MAX_SIZE_MB: int = Field(
         default=10,
+        ge=0,
         description="로그 파일 최대 크기(MB)",
     )
 
-    # 보관할 백업 로그 파일 개수
-    LOG_BACKUP_COUNT: int = Field(
-        default=5,
-        description="백업 로그 파일 개수",
+    # 교체된 로그 파일 보관 일수. 교체 시점에 이보다 오래된 날짜 파일(분할 파일 포함)을 지운다.
+    # 0 = 지우지 않음. 음수는 설정 오류. (예전 LOG_BACKUP_COUNT 를 대체한다.)
+    LOG_RETENTION_DAYS: int = Field(
+        default=30,
+        ge=0,
+        description="로그 파일 보관 일수 (0 = 삭제 안 함)",
+    )
+
+    # 헤더(app=)별 최소 레벨. 예: "blog=DEBUG,celery=INFO,sqlalchemy=WARNING" (빈 값 허용).
+    # 지정 없는 헤더는 LOG_LEVEL 을 따른다. 잘못된 형식·레벨은 설정 오류, 모르는 헤더는 기동 시 경고만.
+    LOG_APP_LEVELS: str = Field(
+        default="",
+        description="헤더별 로그 레벨",
     )
 
     # === 포맷 설정 ===
@@ -713,7 +744,25 @@ class LogSettings(BaseSettings):
             logging.Formatter(value, style="{").format(record)
         except (ValueError, KeyError, IndexError, AttributeError, TypeError) as error:
             raise ValueError(f"로그 형식을 렌더할 수 없습니다 ({error!r}): {value!r}") from error
+        # 모든 줄에 시간·레벨·출처·모듈·클래스·함수·메시지가 나와야 한다(logging-overhaul L3).
+        fields = {name for _, name, _, _ in string.Formatter().parse(value) if name}
+        missing = [name for name in LOG_REQUIRED_FIELDS if name not in fields]
+        if missing:
+            raise ValueError(
+                f"로그 형식에 필수 필드가 없습니다: {', '.join(missing)} — "
+                f"필수: {' '.join('{' + n + '}' for n in LOG_REQUIRED_FIELDS)}"
+            )
         return value
+
+    @field_validator("LOG_APP_LEVELS")
+    @classmethod
+    def _app_levels_parse(cls, value: str) -> str:
+        _parse_app_levels(value)
+        return value
+
+    def get_app_levels(self) -> dict[str, str]:
+        """LOG_APP_LEVELS 를 ``{헤더: 레벨}`` 로 — 레벨은 대문자 표준 이름."""
+        return _parse_app_levels(self.LOG_APP_LEVELS)
 
     @field_validator("LOG_DATE_FORMAT")
     @classmethod
@@ -1110,6 +1159,25 @@ redis_settings = get_redis_settings()
 middleware_settings = get_middleware_settings()
 jwt_settings = get_jwt_settings()
 session_settings = get_session_settings()
+
+# 로그에서 원문을 가릴 설정 — (전역 설정 인스턴스 이름, 필드). 새 비밀 설정(`*_USER`·`*_PASSWORD`·
+# `*SECRET*`·`*_KEY`)은 여기에 넣는다 — 빠지면 계약 테스트(tests/utils/test_logging_overhaul.py)가 실패한다.
+LOG_SECRET_SETTINGS = (
+    ("db_settings", "MYSQL_USER"),
+    ("db_settings", "MYSQL_PASSWORD"),
+    ("db_settings", "MYSQL_REPLICA_USER"),
+    ("db_settings", "MYSQL_REPLICA_PASSWORD"),
+    ("redis_settings", "REDIS_PASSWORD"),
+    ("jwt_settings", "ACCESS_TOKEN_SECRET_KEY"),
+    ("jwt_settings", "REFRESH_TOKEN_SECRET_KEY"),
+    ("session_settings", "SESSION_SECRET_KEY"),
+)
+
+
+def log_secret_values() -> list[str]:
+    """LOG_SECRET_SETTINGS 의 현재 값(빈 값 제외) — 로깅이 원문 마스킹에 쓴다."""
+    values = (getattr(globals()[owner], name) for owner, name in LOG_SECRET_SETTINGS)
+    return [v for v in values if isinstance(v, str) and v.strip()]
 
 
 # =============================================================================

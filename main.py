@@ -366,12 +366,11 @@ AccessPolicyGuard().verify(app)
 if __name__ == "__main__":
     import uvicorn
 
-    from app.utils.logs import setup_uvicorn_logging
-
     uvicorn.run(
         "main:app",
         host=app_settings.SERVER_HOST,
         port=app_settings.SERVER_PORT,
         reload=app_settings.DEBUG,
-        log_config=setup_uvicorn_logging(),
+        # uvicorn 에 자기 형식을 주지 않는다 — uvicorn 로거가 root(프로젝트 형식·파일·마스킹)로 전파된다.
+        log_config=None,
     )

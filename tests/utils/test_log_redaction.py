@@ -89,7 +89,7 @@ def test_secret_inside_one_arg_is_masked_in_place():
     record = _record("dsn=%s", f"mysql://u:{SENTINEL}@h/db")
     RedactingFilter().filter(record)
 
-    assert record.args == ("mysql://u:***@h/db",)
+    assert record.args == ("mysql://***:***@h/db",)  # logging-overhaul L7 — 사용자명도 가린다
     assert SENTINEL not in record.getMessage()
 
 
@@ -111,11 +111,13 @@ def test_dsn_without_password_is_untouched():
 def test_filter_is_wired_into_logging_config():
     """dictConfig 에 실제로 물려 있어야 의미가 있다."""
     from app.utils.logs import config as log_config
-    from app.utils.logs import setup as log_setup
 
-    for module in (log_config, log_setup):
-        source = Path(module.__file__).read_text(encoding="utf-8")
-        assert "RedactingFilter" in source, f"{module.__name__} 에 필터가 연결되지 않았습니다."
+    # 모든 경로가 root 의 핸들러 한 벌(build_dictconfig)을 쓴다 (logging-overhaul L1).
+    cfg = log_config.build_dictconfig(logfile="worker.log")
+    assert cfg["filters"]["redact"]["()"].endswith("RedactingFilter")
+    for name, handler in cfg["handlers"].items():
+        if name != "queue":
+            assert "redact" in handler["filters"], name
 
 
 # =============================================================================
@@ -265,41 +267,37 @@ def test_masking_holds_with_user_log_formats(monkeypatch, tmp_path):
     test_production_console_and_file_handlers_mask_traceback(monkeypatch, tmp_path)
 
 
-def test_uvicorn_log_config_masks_traceback():
-    """`python main.py` 경로 — setup_uvicorn_logging() 의 핸들러."""
-    from app.utils.logs import setup_uvicorn_logging
+def test_uvicorn_lines_through_root_mask_traceback():
+    """`python main.py` 경로 — uvicorn 로거는 설정 없이 root 핸들러로 간다 (logging-overhaul L1)."""
+    from app.utils.logs import config as logs_config
 
     with _isolated_loggers("uvicorn", "uvicorn.error", "uvicorn.access"):
-        dictConfig(setup_uvicorn_logging())
-        error_logger = logging.getLogger("uvicorn.error")
-        buf = _capture(error_logger)
-        _emit(error_logger)
+        dictConfig(logs_config.build_dictconfig())
+        buf = _capture(logging.getLogger())
+        _emit(logging.getLogger("uvicorn.error"))
 
     _assert_redacted(buf.getvalue())
 
 
-def test_uvicorn_cli_default_handlers_get_the_filter(monkeypatch):
-    """`uvicorn main:app` 경로 — uvicorn 이 앱 import 전에 세운 기본 핸들러에도 마스킹이 붙는다."""
+def test_uvicorn_cli_lines_are_masked_through_root():
+    """`uvicorn main:app` 경로 — CLI 가 앱 import 전에 세운 기본 핸들러는 걷히고, 줄은 root(마스킹)로 간다."""
     import uvicorn.config
 
-    from app.utils.logs import setup as logs_setup
+    from app.utils.logs import config as logs_config
+    from app.utils.logs.setup import adopt_external_handlers
 
     with _isolated_loggers("uvicorn", "uvicorn.error", "uvicorn.access"):
         dictConfig(uvicorn.config.LOGGING_CONFIG)  # uvicorn Config.__init__ 이 하는 일
-        # 앱 import 가 부르는 configure_logging() — root 재구성은 막고 나머지 단계만 본다.
-        monkeypatch.setattr(logs_setup, "dictConfig", lambda cfg: None)
-        monkeypatch.setattr(logs_setup, "_configured", False)
-        logs_setup.configure_logging()
-        error_logger = logging.getLogger("uvicorn.error")
-        # 기본 설정에서 uvicorn.error 는 핸들러 없이 "uvicorn" 로 전파한다.
-        buf = _capture(logging.getLogger("uvicorn"))
-        _emit(error_logger)
+        dictConfig(logs_config.build_dictconfig())  # 앱 import 가 부르는 configure_logging()
+        adopt_external_handlers(*(logging.getLogger(n) for n in ("uvicorn", "uvicorn.access")))
+        buf = _capture(logging.getLogger())
+        _emit(logging.getLogger("uvicorn.error"))
 
     _assert_redacted(buf.getvalue())
 
 
 def test_celery_worker_handlers_get_the_filter():
-    """Celery 워커가 root 를 가로채며 붙인 핸들러에도 같은 필터가 붙는다(after_setup_logger)."""
+    """Celery 워커 로거의 줄도 root 의 마스킹을 지난다(after_setup_logger·after_setup_task_logger)."""
     from celery.signals import after_setup_logger, after_setup_task_logger
 
     from app.celery.worker_lifecycle import on_setup_logger, register_worker_signals
@@ -308,15 +306,18 @@ def test_celery_worker_handlers_get_the_filter():
     for signal in (after_setup_logger, after_setup_task_logger):
         assert on_setup_logger in [receiver for _, receiver in signal.receivers]
 
+    from app.utils.logs import config as logs_config
+
     with _isolated_loggers("celery-probe"):
+        dictConfig(logs_config.build_dictconfig())
+        buf = _capture(logging.getLogger())
         probe = logging.getLogger("celery-probe")
         probe.propagate = False
-        probe.setLevel(logging.DEBUG)
-        buf = io.StringIO()
-        probe.addHandler(logging.StreamHandler(buf))  # Celery 가 붙이는 핸들러 자리
+        probe.addHandler(logging.StreamHandler(io.StringIO()))  # Celery 가 붙이는 핸들러 자리
         on_setup_logger(logger=probe)
-        on_setup_logger(logger=probe)  # 멱등 — 필터가 두 번 붙지 않는다
-        assert len(probe.handlers[0].filters) == 1
+        on_setup_logger(logger=probe)  # 멱등
+        # 자기 핸들러는 걷히고 root(마스킹)로 전파된다 (logging-overhaul L1).
+        assert probe.handlers == [] and probe.propagate is True
         _emit(probe)
 
     _assert_redacted(buf.getvalue())
@@ -336,23 +337,27 @@ def _access_line(monkeypatch, capsys, path: str, *, cli: bool, env: str = "produ
     import uvicorn.config
 
     from app.utils.logs import config as logs_config
-    from app.utils.logs import setup_uvicorn_logging
+    from app.utils.logs.setup import adopt_external_handlers
 
     monkeypatch.setattr(logs_config.app_settings, "ENV", env, raising=False)
     monkeypatch.setattr(logs_config.log_settings, "LOG_DATE_FORMAT", "%d/%m/%Y", raising=False)
     with _isolated_loggers("uvicorn", "uvicorn.error", "uvicorn.access"):
         if cli:
             dictConfig(uvicorn.config.LOGGING_CONFIG)  # `uvicorn main:app` — uvicorn 자체 포매터
-            from app.utils.logs.setup import adopt_external_handlers
-
+        dictConfig(logs_config.build_dictconfig())  # 앱 import 의 configure_logging()
+        if cli:
+            # configure_logging() 이 하는 일 — 세 로거 모두(부모 "uvicorn" 이 propagate=False 라 함께 걷어야 한다)
             adopt_external_handlers(
-                logging.getLogger("uvicorn.access")
-            )  # configure_logging() 이 하는 일
-        else:
-            dictConfig(setup_uvicorn_logging())  # `python main.py`
+                *(logging.getLogger(n) for n in ("uvicorn", "uvicorn.error", "uvicorn.access"))
+            )
         access = logging.getLogger("uvicorn.access")
-        buf = _capture(access)
-        access.info(ACCESS_FMT, "1.2.3.4:5", "GET", path, "1.1", 200)
+        buf = _capture(logging.getLogger())
+        # uvicorn 코드에서 나온 레코드 그대로(설치 경로·args 5개) — 헤더가 로거 이름에서 나온다.
+        site = "/opt/venv/lib/python3.14/site-packages/uvicorn/protocols/http/h11_impl.py"
+        args = ("1.2.3.4:5", "GET", path, "1.1", 200)
+        access.handle(
+            logging.LogRecord(access.name, logging.INFO, site, 7, ACCESS_FMT, args, None, "send")
+        )
 
     assert "Logging error" not in capsys.readouterr().err
     return buf.getvalue().strip()
@@ -360,7 +365,7 @@ def _access_line(monkeypatch, capsys, path: str, *, cli: bool, env: str = "produ
 
 @pytest.mark.parametrize(("env", "tz"), [("production", "UTC"), ("development", None)])
 def test_python_main_access_line_is_formatted(monkeypatch, capsys, env, tz):
-    """`python main.py` 경로 — 요청 라인이 형식대로, 시간대·LOG_DATE_FORMAT 을 따라 찍힌다."""
+    """`python main.py` 경로 — 프로젝트 형식으로, {message} 는 요청 줄, 시간대·LOG_DATE_FORMAT 을 따른다."""
     from datetime import datetime
 
     from config import timezone_settings
@@ -370,7 +375,7 @@ def test_python_main_access_line_is_formatted(monkeypatch, capsys, env, tz):
 
     assert re.fullmatch(
         rf"\[\d{{2}}/\d{{2}}/\d{{4}}(\.\d{{3}})? {tz}\] INFO  \[app=uvicorn\] "
-        r'1\.2\.3\.4:5 - "GET /api/v1/health HTTP/1\.1" 200 OK',
+        r'\[h11_impl:-:send:7\] 1\.2\.3\.4:5 - "GET /api/v1/health HTTP/1\.1" 200',
         line,
     ), line
 
@@ -381,4 +386,4 @@ def test_access_line_with_secret_query_is_masked(monkeypatch, capsys, cli):
     line = _access_line(monkeypatch, capsys, f"/api/v1/x?token={SENTINEL}", cli=cli)
 
     assert SENTINEL not in line
-    assert '"GET /api/v1/x?token=*** HTTP/1.1" 200 OK' in line, line
+    assert line.endswith('"GET /api/v1/x?token=*** HTTP/1.1" 200'), line

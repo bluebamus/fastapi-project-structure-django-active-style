@@ -44,8 +44,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.utils.logs import get_logger
-from app.utils.logs.setup import adopt_external_handlers
+from app.utils.logs import get_logger, queue_logging
+from app.utils.logs.setup import adopt_external_handlers, configure_worker_logging
 
 logger = get_logger("celery_lifecycle")
 
@@ -92,6 +92,8 @@ def on_worker_process_init(**_: Any) -> None:
             )
 
     task_module.reset_worker_loop()
+    # fork 는 파일 로그 listener 스레드를 복제하지 않는다 — 자식의 레코드가 큐에 갇히지 않게 다시 세운다.
+    queue_logging.restart_queue_listener_after_fork()
     logger.info("[celery] 자식 프로세스 자원 초기화 완료 — 상속 pool 폐기, 루프 재설정")
 
 
@@ -109,15 +111,18 @@ def on_worker_process_shutdown(**_: Any) -> None:
     logger.info("[celery] 자식 프로세스 종료 정리 완료 (loop_closed=%s)", closed)
 
 
-def on_setup_logger(logger: logging.Logger, **_: Any) -> None:
-    """Celery 가 워커 로깅을 세운 직후 실행된다.
+def on_setup_logger(logger: logging.Logger, logfile: str | None = None, **_: Any) -> None:
+    """Celery 가 워커 로깅을 세운 직후 실행된다 — 이 프로세스가 Celery 워커임을 정하는 곳이다.
 
-    워커는 기본으로 root 로거를 가로채(`worker_hijack_root_logger`) 자기 핸들러로 바꾼다.
-    그 핸들러에는 우리 마스킹 필터가 없어서, 태스크 실패 traceback 의 DSN·토큰이 그대로
-    찍힌다. 같은 `RedactingFilter` 를 단다. LOG_CONSOLE_ENABLED=false 면 콘솔 핸들러를 걷어낸다
-    (앱·uvicorn 과 같은 판단 — app.utils.logs.config.console_enabled).
+    워커는 기본으로 root 로거를 가로채(`worker_hijack_root_logger`) 자기 핸들러로 바꾼다. 그 형식은
+    프로젝트 형식이 아니고 마스킹·앱별 레벨도 없다. root 는 프로젝트 구성으로 다시 세우고(파일은
+    celery.log·celery-error.log, ``--logfile`` 은 같은 파일 형식으로 유지), 태스크 로거(celery.task)는
+    자기 핸들러를 걷고 root 로 전파시킨다 — 모든 줄이 같은 형식·헤더로 한 번씩 찍힌다.
     """
-    adopt_external_handlers(logger)
+    if logger is logging.getLogger():
+        configure_worker_logging(logfile)
+    else:
+        adopt_external_handlers(logger)
 
 
 def register_worker_signals() -> None:

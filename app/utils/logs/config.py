@@ -20,22 +20,40 @@ Django 와 같은 점 / 다른 점 (ADR-019 — 이 설계를 유지하기로 �
     판별은 등록 누락이라는 실패 모드 자체를 없앤다. 로거 이름을 잘못 줘도(복사·붙여넣기)
     ``app=`` 라벨은 항상 맞다.
 
-이 선택이 포기한 것 (수용된 잔여 위험 — 결함으로 재보고하지 말 것):
-    · **앱별 로그 레벨을 따로 줄 수 없다.** 레벨은 root 하나뿐이고
-      ``LogSettings`` 에도 전역 레벨(``LOG_LEVEL``·``LOG_CONSOLE_LEVEL``·``LOG_FILE_LEVEL``)만 있다.
-    · **서드파티 로거(sqlalchemy·aiomysql 등)를 개별 제어할 수 없다.** 아래 dict 에
-      해당 항목이 없어 전부 root 레벨을 따른다.
-    둘 중 하나가 실제로 필요해지면 그때 ``loggers`` 키를 추가한다 —
-    그 시점에 charter 비목표를 먼저 개정한다.
+앱별·라이브러리별 레벨 (logging-overhaul L4 — 위 포기 항목을 사용자 결정으로 대체):
+    ``loggers`` 키를 더하지 않고 **헤더(app=) 이름 기준 필터**로 준다 — ``LOG_APP_LEVELS="blog=DEBUG,
+    sqlalchemy=WARNING"`` → ``filters.AppLevelFilter``(모든 핸들러, ContextFilter 바로 뒤). root 레벨은
+    LOG_LEVEL 과 헤더별 레벨의 최솟값으로 내린다. 라이브러리 헤더는 로거 이름에서 나온다(``_app_from_path``).
+    그래서 새 기능을 추가할 때 손댈 곳이 0 이라는 성질은 그대로다.
 """
 
 from __future__ import annotations
 
-from config import LogSettings, app_settings, log_settings, timezone_settings
+import logging
+
+from config import LogSettings, app_settings, log_settings
 
 # 기본 포맷 (#3): [시간 TZ] LEVEL [app=..] [module:class:func:line] message
 # 실제로 쓰는 값은 LOG_CONSOLE_FORMAT·LOG_FILE_FORMAT 이다 — 이 상수는 그 기본값이다.
 LOG_FORMAT: str = LogSettings.model_fields["LOG_CONSOLE_FORMAT"].default
+
+# 프로세스 종류 → (본 로그, 에러 로그) 파일 이름 (logging-overhaul L5, ADR-001).
+# 에러 파일도 프로세스별로 나눈다 — 웹과 워커가 한 파일을 함께 회전시키지 않게.
+LOG_FILES = {
+    "app": ("app.log", "error.log"),
+    "celery": ("celery.log", "celery-error.log"),
+}
+
+# 이 프로세스의 종류. 웹이 기본이고, Celery 워커는 로깅 신호 수신자가 바꾼다(set_process).
+_process = "app"
+
+
+def set_process(kind: str) -> None:
+    """진입점이 프로세스 종류를 정한다 — 파일 이름(LOG_FILES)이 따른다."""
+    global _process
+    if kind not in LOG_FILES:
+        raise ValueError(f"모르는 프로세스 종류: {kind!r} (가능: {', '.join(LOG_FILES)})")
+    _process = kind
 
 
 def _env() -> str:
@@ -46,11 +64,17 @@ def _level() -> str:
     return log_settings.get_effective_log_level(app_settings.DEBUG)
 
 
+def _min_level() -> str:
+    """로거(root) 레벨 — LOG_LEVEL 과 LOG_APP_LEVELS 중 가장 낮은 값. 거르기는 AppLevelFilter 가 한다."""
+    names = logging.getLevelNamesMapping()
+    return min([_level(), *log_settings.get_app_levels().values()], key=names.__getitem__)
+
+
 def console_enabled() -> bool:
     """콘솔(stdout/stderr) 핸들러를 붙일지 — 콘솔을 만드는 **모든 경로**가 이 함수 하나만 본다.
 
-    앱 root(build_dictconfig)·`python main.py` 의 uvicorn(setup_uvicorn_logging)·
-    `uvicorn main:app` CLI 와 Celery 워커가 세운 핸들러(setup.adopt_external_handlers).
+    콘솔 핸들러는 root 에 하나뿐이다(build_dictconfig). uvicorn(두 실행 경로)·Celery 워커의 줄도
+    root 로 전파되므로(setup.adopt_external_handlers·configure_worker_logging) 같이 따른다.
     """
     return log_settings.LOG_CONSOLE_ENABLED
 
@@ -70,7 +94,12 @@ def _formatter(fmt: str, *, use_utc: bool, with_ms: bool = False) -> dict:
     }
 
 
-def build_dictconfig() -> dict:
+def build_dictconfig(logfile: str | None = None) -> dict:
+    """root 구성 — 모든 실행 경로가 이 핸들러 한 벌을 쓴다(logging-overhaul L1).
+
+    Args:
+        logfile: Celery ``--logfile``. 주면 파일 형식·필터로 root 에 직접 붙인다(ENV 무관).
+    """
     env = _env()
     level = _level()
     use_utc = env in ("production", "staging")
@@ -83,35 +112,27 @@ def build_dictconfig() -> dict:
             "class": "logging.StreamHandler",
             "stream": "ext://sys.stdout",
             "formatter": "app",
-            "filters": ["context", "redact", "sql_noise"],
+            "filters": ["context", "app_levels", "redact", "sql_noise"],
             "level": log_settings.get_effective_console_level(app_settings.DEBUG),
         }
         root_handlers.append("console")
 
     if file_enabled():
         log_dir = log_settings.get_log_dir()
-        today = timezone_settings.now().strftime("%Y-%m-%d")
-        max_bytes = log_settings.LOG_MAX_SIZE_MB * 1024 * 1024
-        handlers["file"] = {
-            "class": "logging.handlers.RotatingFileHandler",
-            "filename": str(log_dir / log_settings.LOG_APP_FILENAME.format(date=today)),
-            "maxBytes": max_bytes,
-            "backupCount": log_settings.LOG_BACKUP_COUNT,
-            "encoding": "utf-8",
-            "formatter": "file",
-            "filters": ["context", "redact"],
-            "level": log_settings.LOG_FILE_LEVEL,
-        }
-        handlers["error_file"] = {
-            "class": "logging.handlers.RotatingFileHandler",
-            "filename": str(log_dir / log_settings.LOG_ERROR_FILENAME.format(date=today)),
-            "maxBytes": max_bytes,
-            "backupCount": log_settings.LOG_BACKUP_COUNT,
-            "encoding": "utf-8",
-            "formatter": "file",
-            "filters": ["context", "redact"],
-            "level": "ERROR",
-        }
+        main_file, error_file = LOG_FILES[_process]
+        for name, filename, file_level in (
+            ("file", main_file, log_settings.LOG_FILE_LEVEL),
+            ("error_file", error_file, "ERROR"),
+        ):
+            handlers[name] = {
+                "()": "app.utils.logs.handlers.DailyRotatingFileHandler",
+                "filename": str(log_dir / filename),
+                "max_bytes": log_settings.LOG_MAX_SIZE_MB * 1024 * 1024,
+                "retention_days": log_settings.LOG_RETENTION_DAYS,
+                "formatter": "file",
+                "filters": ["context", "redact"],
+                "level": file_level,
+            }
         # 파일 핸들러를 root 에 **직접 붙이지 않는다.** 붙이면 로그를 남기는 코루틴이
         # 파일 쓰기와 로테이션을 직접 수행해 event loop 가 그만큼 멈춘다.
         # queue handler 가 레코드를 큐에 넣고(빠름), listener 가 별도 스레드에서
@@ -121,17 +142,33 @@ def build_dictconfig() -> dict:
             "queue": {"()": "app.utils.logs.queue_logging.make_log_queue"},
             "handlers": ["file", "error_file"],
             "respect_handler_level": True,
-            # 소음 차단은 큐 **앞에서** 한다. 뒤에서 하면 버릴 레코드까지 큐 자리를
-            # 차지해 정작 필요한 로그가 상한에 걸려 드롭된다.
-            "filters": ["sql_noise"],
+            # 소음 차단·앱별 레벨은 큐 **앞에서** 한다. 뒤에서 하면 버릴 레코드까지 큐 자리를
+            # 차지해 정작 필요한 로그가 상한에 걸려 드롭된다. context 도 앞에서 채운다 — listener
+            # 스레드에서 채우면 classname 을 호출 스택이 아니라 listener 스택에서 찾는다.
+            "filters": ["context", "app_levels", "sql_noise"],
         }
         root_handlers += ["queue"]
+
+    if logfile:
+        handlers["logfile"] = {
+            "class": "logging.handlers.WatchedFileHandler",  # Celery 가 --logfile 에 쓰는 것과 같다
+            "filename": logfile,
+            "encoding": "utf-8",
+            "formatter": "file",
+            "filters": ["context", "app_levels", "redact", "sql_noise"],
+        }
+        root_handlers.append("logfile")
 
     return {
         "version": 1,
         "disable_existing_loggers": False,
         "filters": {
             "context": {"()": "app.utils.logs.filters.ContextFilter"},
+            "app_levels": {
+                "()": "app.utils.logs.filters.AppLevelFilter",
+                "levels": log_settings.get_app_levels(),
+                "default": level,
+            },
             "redact": {"()": "app.utils.logs.filters.RedactingFilter"},
             "sql_noise": {"()": "app.utils.logs.filters.SQLNoiseFilter"},
         },
@@ -140,5 +177,5 @@ def build_dictconfig() -> dict:
             "file": _formatter(log_settings.LOG_FILE_FORMAT, use_utc=use_utc, with_ms=with_ms),
         },
         "handlers": handlers,
-        "root": {"handlers": root_handlers, "level": level},
+        "root": {"handlers": root_handlers, "level": _min_level()},
     }

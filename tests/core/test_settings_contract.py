@@ -134,6 +134,10 @@ REMOVED_SETTINGS = {
     "UPLOAD_ALLOWED_EXTENSIONS": "not-json",
     "SESSION_EXPIRE_SECONDS": "not-an-int",
     "API_VERSION": "v2",  # config-cleanup-2 — URL prefix 는 코드에 고정("/v1/...")
+    # logging-overhaul — 파일 이름은 프로세스 종류가, 보관은 LOG_RETENTION_DAYS 가 정한다
+    "LOG_BACKUP_COUNT": "not-an-int",
+    "LOG_APP_FILENAME": "{date}_app.log",
+    "LOG_ERROR_FILENAME": "{date}_error.log",
 }
 
 
