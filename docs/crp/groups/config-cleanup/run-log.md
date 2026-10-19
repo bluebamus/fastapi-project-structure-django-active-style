@@ -45,3 +45,20 @@
 기본 출력 회귀(`test_default_settings_keep_previous_console_line`)·Celery 콘솔 켬·사용자 형식 마스킹은 변경 전에도 참인 보호 테스트라 되돌려도 통과한다(의도).
 
 - **수렴 판정:** `CONVERGED` (Open Fix 0)
+
+### Round 3 — 2026-10-19 (base SHA: `8041cb4`) — REQ-003 R-804 수정 (브랜치 `fix/uvicorn-access-log-format`)
+- **원인:** uvicorn 은 접속 줄을 `'%s - "%s %s HTTP/%s" %d'` + args 5개로 남기고, `{client_addr}`·`{request_line}`·`{status_code}` 는 uvicorn `AccessFormatter.formatMessage` 가 args 를 풀어 만든다. `setup_uvicorn_logging()` 은 access 에 `TzFormatter` 를 써서 이 단계가 없었다 → KeyError → `--- Logging error ---`, 줄 유실(F-006).
+- **형제 결함(같은 데이터 흐름):** `RedactingFilter` 는 비밀값을 찾으면 `args=()` 로 비운다. 접속 줄 경로에 `?token=…` 이 있으면 `AccessFormatter` 의 args 풀기가 ValueError — `uvicorn main:app` CLI 경로에서도 재현(F-007).
+- **Fix:** F-006·F-007 → **Fixed**. ADR-008. R-804 해소. R-803(형식 통일)은 그대로.
+- **동작이 바뀐 기존 테스트:** `tests/utils/test_log_redaction.py::test_args_are_folded_after_redaction` → `test_secret_inside_one_arg_is_masked_in_place`(인자 단위로 가리고 args 유지) + `test_args_are_folded_when_secret_spans_template_and_arg`(예전 방식 유지 확인). `tests/utils/test_log_settings_wiring.py::test_uvicorn_log_config_follows_console_and_date_format` 의 access 레코드를 `extra` 로 필드를 미리 채우던 것에서 uvicorn 실제 모양(args 5개)으로 — 앞의 방식이 R-804 를 가렸다.
+- **DB·Redis 접속 없음.**
+
+### fail-on-revert (Round 3)
+구현 전 RED: 6건 실패(인자 단위 마스킹 1, `python main.py` 접속 줄 2, 비밀값 접속 줄 2(두 경로), 날짜 형식 접속 줄 1). 구현 뒤 파일별로 `main` 판으로 바꿔 돌리고 작업 폴더 밖 복사본으로 복원했다.
+
+| 되돌린 것 | 결과 |
+|---|---|
+| `app/utils/logs/filters.py` | 3건 실패 — 인자 단위 마스킹, 비밀값 접속 줄(`python main.py`·`uvicorn main:app`) |
+| `app/utils/logs/setup.py`(access 포매터) | 4건 실패 — `python main.py` 접속 줄(production·development), 비밀값 접속 줄(`python main.py`), 날짜 형식 접속 줄 |
+
+- **수렴 판정:** `CONVERGED` (Open Fix 0)

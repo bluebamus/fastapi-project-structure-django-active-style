@@ -47,6 +47,9 @@
 - INV-6: `LOG_CONSOLE_ENABLED=false` 면 콘솔 핸들러를 만드는 모든 경로(앱 root·`setup_uvicorn_logging()`·uvicorn CLI·Celery 워커)에
   콘솔 핸들러가 0개이고 파일 핸들러는 그대로다. 판단은 `console_enabled()` 한 곳. 출력이 모두 꺼지면 stderr 경고 한 줄.
 - INV-7: 비밀값 마스킹은 사용자 형식에서도 유지된다(`test_masking_holds_with_user_log_formats`).
+- INV-8 (v0.3, REQ-003): uvicorn 접속 레코드(args 5개)는 `python main.py`·`uvicorn main:app` 두 경로 모두 logging 오류 없이
+  요청 라인으로 찍히고, 쿼리의 비밀값은 가려지며, `python main.py` 경로는 시간대·`LOG_DATE_FORMAT` 을 따른다.
+  (검사: `tests/utils/test_log_redaction.py` 의 접속 줄 절)
 
 ### 2-2. 비목표
 - `API_VERSION`·`LOG_CONSOLE_*`·`LOG_FILE_FORMAT`·`LOG_DATE_FORMAT` 정리(별도 결정 — residual-risk R-801).
@@ -67,3 +70,4 @@
 ## 4. 변경 이력
 - v0.1 (2026-10-19): 최초 작성.
 - v0.2 (2026-10-19): REQ-002 — 인벤토리 추가, INV-1 개정, INV-5~7, 비목표 2건. 비목표의 R-801 항목은 REQ-002 로 해소.
+- v0.3 (2026-10-19): REQ-003 — R-804 해소. INV-8 추가, 비목표의 R-804 항목은 해소.
