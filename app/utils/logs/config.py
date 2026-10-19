@@ -20,13 +20,11 @@ Django 와 같은 점 / 다른 점 (ADR-019 — 이 설계를 유지하기로 �
     판별은 등록 누락이라는 실패 모드 자체를 없앤다. 로거 이름을 잘못 줘도(복사·붙여넣기)
     ``app=`` 라벨은 항상 맞다.
 
-이 선택이 포기한 것 (수용된 잔여 위험 — 결함으로 재보고하지 말 것):
-    · **앱별 로그 레벨을 따로 줄 수 없다.** 레벨은 root 하나뿐이고
-      ``LogSettings`` 에도 전역 레벨(``LOG_LEVEL``·``LOG_CONSOLE_LEVEL``·``LOG_FILE_LEVEL``)만 있다.
-    · **서드파티 로거(sqlalchemy·aiomysql 등)를 개별 제어할 수 없다.** 아래 dict 에
-      해당 항목이 없어 전부 root 레벨을 따른다.
-    둘 중 하나가 실제로 필요해지면 그때 ``loggers`` 키를 추가한다 —
-    그 시점에 charter 비목표를 먼저 개정한다.
+앱별·라이브러리별 레벨 (logging-overhaul L4 — 위 포기 항목을 사용자 결정으로 대체):
+    ``loggers`` 키를 더하지 않고 **헤더(app=) 이름 기준 필터**로 준다 — ``LOG_APP_LEVELS="blog=DEBUG,
+    sqlalchemy=WARNING"`` → ``filters.AppLevelFilter``(모든 핸들러, ContextFilter 바로 뒤). root 레벨은
+    LOG_LEVEL 과 헤더별 레벨의 최솟값으로 내린다. 라이브러리 헤더는 로거 이름에서 나온다(``_app_from_path``).
+    그래서 새 기능을 추가할 때 손댈 곳이 0 이라는 성질은 그대로다.
 """
 
 from __future__ import annotations

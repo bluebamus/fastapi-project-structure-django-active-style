@@ -493,6 +493,27 @@ async def update_note(
 
 ---
 
+### 8.1 로그 남기기 — 아무것도 등록하지 않아도 헤더가 붙는다
+
+새 기능의 로그는 설정에 손댈 곳이 없습니다. 헤더 `app=<기능명>` 은 소스 경로에서, 클래스명은 호출 프레임에서 자동으로 채워집니다.
+
+```python
+from app.utils.logs import LoggerMixin, get_logger
+
+logger = get_logger(__name__)                 # 모듈 함수용 — 이름은 아무거나 괜찮다(헤더는 경로가 정한다)
+logger.info("상품 생성: %s", product_id)       # → [..] INFO  [app=catalog] [catalog_service:-:create:42] 상품 생성: 7
+
+
+class CatalogService(LoggerMixin):            # 클래스용 — self.log 가 클래스명을 넣는다(프레임 탐색 없음)
+    def create(self) -> None:
+        self.log.warning("재고 부족")          # → [..] WARNING [app=catalog] [catalog_service:CatalogService:create:51] 재고 부족
+```
+
+- 값은 `%s` 인자로 넘깁니다(f-string 금지 — 버려질 레코드도 문자열을 만들고, 마스킹이 인자 단위로 가린다).
+- 예외는 `logger.exception("저장 실패")` — traceback 의 비밀값도 가려집니다. 비밀 설정을 새로 만들면 `config.LOG_SECRET_SETTINGS` 에 넣습니다.
+- 이 기능만 자세히 보려면 `.env` 에 `LOG_APP_LEVELS=catalog=DEBUG` (콘솔 하한 `LOG_CONSOLE_LEVEL` 도 DEBUG 여야 콘솔에 보인다).
+- 형식·파일·회전·보관은 README [로깅](../../README.md#로깅).
+
 ## 9. 요청 밖 작업 — background·Celery
 
 ```python

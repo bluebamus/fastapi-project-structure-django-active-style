@@ -11,7 +11,7 @@ Repository 패턴과 계층 분리를 적용한 FastAPI 프로젝트 골격입�
 - [특징](#특징) · [기술 스택](#기술-스택) · [구조 한눈에](#구조-한눈에)
 - [ORM / Raw 데이터 접근](#orm--raw-데이터-접근)
 - [빠른 시작](#빠른-시작) · [스키마 관리](#스키마-관리--자동-생성에서-alembic-으로) · [테스트](#테스트)
-- [환경 설정](#환경-설정) · [운영 배포](#운영-배포)
+- [환경 설정](#환경-설정) · [로깅](#로깅) · [운영 배포](#운영-배포)
 - [API](#api) · [새 기능 추가](#새-기능-추가) · [자주 막히는 지점](#자주-막히는-지점)
 - [문서 안내](#문서-안내)
 
@@ -281,9 +281,7 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | `TRUSTED_PROXY_HOPS` | `0` | 앱 앞의 신뢰 리버스 프록시 수. `0` 은 전달 헤더 무시, `N` 은 X-Forwarded-For 의 오른쪽에서 N번째를 접속 IP 로 사용. **프록시 뒤 배포면 반드시 설정**(운영 배포 확인 4) |
 | `ACCESS_LOG_ENABLED` | `true` | 접속 로그 수집 |
 | `ACCESS_LOG_RETENTION_DAYS` | `365` | 접속 로그 보존 일수. 지난 행은 Celery beat 가 매일 03:30(`TIME_ZONE`) 5,000행씩 지운다. `0` = 지우지 않음, 음수는 기동 오류(운영 배포 확인 8) |
-| `LOG_LEVEL` / `LOG_CONSOLE_LEVEL` | 미설정 | 미설정이면 DEBUG 에 따라 DEBUG/INFO |
-| `LOG_CONSOLE_ENABLED` | `true` | `false` 면 콘솔 핸들러를 붙이지 않는다(앱·uvicorn·Celery 모두). 파일 로그도 없으면 기동 시 stderr 경고 한 줄 |
-| `LOG_CONSOLE_FORMAT` / `LOG_FILE_FORMAT` / `LOG_DATE_FORMAT` | `[{asctime} {tzname}] {levelname:5} [app={appname}] [{module}:{classname}:{funcName}:{lineno}] {message}` / 같음 / `%Y-%m-%d %H:%M:%S` | 콘솔·파일 줄 형식(`{필드}`)과 시각 형식. 잘못된 형식은 기동 오류, 마스킹은 형식과 무관([ARCHITECTURE §5](docs/guides/ARCHITECTURE.md)) |
+| `LOG_*` | — | 레벨·헤더별 레벨·형식·파일·회전·보관 — [로깅](#로깅) 절의 표 |
 | `SERVER_HOST` / `SERVER_PORT` | `0.0.0.0` / `8000` | `python main.py` 직접 실행 시 바인딩 |
 
 | 동작 | `DEBUG=true` | `DEBUG=false` |
@@ -312,6 +310,83 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 **업그레이드 노트 — 지운 설정.** `SMTP_*`·`UPLOAD_*`·`SESSION_EXPIRE_SECONDS` 는 읽는 코드가 없어 삭제했습니다
 (config-cleanup). 기존 `.env`·환경 변수의 이 줄들은 지워도 되고, 남아 있어도 무시됩니다(설정 클래스가
 `extra="ignore"`). 관리 세션 만료는 위 표의 `ADMIN_SESSION_*` 가 정합니다.
+
+---
+
+## 로깅
+
+설정은 Django 의 `settings.LOGGING` 처럼 한 곳(`app/utils/logs/config.py` 의 `build_dictconfig()`)에 모여 있고,
+값은 전부 `.env`(`LogSettings`)로 바꿉니다. 새 기능은 **아무것도 등록하지 않아도** 헤더가 붙습니다.
+
+| Django `LOGGING` | 이 저장소 |
+|---|---|
+| `formatters` | `LOG_CONSOLE_FORMAT`·`LOG_FILE_FORMAT`·`LOG_DATE_FORMAT` → 포매터 `TzFormatter` 하나 |
+| `handlers` | root 의 콘솔(stdout) + 파일(`app.log`/`celery.log` + 에러 파일) — 모든 실행 경로가 이 한 벌을 쓴다 |
+| `loggers[이름]["level"]` | `LOG_APP_LEVELS="blog=DEBUG,sqlalchemy=WARNING"` — 키는 로거 이름이 아니라 **헤더 이름** |
+| `root["level"]` | `LOG_LEVEL`(미설정이면 `DEBUG` 에 따라 DEBUG/INFO) |
+| `handlers[..]["level"]` | `LOG_CONSOLE_LEVEL`·`LOG_FILE_LEVEL`(출력처별 하한, 에러 파일은 ERROR 고정) |
+| `filters` | 출처 헤더(`ContextFilter`) → 앱별 레벨(`AppLevelFilter`) → 비밀값 마스킹(`RedactingFilter`) → SQL 소음 차단 |
+| `RotatingFileHandler`·`TimedRotatingFileHandler` | `DailyRotatingFileHandler` — 날짜 + 크기 + 보관 일수 |
+
+**형식과 헤더.** 모든 줄 = `[시각 시간대] 레벨 [app=헤더] [모듈:클래스:함수:줄] 메시지`. 앱 로거·`python main.py`·
+`uvicorn main:app`(`fastapi dev`)·Celery 워커(메인·태스크)의 콘솔·파일 출력이 모두 같은 형식입니다. uvicorn 접속 줄은
+메시지가 요청 줄(`127.0.0.1:5 - "GET /health HTTP/1.1" 200`)입니다. 형식을 바꿔도 `{asctime}`·`{levelname}`·`{appname}`·
+`{module}`·`{classname}`·`{funcName}`·`{message}` 는 빠질 수 없습니다(빠지면 빠진 필드를 알려 주며 기동 오류).
+
+| 헤더(`app=`) | 출처 |
+|---|---|
+| 기능명(`blog`·`user`…) | `app/features/<기능>/**` |
+| `core`·`celery`·`utils`·`migrations` | `app/core`·`app/celery`·`app/utils`·`migrations` |
+| `app` | 그 밖의 저장소 코드(`main.py`·`config.py`·테스트) |
+| `celery` · `uvicorn` · `sqlalchemy` · `alembic` | 설치된 라이브러리 — 로거 이름 `celery.*`/`kombu.*` · `uvicorn.*` · `sqlalchemy.*` · `alembic.*` |
+| `ext` | 그 밖의 라이브러리 |
+
+```text
+[2026-10-19 09:07:51 UTC] WARNING [app=app] [main:-:readiness_check:276] [Readiness] DB 점검 실패: TimeoutError
+[2026-10-19 09:07:51 UTC] INFO  [app=uvicorn] [httptools_impl:RequestResponseCycle:send:482] 127.0.0.1:59575 - "GET /ready HTTP/1.1" 503
+[2026-10-19 09:09:57 UTC] INFO  [app=celery] [strategy:-:task_message_handler:161] Task home.aggregate_access_stats[5def…] received
+```
+
+**`.env` 키.** 전체 설명은 [`.env.example`](.env.example) 의 로깅 절에 있습니다.
+
+| 변수 | 기본값 | 의미 |
+|---|---|---|
+| `LOG_LEVEL` / `LOG_CONSOLE_LEVEL` | 미설정 | 미설정이면 `DEBUG` 에 따라 DEBUG/INFO. 콘솔 레벨은 콘솔 출력의 하한 |
+| `LOG_APP_LEVELS` | 빈 값 | 헤더별 최소 레벨(예: `blog=DEBUG,celery=INFO,sqlalchemy=WARNING`). 지정 없는 헤더는 `LOG_LEVEL`. 잘못된 형식·레벨은 기동 오류, 모르는 헤더는 경고만. SQL 로거의 DEBUG·INFO 는 `LOG_SQL_ECHO_ENABLED`(개발 전용)도 켜야 나온다 |
+| `LOG_CONSOLE_ENABLED` | `true` | `false` 면 콘솔 핸들러가 없다(모든 경로). 파일도 없으면 기동 시 stderr 경고 한 줄 |
+| `LOG_FILE_ENABLED` / `LOG_FILE_LEVEL` | `true` / `INFO` | 파일은 `ENV=staging`/`production` 에서만 쓴다 |
+| `LOG_DIR` | `logs` | 파일 위치 |
+| `LOG_MAX_SIZE_MB` | `10` | 하루 안에서 넘으면 `.1`, `.2` … 로 나눈다. `0` = 나누지 않음 |
+| `LOG_RETENTION_DAYS` | `30` | 교체할 때 이보다 오래된 날짜 파일(분할 파일 포함)을 지운다. 정확히 N일 전은 남는다. `0` = 지우지 않음, 음수는 기동 오류 |
+| `LOG_CONSOLE_FORMAT` / `LOG_FILE_FORMAT` / `LOG_DATE_FORMAT` | 위 형식 / 같음 / `%Y-%m-%d %H:%M:%S` | development 는 시각 끝에 `.밀리초`. staging/production 은 UTC |
+
+**파일**(`LOG_DIR`, staging/production + `LOG_FILE_ENABLED=true`):
+
+| 파일 | 쓰는 프로세스 | 내용 |
+|---|---|---|
+| `app.log` · `error.log` | 웹(앱·uvicorn) | 전체(`LOG_FILE_LEVEL` 이상) · ERROR 이상 |
+| `celery.log` · `celery-error.log` | Celery 워커 | 전체 · ERROR 이상 |
+| `--logfile` 경로 | Celery 워커(지정했을 때) | 같은 파일 형식으로 그대로 쓴다 |
+
+매일 **UTC 자정**에 `app.log` → `app.log.2026-10-19` 로 바뀌고, 하루 안에서 크기를 넘으면
+`app.log.2026-10-19`, `.1`, `.2` … 순으로 나뉩니다(번호가 클수록 나중 조각). 에러 파일을 웹·워커가 나눠 쓰는 이유는
+한 파일을 두 프로세스가 회전시키지 않기 위해서입니다.
+
+**비밀값.** DSN 의 사용자명·비밀번호(`mysql://***:***@host`), `password=`·`token=`·`Bearer` 값, 그리고 **설정된 비밀값 원문**
+(`MYSQL_USER`·`MYSQL_PASSWORD`·replica 계정·`REDIS_PASSWORD`·JWT 키 2종·`SESSION_SECRET_KEY`)이 메시지·인자·traceback·
+stack 어디에 나와도 `***` 로 바뀝니다. 4글자 미만 값(주로 계정명)은 일반 단어를 지우지 않도록 DSN 과 `user=`·`username=` 에서만 가립니다.
+새 비밀 설정은 `config.LOG_SECRET_SETTINGS` 에 넣습니다(빠지면 계약 테스트가 실패합니다).
+
+**여러 워커 = 콘솔(stdout) + 수집기/`logrotate`, 파일 로그 끔.** 파일 회전은 한 파일을 한 프로세스가 쓴다는 전제입니다.
+`uvicorn --workers` 2 이상, Celery prefork 동시성 2 이상(beat 를 같은 `LOG_DIR` 로 띄우는 경우 포함)이면 여러 프로세스가
+같은 파일을 회전시켜 안전하지 않습니다. 이때는 `LOG_FILE_ENABLED=false` 로 두고 stdout 을 수집기나 `logrotate` 로 보냅니다.
+uvicorn 이 워커를 띄운(spawn) 프로세스에서 파일 로그가 켜져 있으면 기동 시 WARNING 한 줄이 남습니다(Celery 는 감지하지 않습니다).
+
+**업그레이드 노트 — 바뀐 로그 설정.** 파일 이름 `{date}_app.log`·`{date}_error.log` 는 `app.log`·`error.log`(+ 날짜 접미사)로
+바뀌었고 `LOG_APP_FILENAME`·`LOG_ERROR_FILENAME` 은 지웠습니다. `LOG_BACKUP_COUNT`(개수)는 `LOG_RETENTION_DAYS`(일수)로
+대체했습니다. 지운 키는 `.env` 에 남아 있어도 무시됩니다. 새 키: `LOG_APP_LEVELS`·`LOG_RETENTION_DAYS`. `uvicorn main:app` 과
+Celery 워커도 이제 프로젝트 형식으로 찍고(예전에는 각자의 기본 형식), 접속 줄 끝의 상태 문구(`200 OK` 의 `OK`)는 없어졌습니다.
+예전 `setup_uvicorn_logging()` 과 `TzAccessFormatter` 는 지웠습니다 — `python main.py` 는 uvicorn 에 `log_config` 를 주지 않습니다.
 
 ---
 
@@ -562,7 +637,7 @@ Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워
 | [docs/specs/orm-raw-repository/development-plan.md](docs/specs/orm-raw-repository/development-plan.md) | 고정 기준선 — ORM/Raw 개발 계획 | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/orm-raw-repository/workflow-guide.md](docs/specs/orm-raw-repository/workflow-guide.md) | 고정 기준선 — ORM/Raw 지침 원본 (코드 주석의 `workflow-guide §N` 출처) | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/django-style-app-automation.md](docs/specs/django-style-app-automation.md) | 고정 기준선 — 앱 자동 등록 요구사항(`FR-*`·`NFR-*`·`SEC-*` 등, 코드 주석이 인용)과 설계 근거 | 자동 등록 규칙의 원래 의도를 볼 때 |
-| [docs/crp/groups/](docs/crp/groups/) | 검수 이력(append-only) — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계), `service-hardening`(인증·인가·rate limit·UTC), `admin-login`(관리 화면 로그인·`ADMIN_DISABLED`), `log-redaction-fixes`(traceback 마스킹·예외 헤더·Redis 최소 버전·커버리지 하한), `security-ops-hardening`(DB 바인드 값 숨김·접속 로그 보존·관리 로그인 CSRF·날짜 필터), `admin-session-hardening`(관리 세션 Redis 이전·로그인 이후 CSRF·기간 필터), `config-cleanup`(쓰지 않는 SMTP·업로드·세션 만료 설정 삭제·설정 사용 계약 테스트, 2차: `API_VERSION` 삭제·로그 형식/콘솔 설정 연결) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
+| [docs/crp/groups/](docs/crp/groups/) | 검수 이력(append-only) — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계), `service-hardening`(인증·인가·rate limit·UTC), `admin-login`(관리 화면 로그인·`ADMIN_DISABLED`), `log-redaction-fixes`(traceback 마스킹·예외 헤더·Redis 최소 버전·커버리지 하한), `security-ops-hardening`(DB 바인드 값 숨김·접속 로그 보존·관리 로그인 CSRF·날짜 필터), `admin-session-hardening`(관리 세션 Redis 이전·로그인 이후 CSRF·기간 필터), `config-cleanup`(쓰지 않는 SMTP·업로드·세션 만료 설정 삭제·설정 사용 계약 테스트, 2차: `API_VERSION` 삭제·로그 형식/콘솔 설정 연결), `logging-overhaul`(모든 경로 같은 로그 형식·헤더별 레벨·프로세스별 파일·날짜+크기 회전·보관 일수·설정 비밀값 마스킹) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
 
 `docs/guides/` 는 **현행 문서**라 코드 기준으로 유지하고, `review_gate` docs 그룹이 Markdown 의 백틱
 경로와 HTML 의 `<code>` 경로·환경변수를 검사합니다. HTML 안내서는 흐름을 요약하고 표·목록의 원문은
