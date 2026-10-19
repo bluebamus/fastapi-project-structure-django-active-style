@@ -508,6 +508,21 @@ async with background_db_session() as session:     # 별도 풀, 예외 시 roll
 - Celery 태스크는 기능 폴더의 `tasks.py` 에 두고(워커가 registry 로 발견) 코루틴은 `run_async()` 로
   실행합니다. 서비스는 그 기능의 provider 함수(세션을 받는 일반 함수 — 요청용 `Depends` provider 도
   이 함수를 부른다)로 조립합니다 ([ARCHITECTURE §11](./ARCHITECTURE.md)). 재시도·중복·"commit 과 enqueue 사이 실패" 를 테스트합니다.
+- 주기 작업은 같은 `tasks.py` 에서 beat 스케줄에 직접 등록합니다(중앙 파일을 고치지 않는다). 예:
+  `app/features/home/tasks.py` 의 접속 로그 보존 정리.
+
+  ```python
+  celery_app.conf.beat_schedule["home.purge_expired_access_logs"] = {
+      "task": "home.purge_expired_access_logs",
+      "schedule": crontab(hour=3, minute=30),  # Celery timezone = TIME_ZONE 지역 시각
+  }
+  ```
+
+  로컬 실행: `uv run celery -A app.celery.app:celery_app worker --loglevel=INFO` 와
+  `uv run celery -A app.celery.app:celery_app beat --loglevel=INFO`(beat 는 배포 전체에서 하나만).
+  테스트는 스케줄 항목이 등록됐는지와 태스크가 provider 로 조립되는지를 봅니다
+  (`app/features/home/tests/test_access_log_retention.py`). 오래 걸리는 삭제는 배치로 나눠 배치마다
+  커밋합니다(`AccessLogRetentionService`).
 - 접속 로그용 `access_log_tasks` 러너는 넘치면 버리는 비핵심 경로입니다. 결제·발송 같은 중요한
   작업을 넣지 않습니다.
 - `async def` 안에서 `time.sleep`·동기 HTTP·큰 파일 처리·무거운 CPU 루프를 돌리면 이벤트 루프가

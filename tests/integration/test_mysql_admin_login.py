@@ -28,7 +28,7 @@ from tests.integration.conftest import (
     MYSQL_PORT,
     MYSQL_USER,
 )
-from tests.test_admin_login import PASSWORD, build_admin_app
+from tests.test_admin_login import PASSWORD, build_admin_app, csrf_token
 
 pytestmark = pytest.mark.mysql
 
@@ -83,11 +83,16 @@ async def test_cli_superuser_can_log_in_to_admin_on_mysql(mysql_session_maker):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         first = await client.get("/admin/")
         assert first.status_code == 302 and first.headers["location"].endswith("/admin/login")
+        token = await csrf_token(client)
         wrong = await client.post(
-            "/admin/login", data={"username": username, "password": "wrong-password-1"}
+            "/admin/login",
+            data={"username": username, "password": "wrong-password-1", "csrf_token": token},
         )
         assert wrong.status_code == 400
-        ok = await client.post("/admin/login", data={"username": username, "password": PASSWORD})
+        ok = await client.post(
+            "/admin/login",
+            data={"username": username, "password": PASSWORD, "csrf_token": token},
+        )
         assert ok.status_code == 302
         assert (await client.get("/admin/")).status_code == 200
         assert (await client.get("/admin/logout")).status_code == 302

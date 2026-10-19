@@ -5,6 +5,7 @@
   base 를 확장하지 않는 독립 페이지다. Bootstrap 5.3.8 CSS 만 SRI 로 고정해 불러오고 JS 는 없다.
   버전을 올리면 integrity 를 실제 파일로 다시 계산하고 tests/test_admin_login.py 의 상수도 바꾼다.
   error 는 Jinja 자동 이스케이프(sqladmin 템플릿 엔진 autoescape=True)로 출력한다.
+  csrf_token(request) 는 create_admin_interface 가 넣는 전역 함수 — 세션의 CSRF 토큰(없으면 발급).
 #}
 <html lang="ko">
 <head>
@@ -25,6 +26,7 @@
         <div class="alert alert-danger" role="alert">{{ error }}</div>
         {% endif %}
         <form action="{{ url_for('admin:login') }}" method="POST">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
           <div class="mb-3">
             <label for="username" class="form-label">사용자명</label>
             <input id="username" name="username" type="text" class="form-control"

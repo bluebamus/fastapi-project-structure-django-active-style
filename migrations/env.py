@@ -22,7 +22,7 @@ if config.config_file_name is not None:
 # "운영에 테이블이 없다" 로 배포 뒤에야 드러난다. 새 앱을 추가해도 이 파일은
 # 손대지 않는다 (FR-03, FR-08, NFR-05).
 # ---------------------------------------------------------------------------
-from app.core.db.session import Base  # noqa: E402
+from app.core.db.session import ENGINE_SAFETY_OPTIONS, Base  # noqa: E402
 from app.core.models.types import render_alembic_type  # noqa: E402
 from app.core.registry import AppRegistry  # noqa: E402
 from config import db_settings  # noqa: E402
@@ -85,6 +85,7 @@ def run_migrations_online() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        **ENGINE_SAFETY_OPTIONS,
     )
 
     with connectable.connect() as connection:

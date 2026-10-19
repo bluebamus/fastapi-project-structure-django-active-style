@@ -306,7 +306,8 @@ staging/production 만:
 - `DEBUG=true`
 - `CORS_ALLOW_ORIGINS` 에 `*`
 - `LOG_SQL_ECHO_ENABLED=true`
-- `LOG_LEVEL=DEBUG` — 롤백 상세(SQL 본문·바인딩 값)는 DEBUG 레코드로만 나갑니다(§8.2).
+- `LOG_LEVEL=DEBUG` — 롤백 상세(SQL 본문)는 DEBUG 레코드로만 나갑니다(§8.2). 바인드 값은 모든 엔진의
+  `hide_parameters=True` 가 예외 문자열·SQLAlchemy 로그에서 이미 뺍니다(§8.1).
   `DEBUG` 와 달리 `LOG_LEVEL` 은 단독으로도 유효 레벨을 DEBUG 로 올립니다
 
 관리 화면을 켠 배포(`ADMIN_DISABLED=false`)는 위반이 아닙니다 — `/admin` 은 슈퍼유저 로그인이 필요합니다
@@ -473,6 +474,14 @@ core 의 `UserInfoMiddleware` 가 수집하고, home 앱의 `HomeAccessLogSink` 
 `country_code`·`city` 컬럼은 선언과 인덱스만 있고 미들웨어가 값을 채우지 않습니다(위 표에 없는
 이유).
 
+**보존 기간.** `ACCESS_LOG_RETENTION_DAYS`(기본 365, `0` = 삭제 안 함, 음수는 설정 오류)보다 오래된 행은
+home 의 `AccessLogRetentionService` 가 지웁니다 — 기준은 `created_at < 지금(UTC) − N일`(정확히 N일 전
+행은 남는다)이고, 5,000행씩 id 를 골라 지운 뒤 **배치마다 커밋**합니다(긴 잠금·거대 트랜잭션 방지,
+중간 실패는 다음 실행이 이어 지운다). MySQL 이 LIMIT 낀 `IN` 서브쿼리를 거부하므로 "id 선택 → id 로
+DELETE" 두 단계로 두 DB 에서 같은 쿼리를 씁니다. 실행은 Celery beat 가 매일 03:30(`TIME_ZONE`)에
+`home.purge_expired_access_logs` 를 발행합니다(§11). 원문 필드(`session_id`·`referer`·XFF)는 그대로
+저장합니다(사용자 결정).
+
 비핵심 로그라서 API 가용성을 로그 완전성보다 우선한 설계입니다. 무손실 감사 로그가 필요하면
 내구 큐·재처리·중복 제거를 따로 설계해야 합니다. 개인정보 쪽 한계는 §10.4 를 봅니다.
 
@@ -488,7 +497,11 @@ core 의 `UserInfoMiddleware` 가 수집하고, home 앱의 `HomeAccessLogSink` 
 | `read_engines` | replica SELECT (복제 활성 시) | replica 마다 20 + 20 |
 | `background_engine` | 접속 로그·Celery 등 요청 밖 쓰기 | 10 + 10, timeout 60s |
 
-공통: `pool_recycle=280`, `pool_pre_ping=True`, 드라이버 `connect_timeout=10`. 세션 팩토리
+공통: `pool_recycle=280`, `pool_pre_ping=True`, 드라이버 `connect_timeout=10`, 그리고 정본 옵션
+`ENGINE_SAFETY_OPTIONS`(`hide_parameters=True`) — DB 예외의 `str()`·SQLAlchemy 로그에 SQL 문은 남기되
+바인드 값(이메일·해시·토큰)은 `[SQL parameters hidden due to hide_parameters=True]` 로 바꿉니다. 값은
+키워드 꼴이 아니라 로그 마스킹(§5)으로는 지울 수 없어서 엔진에서 막습니다. Alembic(`migrations/env.py`)도
+같은 옵션을 펼치고, 새 엔진 생성 지점이 빠뜨리면 `tests/core/test_hide_parameters.py` 가 실패합니다. 세션 팩토리
 (`AsyncSessionLocal`, `BackgroundSessionLocal`)는 `expire_on_commit=False`, `autoflush=False` 입니다.
 최대 연결 수는 **(풀 + overflow) × 엔진 수(writer + replica) × API worker 수 + background 풀 ×
 프로세스 수** 로 계산해 DB 연결 한도와 맞춥니다. 기동 시 `describe_routing()` 이 라우팅 구성을
@@ -695,6 +708,15 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
   의 세션 범위 테스트.
 - 로그인 화면은 `app/templates/admin/sqladmin/login.html`(Bootstrap 5.3.8 CSS, SRI 고정, JS 없음)이
   sqladmin 기본 화면을 덮어씁니다(`templates_dir` 의 FileSystemLoader 가 먼저 찾는다).
+- **로그인 폼 CSRF**(synchronizer token): 화면을 그릴 때 템플릿 전역 함수 `csrf_token(request)`
+  (`AdminAuthBackend.csrf_token`)가 세션에 `secrets.token_urlsafe(32)` 토큰을 두고 hidden 필드로 싣습니다.
+  POST 는 레이트 리밋·자격 확인 **전에** 폼 값과 세션 값을 `hmac.compare_digest` 로 비교해 없거나
+  다르면 403 으로 다시 그립니다. 로그인 성공의 `session.clear()` 가 토큰을 회전합니다. 로그인 이후
+  sqladmin 폼·GET 로그아웃은 대상이 아닙니다(`SameSite=Strict`·`Path=/admin`).
+- **목록 날짜 필터**: `created_at` 이 있는 모든 뷰가 core 의 `LocalDateFilter`(`app/core/admin_filters.py`)를
+  씁니다. 입력 `YYYY-MM-DD` 를 `TIME_ZONE` 의 [자정, 다음 자정) 으로 보고 UTC aware 범위로 바꿔 질의합니다
+  (같은 날 / 이후(포함) / 이전(미포함)). 기본 `OperationColumnFilter` 는 `UTCDateTime` 을 날짜로 보지
+  못해 문자열을 바인딩하고 500 이 났습니다. 잘못된 입력은 필터 없이 목록을 보여 주고 WARNING 을 남깁니다.
 - `ADMIN_DISABLED=true` 면 `/admin` 이 아예 없습니다(404). sqladmin·관리 세션 미들웨어·인증 백엔드를
   만들지 않고 OpenAPI·`/docs`·오류 응답·헤더·기동 로그 어디에도 관리 경로가 나오지 않습니다
   (`tests/test_admin_disabled.py`). 관리 화면을 쓰지 않는 배포는 끕니다.
@@ -710,9 +732,9 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
 | 작성자 | 작성자 컬럼 도입 전의 글(`author_id` NULL)은 슈퍼유저만 수정한다. `author` 표시 이름은 작성 시점의 username 이라 이름을 바꿔도 따라가지 않는다 |
 | 참조 무결성 | `Reply.post_id` 는 FK 없는 문자열 — 게시글 존재 검증·삭제 전파 정책 없음 |
 | 로그인 보호 | 고정 창 rate limit(창 경계에서 최대 2배 통과, API·`/admin` 공통). 계정 잠금은 없다 |
-| 관리 세션 | 서명 쿠키라 서버 쪽 폐기 목록이 없다 — 로그아웃은 브라우저 쿠키를 비울 뿐이고, 복사된 쿠키 값은 만료(8시간)까지 서명상 유효하다(매 요청 DB 확인으로 강등·비활성화만 즉시 끊긴다). CSRF 는 `SameSite=Strict` 에 의존하며 sqladmin 폼에 CSRF 토큰은 없다 |
+| 관리 세션 | 서명 쿠키라 서버 쪽 폐기 목록이 없다 — 로그아웃은 브라우저 쿠키를 비울 뿐이고, 복사된 쿠키 값은 만료(8시간)까지 서명상 유효하다(매 요청 DB 확인으로 강등·비활성화만 즉시 끊긴다). 로그인 폼은 CSRF 토큰을 싣지만, 로그인 이후 sqladmin 폼·GET 로그아웃은 `SameSite=Strict` 에 의존한다 |
 | 토큰 폐기 | refresh 는 family 단위로 폐기된다(재사용 탐지·로그아웃). access 토큰은 만료(기본 15분)까지 유효하다 |
-| 접속 로그 개인정보 | `query_string` 은 민감 키 값만 가리고 나머지와 `referer`·`session_id` 쿠키는 원문 저장한다 — **사용자 결정으로 유지**(log-redaction-fixes ADR-003). 보존 기간·파기 절차가 없다(조회 API 는 슈퍼유저 전용) |
+| 접속 로그 개인정보 | `query_string` 은 민감 키 값만 가리고 나머지와 `referer`·`session_id` 쿠키는 원문 저장한다 — **사용자 결정으로 유지**(log-redaction-fixes ADR-003). 보존 기간은 `ACCESS_LOG_RETENTION_DAYS`(기본 365일, beat 가 매일 삭제 — §7.1). 조회 API 는 슈퍼유저 전용 |
 | CORS | 기본 `CORS_ALLOW_ORIGINS=["*"]`, credentials false (staging/production 은 게이트가 `*` 를 거부) |
 
 ---
@@ -742,6 +764,11 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
   하지는 않습니다.
 - API 기동은 worker/beat 를 띄우지 않고, API lifespan 이 워커 자원을 정리하지도 않습니다.
 - `enable_utc=True` 입니다 — ETA·만료·결과 시각은 UTC 로 다루고, `timezone`(`TIME_ZONE`)은 beat crontab 해석·표시에만 쓰입니다.
+- **beat 스케줄은 태스크를 가진 기능이 등록합니다.** 중앙 앱은 `beat_schedule={}` 만 두고, 기능의 `tasks.py` 가
+  import 될 때 `celery_app.conf.beat_schedule["<app>.<action>"] = {...}` 로 자기 항목을 넣습니다(중앙 목록이
+  기능을 import 하지 않는다 — include 와 같은 철학). beat 도 워커처럼 시작 시 include 를 import 하므로 이
+  등록이 보입니다. 현재 항목: `home.purge_expired_access_logs` 매일 03:30(`crontab(hour=3, minute=30)`,
+  `TIME_ZONE` 기준). 실행: `celery -A app.celery.app:celery_app beat`(배포 전체에서 하나만).
 - 태스크에는 요청 세션·Service·Request 를 넘기지 않고 JSON 직렬화 가능한 id·값만 넘깁니다. 태스크가
   `background_db_session()` 을 열고 재시도·중복 정책을 스스로 정합니다.
 
@@ -818,6 +845,7 @@ CI(`.github/workflows/ci.yml`)는 두 job 입니다: gate job 이 `static struct
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-19 | **security-ops-hardening**: 모든 엔진에 `hide_parameters=True`(정본 `ENGINE_SAFETY_OPTIONS`, §8.1). 접속 로그 보존 기간 `ACCESS_LOG_RETENTION_DAYS` 와 beat 배치 삭제(§7.1·§11). 관리 로그인 폼 CSRF 토큰, 관리 목록 `created_at` 날짜 필터(§10.3). |
 | 2026-10-13 | **log-redaction-fixes**: 로그 마스킹이 예외 traceback·체인·`stack_info`·`Bearer` 토큰까지 덮고 uvicorn CLI·Celery 워커 핸들러에도 붙는다(§5). Starlette `HTTPException` 의 헤더를 응답에 싣는다(§9). Redis 최소 버전 7.0 을 명령에서 도출해 기동 시 확인한다(§6). 커버리지 하한 기본 0(§13). |
 | 2026-09-17 | **문서 일관성 정리**: 개발 가이드를 `DEVELOPMENT.md` 로 이름을 바꾸고, 재구성 때 지웠던 HTML 안내서 2종(`server-lifecycle-guide.html`·`feature-development-guide.html`)을 현행 코드·이 문서와 맞춰 복원했다(표·목록 원문은 Markdown 이 소유). 코드 변경: blog·reply·sns·user 쓰기 핸들러를 "DTO 검증 → commit" 순서로 맞췄다. |
 | 2026-09-17 | **문서 재구성**: README 의 로깅·접속 로그·요청 처리·앱 규약 상세, `server-lifecycle-guide.html` 의 설정·lifespan·종료 추적, 버전 가이드(`docs/project-guide/v1.0.0/`)의 현행 사실을 이 문서로 모았다. 코드와 대조해 로그 포맷·파일 핸들러 조건·미사용 설정, 프록시 헤더 신뢰 설정, 배포 게이트, 라우트 수를 바로잡았다. 코드 변경 없음. |

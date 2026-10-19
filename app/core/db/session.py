@@ -42,6 +42,7 @@ import asyncio
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any, Final
 
 from sqlalchemy import URL, text
 from sqlalchemy.ext.asyncio import (
@@ -65,6 +66,14 @@ from config import db_settings
 logger = get_logger("database")
 
 
+# 모든 엔진이 펼치는 안전 옵션의 정본 (writer·reader·background·Alembic).
+# hide_parameters: DB 예외의 str()·SQLAlchemy 로그에서 바인드 값(이메일·해시·토큰 등)을 빼고
+# "[SQL parameters hidden due to hide_parameters=True]" 로 바꾼다. SQL 문은 남아 진단은 된다.
+# 값이 키워드 형태가 아니라 RedactingFilter 로는 못 지우므로 엔진에서 막는다.
+# 새 엔진을 만들면 반드시 `**ENGINE_SAFETY_OPTIONS` 를 넣는다 — tests/core/test_hide_parameters.py.
+ENGINE_SAFETY_OPTIONS: Final[dict[str, Any]] = {"hide_parameters": True}
+
+
 # =============================================================================
 # 메인 엔진 (FastAPI 요청용) = primary(writer)
 # =============================================================================
@@ -81,6 +90,7 @@ engine = create_async_engine(
     pool_timeout=30,  # 풀에서 연결 대기 시간 (초)
     pool_recycle=280,  # MySQL 기본 wait_timeout(28800s), 클라우드는 보통 300s
     pool_pre_ping=True,
+    **ENGINE_SAFETY_OPTIONS,
     pool_reset_on_return="rollback",  # 반환 시 롤백으로 세션 초기화
     connect_args={
         "connect_timeout": 10,  # DB 연결 타임아웃 (초)
@@ -111,6 +121,7 @@ def _create_read_engine(url: URL) -> AsyncEngine:
         pool_recycle=280,
         pool_pre_ping=True,
         pool_reset_on_return="rollback",
+        **ENGINE_SAFETY_OPTIONS,
         connect_args={
             "connect_timeout": 10,
             "charset": "utf8mb4",
@@ -170,6 +181,7 @@ background_engine = create_async_engine(
     pool_recycle=280,
     pool_pre_ping=True,
     pool_reset_on_return="rollback",
+    **ENGINE_SAFETY_OPTIONS,
     connect_args={
         "connect_timeout": 10,
         "charset": "utf8mb4",
@@ -267,7 +279,7 @@ async def get_routed_db_session() -> AsyncGenerator[AsyncSession]:
         except Exception as e:
             await session.rollback()
             # 예외 **메시지**는 기본 로그에 남기지 않는다 — DB 예외의 str() 에는 실행된
-            # SQL 과 바인딩된 값이 그대로 들어 있고, 이 로거 이름("database")은
+            # SQL 이 그대로 들어 있고(바인드 값은 hide_parameters 로 숨김), 이 로거 이름("database")은
             # SQLNoiseFilter 의 NOISY_PREFIXES 에 걸리지 않아 그대로 통과한다.
             # 값이 키워드 형태가 아니라 RedactingFilter 도 지우지 못한다(C-4).
             # 추적이 필요한 debug 모드에서는 아래 debug 레코드가 전문을 남긴다.
@@ -276,7 +288,7 @@ async def get_routed_db_session() -> AsyncGenerator[AsyncSession]:
                 type(e).__name__,
                 (time.perf_counter() - start_time) * 1000,
             )
-            # DEBUG=true(유효 로그 레벨 DEBUG)에서만 SQL·바인딩 값·트레이스백 전문을 남긴다.
+            # DEBUG=true(유효 로그 레벨 DEBUG)에서만 SQL·트레이스백 전문을 남긴다(바인드 값은 hide_parameters).
             logger.debug("[get_routed_db_session] ROLLBACK 상세", exc_info=True)
             raise e
 
@@ -367,7 +379,7 @@ async def get_background_db_session() -> AsyncGenerator[AsyncSession]:
         except Exception as e:
             await session.rollback()
             # 예외 **메시지**는 기본 로그에 남기지 않는다 — DB 예외의 str() 에는 실행된
-            # SQL 과 바인딩된 값이 그대로 들어 있고, 이 로거 이름("database")은
+            # SQL 이 그대로 들어 있고(바인드 값은 hide_parameters 로 숨김), 이 로거 이름("database")은
             # SQLNoiseFilter 의 NOISY_PREFIXES 에 걸리지 않아 그대로 통과한다.
             # 값이 키워드 형태가 아니라 RedactingFilter 도 지우지 못한다(C-4).
             # 추적이 필요한 debug 모드에서는 아래 debug 레코드가 전문을 남긴다.
@@ -376,7 +388,7 @@ async def get_background_db_session() -> AsyncGenerator[AsyncSession]:
                 type(e).__name__,
                 (time.perf_counter() - start_time) * 1000,
             )
-            # DEBUG=true(유효 로그 레벨 DEBUG)에서만 SQL·바인딩 값·트레이스백 전문을 남긴다.
+            # DEBUG=true(유효 로그 레벨 DEBUG)에서만 SQL·트레이스백 전문을 남긴다(바인드 값은 hide_parameters).
             logger.debug("[get_background_db_session] ROLLBACK 상세", exc_info=True)
             raise e
 

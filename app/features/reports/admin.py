@@ -18,6 +18,7 @@
 
 from sqladmin import ModelView
 
+from app.core.admin_filters import LocalDateFilter
 from app.features.reports.models.models import SalesOrder
 
 
@@ -39,6 +40,8 @@ class SalesOrderAdmin(ModelView, model=SalesOrder):
         SalesOrder.total_amount,
         SalesOrder.created_at,
     ]
+    # created_at(UTCDateTime)은 업무 시간대 날짜로 거른다(core LocalDateFilter).
+    column_filters = [LocalDateFilter(SalesOrder.created_at)]
     can_create = False
     can_edit = False
     can_delete = False

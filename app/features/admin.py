@@ -129,6 +129,9 @@ def create_admin_interface(
     )
     # 로그인 실패·한도 초과 화면을 같은 템플릿 엔진으로 그리도록 넘긴다.
     backend.templates = admin.templates
+    # 로그인 템플릿이 `{{ csrf_token(request) }}` 로 세션 토큰을 싣는다(sqladmin 의 GET 로그인
+    # 경로는 컨텍스트를 받지 않아 전역 함수로 준다).
+    admin.templates.env.globals["csrf_token"] = backend.csrf_token
     return admin
 
 

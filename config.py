@@ -777,6 +777,14 @@ class MiddlewareSettings(BaseSettings):
         description="접속 로그 수집 활성화",
     )
 
+    # 접속 로그 보존 일수. 이보다 오래된 행은 Celery beat 가 매일 03:30(TIME_ZONE) 배치로 지운다
+    # (app/features/home/tasks.py). 0 = 지우지 않음. 음수는 기동 시 검증 오류.
+    ACCESS_LOG_RETENTION_DAYS: int = Field(
+        default=365,
+        ge=0,
+        description="접속 로그 보존 일수 (0=삭제하지 않음)",
+    )
+
     # 접속 로그 수집 제외 경로
     ACCESS_LOG_EXCLUDE_PATHS: list[str] = Field(
         default=["/health", "/docs", "/redoc", "/openapi.json", "/favicon.ico"],

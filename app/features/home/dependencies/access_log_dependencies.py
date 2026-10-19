@@ -12,7 +12,9 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.session import get_read_only_db_session
+from app.features.home.services.access_log_retention_service import AccessLogRetentionService
 from app.features.home.services.user_access_log_service import UserAccessLogService
+from config import middleware_settings
 
 
 def build_user_access_log_service(session: AsyncSession) -> UserAccessLogService:
@@ -29,3 +31,10 @@ async def get_access_log_service(
 ) -> UserAccessLogService:
     """UserAccessLogService 를 구성해 view 에 제공한다(읽기 전용 — 커밋하지 않는다)."""
     return build_user_access_log_service(session)
+
+
+def build_access_log_retention_service(session: AsyncSession) -> AccessLogRetentionService:
+    """보존 일수 설정(``ACCESS_LOG_RETENTION_DAYS``)으로 보존 정리 서비스를 조립한다(태스크용)."""
+    return AccessLogRetentionService(
+        session, retention_days=middleware_settings.ACCESS_LOG_RETENTION_DAYS
+    )
