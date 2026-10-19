@@ -13,3 +13,11 @@
 - [x] (F-003) `SESSION_EXPIRE_SECONDS` 삭제, README 세션·토큰 만료 표·업그레이드 노트, 다른 문서는 표를 가리킴
 - [x] 계약 테스트 2건(사용 여부 + 예외 목록 낡음, 남은 키 무시), fail-on-revert(run-log)
 - [x] ruff·mypy, `pytest -m "not mysql"` skip 0(저장소 안 + `.env` 없는 클론), 게이트 docs·structure
+
+## Round 2 — 2026-10-19 REQ-002 — 완료 (브랜치 `chore/config-cleanup-2`)
+- [x] 현재 흐름 조사 — 콘솔 핸들러 생성 경로 4곳(앱 root `build_dictconfig`, `python main.py` 의 `setup_uvicorn_logging`, `uvicorn main:app` CLI 기본 핸들러 → `configure_logging`, Celery 워커 → `on_setup_logger`), 하드코딩 형식 위치(`LOG_FORMAT`·`access_fmt`·`TzFormatter.formatTime`)
+- [x] (F-004) `API_VERSION`·`ApiSettings` 삭제, `.env.example`·문서·테스트, 남은 키 무시 테스트에 추가
+- [x] (F-005) 형식·날짜·콘솔 on/off 연결, 전부 꺼짐 경고, 형식 검증, `.env.example` 주석·README 표·ARCHITECTURE §5·server-lifecycle 부록
+- [x] 계약 테스트 예외 목록 삭제(INV-1 v0.2), 사용자 형식 마스킹 테스트(INV-7)
+- [x] fail-on-revert(run-log Round 2)
+- [x] ruff·mypy, `pytest -m "not mysql"` skip 0(저장소 안 + `.env` 없는 클론), `-m mysql --collect-only`, review_gate 네트워크 없는 그룹, alembic 변경 없음

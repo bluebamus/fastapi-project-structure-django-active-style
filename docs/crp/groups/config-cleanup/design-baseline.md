@@ -26,6 +26,7 @@
 | Req-ID | 날짜 | 요청(원문 요약) | 도출된 요구사항 | 상태 | 연결 |
 |---|---|---|---|---|---|
 | REQ-001 | 2026-10-19 | "smtp는 삭제해줘." / `SESSION_EXPIRE_SECONDS` → "삭제, 기존 만료 설정을 정본으로" / `UPLOAD_*` → "삭제". "세션 만료 시간 설정은 있어야 한다." | 세 묶음의 필드·클래스·export·싱글턴·`.env.example`·문서·테스트 참조 전부 삭제. `SESSION_COOKIE_NAME`·`SESSION_SECRET_KEY` 유지. 남은 `.env` 줄은 무시(거부 아님). 세션·토큰 만료를 README 표 하나로. 사용처 없는 설정 재발 방지 계약 테스트. | Active | ADR-001~ADR-003, F-001~F-003 |
+| REQ-002 | 2026-10-19 | "API_VERSION 삭제, 로그 설정은 실제로 연결" (R-801 의 남은 5필드) | `API_VERSION` 필드·`ApiSettings`·`.env.example`·문서·테스트 참조 삭제(경로 접두어는 코드 고정 그대로, 남은 키 무시). `LOG_CONSOLE_FORMAT`·`LOG_FILE_FORMAT`·`LOG_DATE_FORMAT`·`LOG_CONSOLE_ENABLED` 를 로깅 구성에 연결(기본 출력 불변, 콘솔 on/off 는 모든 경로에서 한 곳의 판단, 전부 꺼짐 경고, 잘못된 형식은 설정 오류, 마스킹 유지). 계약 테스트 예외 목록 비움. | Active | ADR-004~ADR-007, F-004·F-005 |
 
 ## 3. 설계 결정 기록 (ADR — 확정 후 불변)
 
@@ -35,5 +36,11 @@
 | ADR-002 | 2026-10-19 | **배포 검사에서 `SMTP_PASSWORD` 항목을 뺀다(검사 자체는 유지).** 선택적 비밀번호 루프는 `REDIS_PASSWORD` 하나가 되어 직접 `if` 로 쓴다. 개발 환경 placeholder 거부 테스트의 SMTP 사례는 `REDIS_PASSWORD` 사례로 바꿔 같은 경로를 계속 덮는다. | runtime-lifecycle ADR-010 의 비밀번호 3종 중 SMTP 는 소비 코드가 없어 의미가 없다. MYSQL·REDIS 판정은 그대로. | Active | runtime-lifecycle ADR-010 의 SMTP 부분 |
 | ADR-003 | 2026-10-19 | **설정 사용 계약 테스트.** 모든 Settings 필드 이름이 기존 환경변수 검사와 같은 소스(app·scripts·migrations·`main.py`)와 `config.py` 에서 `\.NAME\b` 또는 `getattr(x, "NAME")` 로 나타나야 한다. 예외 목록 `UNUSED_FIELD_EXCEPTIONS`(사유 포함, 낡으면 실패). `config.py` 를 포함하는 이유: `DATABASE_URL` 같은 프로퍼티가 `self.MYSQL_*` 로 읽고 app 은 프로퍼티만 읽는다. | 오탐 0 으로 동작함을 확인(예외 5건은 기존 문서가 이미 "선언만" 이라 적은 필드). 한계는 R-802. | Active | — |
 
+| ADR-004 | 2026-10-19 | **`API_VERSION` 은 클래스째 지운다.** 필드가 하나뿐인 `ApiSettings`·`get_api_settings`·`api_settings` 를 삭제하고 남은 `.env` 줄은 ADR-001 과 같이 무시한다. URL 버전은 각 앱 router 의 `/v1/...` 선언 그대로. | 읽는 코드가 없고 prefix 를 바꾸지도 못했다. 빈 클래스를 남길 이유가 없다. | Active | — |
+| ADR-005 | 2026-10-19 | **형식·날짜 연결.** `LOG_CONSOLE_FORMAT` → 앱 root 콘솔 포매터와 `setup_uvicorn_logging()` 의 default 포매터, `LOG_FILE_FORMAT` → app·error 파일 포매터(새 `file` 포매터), `LOG_DATE_FORMAT` → 모든 `TzFormatter` 의 datefmt(uvicorn access 포함, access 의 fmt 는 요청 라인 전용 그대로). 기본값을 기존 하드코딩 형식으로 바꿔 기본 출력 불변. `TzFormatter.formatTime` 은 datefmt 뒤에 with_ms(development) 밀리초를 붙인다 — 예전에는 datefmt 를 주면 밀리초가 빠졌지만 아무도 주지 않았다. `LOG_FORMAT` 상수는 기본값의 별칭으로 남긴다(공개 export). | 사용자 결정 "실제로 연결". 기본값이 같아야 업그레이드만으로 로그 파서가 깨지지 않는다. | Active | — |
+| ADR-006 | 2026-10-19 | **콘솔 on/off 는 `console_enabled()` 한 곳에서 판단한다.** `build_dictconfig()`(콘솔 핸들러 생략)·`setup_uvicorn_logging()`(핸들러 없이 `propagate=True` — 파일이 있으면 거기에만 남음)·`adopt_external_handlers()`(uvicorn CLI 기본 핸들러와 Celery 워커 핸들러 중 콘솔(`StreamHandler` 이되 `FileHandler` 아님)을 걷어내고, 핸들러가 다 빠진 로거는 전파, 남은 핸들러에 마스킹)가 모두 이 함수만 본다. 전부 꺼짐(콘솔 false + 파일 없음)은 `configure_logging()` 이 1회 stderr 경고. uvicorn CLI·Celery 핸들러의 **형식**은 바꾸지 않는다(기본 출력 유지 — R-803). | 경로마다 판단하면 한 경로만 꺼지지 않는 사고가 난다. 경고는 logging 이 꺼진 상태라 stderr 에 직접 쓴다. | Active | — |
+| ADR-007 | 2026-10-19 | **형식 검증은 샘플 렌더 한 번.** `LogSettings` field_validator 가 `logging.Formatter(fmt, style="{")` 로 `tzname`·`appname`·`classname` 을 채운 샘플 `LogRecord` 를 렌더하고 실패하면 `ValueError`(→ 설정 오류). `TzFormatter` 는 `config` 를 import 하므로 config 안에서 쓰지 못한다 — 그가 채우는 세 필드를 직접 넣어 같은 결과를 낸다. 날짜 형식은 빈 값(공백만)만 막는다. 계약 테스트의 예외 목록은 비었으므로 목록과 설명을 지운다(ADR-003 의 예외 목록 부분 대체). | 명세 §2. strftime 은 대부분을 받아들인다. | Active | ADR-003 의 `UNUSED_FIELD_EXCEPTIONS` 부분 |
+
 ## 4. 변경 이력
 - v0.1 (2026-10-19): 최초 작성(REQ-001).
+- v0.2 (2026-10-19): REQ-002, ADR-004~ADR-007.
