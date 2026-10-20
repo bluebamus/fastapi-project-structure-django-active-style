@@ -171,6 +171,14 @@ def test_replica_outage_falls_back_to_primary(app, api, stack, cover):
             180,
             "replica 재초기화",
         )
+        # healthy 는 복제 스레드가 돈다는 뜻일 뿐이다 — tmpfs 라 처음부터 binlog 를 다시 받는 중이다.
+        # 다음 테스트가 지연을 장애로 오해하지 않게 primary 의 GTID 집합까지 따라잡을 때까지 기다린다.
+        with stack.mysql(root=True) as primary, primary.cursor() as cur:
+            cur.execute("SELECT @@GLOBAL.gtid_executed")
+            (gtids,) = cur.fetchone()
+        with stack.mysql(root=True, replica=True) as replica, replica.cursor() as cur:
+            cur.execute("SELECT WAIT_FOR_EXECUTED_GTID_SET(%s, 600)", (gtids,))
+            assert cur.fetchone() == (0,), "replica 가 primary 를 따라잡지 못했습니다"
     cover("L5", "MySQL replica 정지")
 
 
