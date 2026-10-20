@@ -39,7 +39,9 @@ def no_leak(stack: Any, response: Any) -> None:
 
 
 def tracebacks(app: Any) -> int:
-    return app.proc.output().count("Traceback (most recent call last)")
+    """traceback 을 가진 로그 레코드 수 — 원인 사슬(``from e``)의 두 번째 Traceback 은 같은 레코드다."""
+    pattern = r"^\[20[^\n]*\nTraceback \(most recent call last\)"
+    return len(re.findall(pattern, app.proc.output(), re.M))
 
 
 # ---------------------------------------------------------------------------
