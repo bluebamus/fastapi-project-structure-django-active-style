@@ -182,3 +182,22 @@ def test_content_admin_allows_full_crud(model_path: str) -> None:
     assert view.can_delete is True
     assert view.can_view_details is True
     assert view.can_export is True
+
+
+# =============================================================================
+# 서버가 관리하는 열(id·created_at·updated_at)은 생성·수정 폼에 없다
+# =============================================================================
+SERVER_MANAGED = frozenset({"id", "created_at", "updated_at"})
+
+
+@pytest.mark.parametrize("view_cls", ADMIN_VIEWS, ids=lambda v: v.__name__)
+def test_admin_forms_leave_server_managed_columns_alone(view_cls: type) -> None:
+    """폼의 시각 입력은 타임존 없는 문자열이라 UTCDateTime 이 거부한다 — 폼에 두면 저장이 늘 실패한다.
+
+    integration-e2e F-003: Product 생성·수정이 ``naive datetime 은 저장할 수 없습니다`` 로 실패했다.
+    """
+    view = view_cls()
+    if not (view.can_create or view.can_edit):
+        return
+    exposed = SERVER_MANAGED & set(view.get_form_columns())
+    assert not exposed, f"{view_cls.__name__} 폼에 {sorted(exposed)} 가 있습니다"
