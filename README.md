@@ -261,7 +261,7 @@ docker compose -f compose.test.yaml down -v
 
 ```bash
 uv run python -m playwright install chromium            # 한 번
-export E2E_MYSQL_PASSWORD=$(python -c "import secrets; print(secrets.token_hex(16))")   # 실행마다 새 값(32자 이하)
+export E2E_MYSQL_PASSWORD="$(python -c 'import secrets; print(secrets.token_hex(16))')"   # 실행마다 새 값(32자 이하)
 docker compose -p itest-active -f compose.e2e.yaml up -d --wait
 REDIS_HOST=127.0.0.1 REDIS_PORT=16392 uv run python -m pytest -m e2e
 docker compose -p itest-active -f compose.e2e.yaml down    # -v 불필요(tmpfs)

@@ -4,7 +4,7 @@
 # 단일 MySQL)과 분리했다 — 그쪽은 container_name·포트가 고정이고, 복제를 붙이면 mysql 마커 테스트까지
 # 무거워진다. 프로젝트 이름은 `itest-active` 로 고정해 다른 compose 프로젝트와 섞이지 않게 한다.
 #
-#   export E2E_MYSQL_PASSWORD=$(python -c "import secrets; print(secrets.token_hex(16))")
+#   export E2E_MYSQL_PASSWORD="$(python -c 'import secrets; print(secrets.token_hex(16))')"
 #   docker compose -p itest-active -f compose.e2e.yaml up -d --wait
 #   uv run python -m pytest -m e2e
 #   docker compose -p itest-active -f compose.e2e.yaml down      # 데이터는 tmpfs 라 down 으로 끝난다
