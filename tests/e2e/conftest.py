@@ -322,7 +322,8 @@ class Proc:
         return self.popen.returncode
 
     def output(self) -> str:
-        self._out.flush()
+        if not self._out.closed:
+            self._out.flush()
         return self.out_path.read_text(encoding="utf-8", errors="replace")
 
 
@@ -406,12 +407,12 @@ def app(migrated: Stack, superuser: dict[str, str]) -> Iterator[App]:
     server.stop()
 
 
-@pytest.fixture(scope="session")
-def worker(migrated: Stack) -> Iterator[Proc]:
+def start_worker(stack: Stack, name: str = "celery-worker") -> Proc:
+    """Celery worker 하나. Windows 는 prefork 를 지원하지 않아 solo, Linux 는 prefork 1."""
     pool = ["--pool=solo"] if os.name == "nt" else ["--pool=prefork", "--concurrency=1"]
     proc = Proc(
-        migrated,
-        "celery-worker",
+        stack,
+        name,
         [
             "-m",
             "celery",
@@ -420,15 +421,36 @@ def worker(migrated: Stack) -> Iterator[Proc]:
             "worker",
             "--loglevel=INFO",
             "-n",
-            "e2e@%h",
+            f"{name}@%h",
             *pool,
         ],
-        app_env(migrated),
+        app_env(stack),
     )
-    client = celery_client(migrated)
+    client = celery_client(stack)
     wait_until(lambda: proc.alive() and client.control.ping(timeout=1), 120, "Celery worker ping")
-    yield proc
-    proc.stop()
+    return proc
+
+
+class Worker:
+    """세션 동안의 Celery worker. 장애 주입 테스트가 멈췄다가 새로 띄울 수 있다."""
+
+    def __init__(self, stack: Stack) -> None:
+        self.stack = stack
+        self.generation = itertools.count()
+        self.proc = start_worker(stack, f"celery-worker-{next(self.generation)}")
+
+    def stop(self) -> None:
+        self.proc.stop()
+
+    def start(self) -> None:
+        self.proc = start_worker(self.stack, f"celery-worker-{next(self.generation)}")
+
+
+@pytest.fixture(scope="session")
+def worker(migrated: Stack) -> Iterator[Worker]:
+    current = Worker(migrated)
+    yield current
+    current.stop()
 
 
 def celery_client(stack: Stack) -> Any:
@@ -453,6 +475,10 @@ def fresh_ip() -> str:
     return f"{_IP_PREFIX}.{n // 250}.{n % 250 + 1}"
 
 
+#: 실행 중 만든 비밀번호·발급된 토큰 — 마지막에 모든 로그에서 grep 한다(L6-4).
+ISSUED: set[str] = set()
+
+
 @dataclass
 class User:
     id: str
@@ -460,6 +486,9 @@ class User:
     password: str
     access: str
     refresh: str
+
+    def __post_init__(self) -> None:
+        ISSUED.update((self.password, self.access, self.refresh))
 
     @property
     def auth(self) -> dict[str, str]:
