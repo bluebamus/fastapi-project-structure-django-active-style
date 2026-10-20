@@ -49,15 +49,20 @@ from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import Engine, Select, UpdateBase, event
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import ORMExecuteState, Session
 from sqlalchemy.sql.elements import TextClause
+
+from app.utils.logs import get_logger
 
 # 세션 단위 라우팅 상태를 담는 ``Session.info`` 키.
 # (세션 객체에 직접 속성을 붙이지 않고 SQLAlchemy 가 제공하는 info 딕셔너리를 쓴다.)
 _WRITER_PINNED = "_db_router_writer_pinned"  # 이 세션은 writer 로 고정됨
 _READER_PINNED = "_db_router_reader_pinned"  # 이 세션이 선택한 replica 엔진
 _READ_ONLY = "_db_router_read_only"  # 이 세션은 쓰기 금지
+
+logger = get_logger("database")
 
 
 class ReadOnlyRoutingError(RuntimeError):
@@ -177,7 +182,41 @@ def make_routing_session_class(router: DatabaseRouter) -> type[Session]:
                 info[_READER_PINNED] = reader
             return reader.sync_engine
 
+        def _execute_internal(self, statement: Any, *args: Any, **kwargs: Any) -> Any:
+            # execute·scalars·scalar·get 이 모두 지나는 실행 지점(SQLAlchemy 2.0)이다.
+            try:
+                return super()._execute_internal(statement, *args, **kwargs)
+            except DBAPIError as exc:
+                info = self.info
+                on_replica = info.get(_READER_PINNED) is not None and not info.get(_WRITER_PINNED)
+                if not (info.get(_READ_ONLY) and on_replica and _is_connection_error(exc)):
+                    raise
+                # replica 에 닿지 못한 읽기는 primary 로 한 번 다시 실행한다(integration-e2e F-005).
+                # 읽기 전용 세션이라 버릴 쓰기가 없다 — 실패한 트랜잭션을 걷고 이 세션을 writer 에 고정한다.
+                logger.warning(
+                    "[database] replica 연결 오류(%s %s) — 이 읽기를 primary 로 한 번 다시 실행합니다",
+                    type(exc.orig).__name__,
+                    _error_code(exc),
+                )
+                self.rollback()
+                info[_WRITER_PINNED] = True
+                return super()._execute_internal(statement, *args, **kwargs)
+
     return RoutingSession
+
+
+#: MySQL 의 연결 계열 오류 — 접속 불가(2002·2003·2005), 끊김(2006·2013·2055), 서버 종료·오프라인(1053·3032),
+#: 연결 수 초과(1040). 문법·제약·잠금 오류는 재시도하지 않는다.
+_CONNECTION_ERROR_CODES = frozenset({1040, 1053, 2002, 2003, 2005, 2006, 2013, 2055, 3032})
+
+
+def _error_code(exc: DBAPIError) -> Any:
+    args = getattr(exc.orig, "args", ())
+    return args[0] if args else None
+
+
+def _is_connection_error(exc: DBAPIError) -> bool:
+    return exc.connection_invalidated or _error_code(exc) in _CONNECTION_ERROR_CODES
 
 
 def create_routing_sessionmaker(
