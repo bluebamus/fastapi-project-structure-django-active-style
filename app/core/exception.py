@@ -123,9 +123,22 @@ class UnauthorizedException(AppException):
     error_code = "UNAUTHORIZED"
     message = "인증이 필요합니다."
 
-    def __init__(self, *args: Any, headers: dict[str, str] | None = None, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        message: str | None = None,
+        detail: Any | None = None,
+        status_code: int | None = None,
+        error_code: str | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         # 401 은 인증 방식을 알리는 `WWW-Authenticate` 를 반드시 싣는다(RFC 9110 §15.5.2). 이 API 는 Bearer 뿐이다.
-        super().__init__(*args, headers={"WWW-Authenticate": "Bearer", **(headers or {})}, **kwargs)
+        super().__init__(
+            message,
+            detail,
+            status_code,
+            error_code,
+            {"WWW-Authenticate": "Bearer", **(headers or {})},
+        )
 
 
 class InvalidTokenException(UnauthorizedException):
