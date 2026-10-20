@@ -294,6 +294,7 @@ def test_log_app_levels_filter_by_header(restart, api, stack, cover):
     api.request("GET", f"{V1}/blog/posts")
     time.sleep(1)
     tail = log.read_bytes()[size:].decode("utf-8", errors="replace")  # 바이트 위치로 자른다
+    tail = tail[tail.index("라우팅 구성") :]  # 앞 프로세스의 종료 줄(재기동 중에 쓰인다)은 뺀다
     assert marker not in tail, "uvicorn=WARNING 인데 접속 INFO 줄이 남았습니다"
     assert "[app=core]" in tail  # 다른 헤더(기동 줄)는 그대로 남는다
     assert not re.search(r"INFO +\[app=uvicorn\]", tail)
