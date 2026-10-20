@@ -11,63 +11,15 @@ from __future__ import annotations
 
 import secrets
 import uuid
-from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
 
-from tests.e2e.conftest import fresh_ip, wait_until
+from tests.e2e.conftest import wait_until
 
 KST = timedelta(hours=9)
-
-
-@pytest.fixture(scope="session")
-def chromium() -> Iterator[Any]:
-    from playwright.sync_api import sync_playwright
-
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        yield browser
-        browser.close()
-
-
-@pytest.fixture
-def new_page(chromium, stack) -> Iterator[Callable[[], Any]]:
-    """브라우저 컨텍스트(쿠키 저장소)를 새로 연다. 컨텍스트마다 다른 클라이언트 IP(XFF)."""
-    contexts: list[Any] = []
-
-    def make() -> Any:
-        ctx = chromium.new_context(
-            base_url=stack.base_url,
-            extra_http_headers={"X-Forwarded-For": fresh_ip()},
-            accept_downloads=True,
-        )
-        ctx.set_default_timeout(15_000)
-        ctx.set_default_navigation_timeout(20_000)
-        contexts.append(ctx)
-        return ctx.new_page()
-
-    yield make
-    for ctx in contexts:
-        ctx.close()
-
-
-def login(page: Any, username: str, password: str) -> Any:
-    page.goto("/admin/login")
-    page.fill("input[name=username]", username)
-    page.fill("input[name=password]", password)
-    with page.expect_navigation():
-        page.click("button[type=submit]")
-    return page
-
-
-@pytest.fixture
-def admin_page(new_page, superuser, app) -> Any:
-    page = login(new_page(), superuser["username"], superuser["password"])
-    assert page.url.endswith("/admin/"), page.url
-    return page
 
 
 # ---------------------------------------------------------------------------
