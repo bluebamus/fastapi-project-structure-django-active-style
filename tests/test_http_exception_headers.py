@@ -73,3 +73,17 @@ def test_http_exception_without_headers_still_works():
 
     assert response.status_code == 418
     assert response.json() == {"error_code": "HTTP_418", "message": "teapot", "detail": None}
+
+
+def test_api_401_carries_www_authenticate_bearer():
+    """앱 고유 401(UnauthorizedException 계열)도 RFC 9110 §15.5.2 의 `WWW-Authenticate` 를 싣는다.
+
+    토큰이 없거나 위조면 `get_current_principal` 이 UnauthorizedException 을 올린다(auto_error=False).
+    그 예외가 헤더 없이 나가 401 이 계약을 어기고 있었다 — integration-e2e F-002.
+    """
+    client = TestClient(main.app)
+    for headers in ({}, {"Authorization": "Bearer not-a-jwt"}):
+        response = client.get("/api/v1/auth/me", headers=headers)
+        assert response.status_code == 401
+        assert response.headers["www-authenticate"] == "Bearer"
+        assert set(response.json()) == BODY_KEYS
