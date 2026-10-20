@@ -28,7 +28,7 @@ operation·관리 화면·백그라운드·장애·운영 경로를 검사하고
 ### ADR-001 E2E 환경은 `compose.e2e.yaml` 로 분리한다
 - 결정: 기존 `compose.test.yaml`(mysql 마커용 단일 MySQL, container_name·포트 고정)에 붙이지 않고 별도 파일·프로젝트(`itest-active`).
 - 이유: 복제를 붙이면 mysql 마커 실행도 무거워지고, 고정 container_name 은 다른 compose 와 겹친다. 이미지 digest 는 두 파일이 같다.
-- 데이터는 tmpfs — `down` 만으로 정리(-v 불필요). 복제는 replica 의 init 스크립트가 `SOURCE_AUTO_POSITION=1` 로 붙고, healthcheck 는
+- 데이터는 tmpfs — `down` 만으로 정리(-v 불필요). 복제는 replica 의 init 스크립트가 GTID 자동 위치(`SOURCE_AUTO_POSITION`)로 붙고, healthcheck 는
   IO·SQL 스레드와 앱 DB 복제를 본다. 비밀번호는 실행마다(`E2E_MYSQL_PASSWORD`, 복제 계정 한계로 32자 이하).
 - init 스크립트는 `mysql` 클라이언트를 쓴다 — `/mnt/c` 의 0777 은 실행 권한이 붙어 entrypoint 가 source 대신 실행하므로 헬퍼 함수가 없다.
 
