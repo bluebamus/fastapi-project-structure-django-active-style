@@ -666,3 +666,27 @@ def test_worker_process_init_restarts_the_listener(monkeypatch):
     monkeypatch.setattr(queue_logging, "restart_queue_listener_after_fork", lambda: calls.append(1))
     worker_lifecycle.on_worker_process_init()
     assert calls == [1]
+
+
+# ---------------------------------------------------------------------------
+# integration-e2e F-006: 기동 초기 줄도 그 프로세스의 파일로 — 종류는 진입점(argv)에서 바로 정한다
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "argv,kind",
+    [
+        (["/venv/bin/celery", "-A", "app.celery.app:celery_app", "worker"], "celery"),
+        ([r"C:\venv\Scripts\celery.exe", "-A", "app.celery.app:celery_app", "beat"], "celery"),
+        (["/venv/lib/python3.14/site-packages/celery/__main__.py", "-A", "x", "worker"], "celery"),
+        (["/venv/bin/uvicorn", "main:app"], "app"),
+        (["main.py"], "app"),
+        (["-c"], "app"),
+        ([], "app"),
+    ],
+)
+def test_process_kind_comes_from_the_entrypoint(argv, kind):
+    """Celery 신호를 기다리면 그 전 줄(설정 로드·라우팅 구성)이 웹 파일(app.log)로 간다."""
+    from app.utils.logs import config as logs_config
+
+    assert logs_config.process_from_argv(argv) == kind

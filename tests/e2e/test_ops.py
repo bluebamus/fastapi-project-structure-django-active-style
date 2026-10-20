@@ -320,17 +320,50 @@ def test_size_rotation_and_retention(restart, api, stack, cover):
 
 
 # ---------------------------------------------------------------------------
-# 측정 (a): 기동 초기 줄이 프로세스 파일에 남는가
+# 기동 초기 줄(F-006, 사용자 결정 a): 설정 로드 직후의 줄도 그 프로세스의 파일에, 한 번만
 # ---------------------------------------------------------------------------
 
 
-def test_early_startup_lines_land_in_the_process_file(stack, worker, cover):
-    """설정이 로드되자마자 찍히는 줄([database] 라우팅 구성)이 그 프로세스의 파일에 있다."""
+def family(logs: Any, base: str) -> list[str]:
+    """``app.log`` 와 교체된 ``app.log.<날짜>[.<번호>]`` 를 모두 읽는다."""
+    return [line for path in sorted(logs.glob(f"{base}*")) for line in log_lines(path)]
+
+
+def test_early_startup_lines_land_in_the_process_file(app, stack, worker, cover):
+    """`[database] 라우팅 구성`(설정 로드 직후)이 uvicorn·python main.py 는 app.log, worker·beat 는 celery.log 에."""
+    beat = Proc(
+        stack,
+        "celery-beat",
+        [
+            "-m",
+            "celery",
+            "-A",
+            "app.celery.app:celery_app",
+            "beat",
+            "--loglevel=INFO",
+            "-s",
+            str(stack.artifacts / "beat-schedule"),
+        ],
+        app_env(stack),
+    )
+    try:
+        wait_until(lambda: "beat: Starting" in beat.output(), 60, "beat 기동")
+    finally:
+        beat.stop()
     logs = stack.artifacts / "logs"
-    console = worker.proc.output()
-    early = next(line for line in console.splitlines() if "라우팅 구성" in line)
-    stamp = early[:21]
-    assert any(
-        line.startswith(stamp) and "라우팅 구성" in line for line in log_lines(logs / "celery.log")
-    ), "Celery 기동 초기 줄이 celery.log 에 없다"
+    consoles = {
+        "uvicorn": (app.proc.output(), "app.log"),
+        "python main.py": (
+            (stack.artifacts / "python-main.out").read_text(encoding="utf-8"),
+            "app.log",
+        ),
+        "worker": (worker.proc.output(), "celery.log"),
+        "beat": (beat.output(), "celery.log"),
+    }
+    for name, (console, base) in consoles.items():
+        early = next(line for line in console.splitlines() if "라우팅 구성" in line)
+        assert (
+            family(logs, base).count(early) == 1
+        ), f"{name}: 기동 초기 줄이 {base} 에 한 번 있어야 한다"
+    assert any("beat: Starting" in line for line in family(logs, "celery.log"))
     cover("L6", "로깅 기동 초기 줄")
