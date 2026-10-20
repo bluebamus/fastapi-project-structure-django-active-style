@@ -80,7 +80,12 @@ jobs:
       # 이 job 에는 MySQL 이 없다. mysql 마커를 함께 돌리면 전부 skip 되고, 아래
       # "SKIP 0" 판정에 걸려 초록을 받을 수 없다. 그래서 여기서는 명시적으로
       # 제외하고, 그 집합은 아래 mysql job 이 **실제 MySQL 에 대고** 실행한다.
+      # REDIS_HOST·REDIS_PORT 를 명시한다(integration-e2e W0). 이 job 에는 Redis 가 없고 단위 테스트는
+      # 가짜 클라이언트를 쓴다 — 실수로 실물 접속이 생기면 기본 6379 가 아니라 닫힌 포트에서 실패한다.
       - name: pytest (mysql 마커 제외)
+        env:
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: "16392"
         run: |
           set -o pipefail
           uv run python -m pytest -m "not mysql" -q -rsxX --cov=app --cov-config=pyproject.toml --cov-report=term-missing | tee pytest.log
@@ -135,6 +140,9 @@ jobs:
       # 없어서 전부 건너뛴 초록이 이 단계의 존재 이유를 지운다(C-4).
       # deselected 는 -m 필터가 만드는 정상 결과이므로 판정에서 뺀다.
       - name: pytest -m mysql (skip 금지)
+        env:
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: "16392"
         run: |
           set -o pipefail
           uv run python -m pytest -m mysql -q -rsxX | tee mysql.log
@@ -153,6 +161,9 @@ jobs:
       # 전체 suite 의 skip/xfail/deselected 0 판정은 MySQL 이 떠 있는 이 job 에서만
       # 성립한다. 판정 규칙은 gate job 과 같은 파일이 소유한다.
       - name: review gate (tests — 전체 suite, skip·deselect 0)
+        env:
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: "16392"
         run: uv run python -m scripts.review_gate --group tests
 
       # 실패해도 정리한다 — 러너가 재사용되는 환경에서 컨테이너와 볼륨이 남지 않게.
