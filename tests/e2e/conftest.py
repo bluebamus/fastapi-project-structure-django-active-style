@@ -443,12 +443,14 @@ def celery_client(stack: Stack) -> Any:
 # ---------------------------------------------------------------------------
 
 _ips = itertools.count(1)
+#: 세션마다 다른 대역 — compose 를 내리지 않고 여러 번 돌리면 DB·Redis 에 앞 세션의 IP 가 남아 있다.
+_IP_PREFIX = f"10.{secrets.randbelow(200) + 50}"
 
 
 def fresh_ip() -> str:
     """요청마다 다른 클라이언트 IP(XFF, TRUSTED_PROXY_HOPS=1) — IP 단위 rate limit 을 테스트끼리 나누지 않는다."""
     n = next(_ips)
-    return f"10.77.{n // 250}.{n % 250 + 1}"
+    return f"{_IP_PREFIX}.{n // 250}.{n % 250 + 1}"
 
 
 @dataclass
@@ -562,3 +564,48 @@ def inventory(migrated: Stack) -> dict[str, Any]:
     assert done.returncode == 0, done.stdout + done.stderr
     line = next(x for x in done.stdout.splitlines() if x.startswith("INVENTORY:"))
     return json.loads(line.removeprefix("INVENTORY:"))
+
+
+class AdminClient:
+    """`/admin` 을 브라우저 밖에서 부르는 클라이언트.
+
+    staging 의 관리 세션 쿠키는 ``Secure`` 라 httpx 쿠키 저장소가 http 로 다시 보내지 않는다 — 쿠키를 직접
+    들고 다닌다. CSRF 토큰은 로그인 폼의 hidden 필드·로그인 뒤 페이지의 ``<meta name="csrf-token">`` 에서 읽는다.
+    """
+
+    def __init__(self, stack: Stack, ip: str | None = None) -> None:
+        import httpx
+
+        self.http = httpx.Client(base_url=stack.base_url, timeout=30, follow_redirects=False)
+        self.ip = ip or fresh_ip()
+        self.sid: str | None = None
+        self.last_set_cookie = ""
+
+    def request(self, method: str, url: str, **kwargs: Any) -> Any:
+        headers = {"X-Forwarded-For": self.ip, **kwargs.pop("headers", {})}
+        if self.sid:
+            headers["Cookie"] = f"admin_session={self.sid}"
+        response = self.http.request(method, url, headers=headers, **kwargs)
+        for raw in response.headers.get_list("set-cookie"):
+            if raw.startswith("admin_session="):
+                self.last_set_cookie = raw
+                value = raw.split(";", 1)[0].split("=", 1)[1]
+                self.sid = None if "max-age=0" in raw.lower() else value
+        return response
+
+    def csrf(self, url: str = "/admin/login") -> str:
+        import re
+
+        page = self.request("GET", url)
+        found = re.search(r'name="csrf[_-]token" (?:value|content)="([^"]+)"', page.text)
+        assert found, f"{url} 에 CSRF 토큰이 없습니다 ({page.status_code})"
+        return found.group(1)
+
+    def login(self, username: str, password: str, *, csrf: bool = True) -> Any:
+        data = {"username": username, "password": password}
+        if csrf:
+            data["csrf_token"] = self.csrf()
+        return self.request("POST", "/admin/login", data=data)
+
+    def close(self) -> None:
+        self.http.close()
