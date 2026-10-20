@@ -555,7 +555,8 @@ async with background_db_session() as session:     # 별도 풀, 예외 시 roll
   도입 버전을 `app/core/redis.py` 의 표와 상수에 반영합니다 — `tests/core/test_redis_version.py` 가
   `expire(..., nx=True)`·`getdel(` 사용과 상수를 대조합니다.
   client 가 없으면 503 이고, 테스트는 `app.dependency_overrides[get_redis]` 로 가짜를 넣습니다. Redis
-  명령 실패 시의 오류 계약은 쓰는 기능이 정합니다.
+  **연결·시간 초과** 오류는 잡지 말고 올립니다 — 전역 핸들러가 503 `SERVICE_UNAVAILABLE` 로 끝냅니다(fail-closed,
+  ARCHITECTURE 의 Redis 절). 그 밖의 명령 실패(`ResponseError` 등)의 오류 계약은 쓰는 기능이 정합니다.
 - auth 경로(가입·로그인·재발급·로그아웃)는 refresh 저장소와 rate limit 때문에 Redis 를 씁니다.
   이 경로를 부르는 엔드포인트 테스트는 `fakeredis.FakeAsyncRedis()` 하나를 만들어
   `app.dependency_overrides[get_redis] = lambda: fake` 로 넣습니다(예:
@@ -608,6 +609,7 @@ uv run alembic heads          # head 는 하나여야 한다
 | 등록 | 라우터·모델·Admin 결선, 잘못된 export, 경로 인벤토리 |
 | 비동기·수명 | 요청 세션을 background 에 넘기지 않음, 취소·timeout |
 | 실제 DB | MySQL 의 Decimal·날짜·제약·잠금·Raw 방언·migration (`mysql` 마커) |
+| 전수 통합 | 실제 uvicorn·Celery·Chromium·복제·장애 주입 (`e2e` 마커, README "전수 통합(E2E)") |
 
 - 기능 테스트는 `app/features/<name>/tests/`, 횡단 테스트는 `tests/` 에 `test_*.py` 로 둡니다.
 - 엔드포인트 단위 테스트는 `app.dependency_overrides` 로 세션·Service 를 바꾸고, 테스트가 끝나면
@@ -657,6 +659,8 @@ uv run python -m scripts.review_gate --group static structure docs
   `created_at` 이 있으면 `column_filters` 에 `LocalDateFilter(Model.created_at)`(같은 날·이후·이전·기간).
   상태를 바꾸는 작업을 sqladmin `@action`(GET)으로 만들지 않는다 — CSRF 검사 대상이 아니다), `apps.py` 의 `ready()`
 - [ ] 태그 설명(`app/core/tags_metadata.py`), `tests/test_route_inventory.py`, README API 표 갱신
+- [ ] 새 operation 은 `tests/e2e/test_api_matrix.py` 의 `OPS` 에 한 줄(정상·422·소유권·404 요청) — 없으면
+  `-m e2e` 의 인벤토리 대조가 실패한다
 - [ ] 테스트 작성, `mysql` 마커 대상 SQL 확인, 게이트 실행
 - [ ] Celery 태스크가 필요하면 기능 폴더의 `tasks.py` 에 추가 (중앙 파일 수정 없음)
 
