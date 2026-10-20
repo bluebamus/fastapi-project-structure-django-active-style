@@ -19,11 +19,18 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 from scalar_fastapi import get_scalar_api_reference
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.db.session import engine, ping_writer_db
-from app.core.exception import AppException, ErrorResponse, ValidationException
+from app.core.exception import (
+    AppException,
+    ErrorResponse,
+    ServiceUnavailableException,
+    ValidationException,
+)
 from app.core.middlewares.cors_middleware import CustomCORSMiddleware
 from app.core.middlewares.user_info_middleware import setup_user_info_middleware
 from app.core.redis import ping_redis
@@ -74,7 +81,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
 
 def _register_exception_handlers(app: FastAPI) -> None:
-    """4가지 글로벌 예외 핸들러를 등록합니다."""
+    """글로벌 예외 핸들러를 등록합니다(앱 예외·검증·HTTP·Redis 장애·그 밖의 예외)."""
 
     @app.exception_handler(AppException)
     async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
@@ -166,6 +173,32 @@ def _register_exception_handlers(app: FastAPI) -> None:
             # 405 의 `Allow`, 401 의 `WWW-Authenticate` 처럼 예외가 실어 온 헤더는 HTTP 계약의
             # 일부다. 본문 형식만 바꾸고 헤더는 그대로 넘긴다.
             headers=exc.headers,
+        )
+
+    @app.exception_handler(RedisConnectionError)
+    @app.exception_handler(RedisTimeoutError)
+    async def redis_unavailable_handler(request: Request, exc: Exception) -> JSONResponse:
+        """
+        Redis 연결 장애 핸들러 (integration-e2e F-004)
+
+        Redis 는 필수 자원이다(rate limit·refresh 저장소·관리 세션 폐기). 연결이 안 되면 요청은 거부하되
+        (fail-closed) 500 이 아니라 503 으로 끝낸다. 여기서 처리해야 응답 뒤에 예외가 다시 올라가지 않는다 —
+        전역 Exception 핸들러로 가면 서버가 traceback 을 한 번 더 남기고 연결을 끊는다.
+        """
+        route = request.scope.get("route")
+        logger.error(
+            "[RedisUnavailable] %s",
+            type(exc).__name__,
+            exc_info=exc,
+            extra={
+                "path": getattr(route, "path", None) or request.url.path,
+                "method": request.method,
+            },
+        )
+        unavailable = ServiceUnavailableException()
+        return JSONResponse(
+            status_code=unavailable.status_code,
+            content=unavailable.to_response().model_dump(mode="json"),
         )
 
     @app.exception_handler(Exception)

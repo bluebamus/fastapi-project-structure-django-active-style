@@ -386,6 +386,14 @@ EXTERNAL_ENV = {
     "MYSQL_TEST_PORT",
     "ALEMBIC_DATABASE_URL",
     "MYSQL_ROOT_PASSWORD",  # mysql 컨테이너 이미지의 변수(README 빠른 시작 docker 예시)
+    # 전수 통합(E2E) 하네스·compose.e2e.yaml 의 변수(tests/e2e/conftest.py) — 앱 설정이 아니다.
+    "E2E_MYSQL_PASSWORD",
+    "E2E_MYSQL_PRIMARY_PORT",
+    "E2E_MYSQL_REPLICA_PORT",
+    "E2E_REDIS_PORT",
+    "E2E_APP_PORT",
+    "E2E_ARTIFACT_DIR",
+    "E2E_TEST_TIMEOUT",
 }
 
 

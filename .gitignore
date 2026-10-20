@@ -52,3 +52,6 @@ Icon?
 /.gitattributes
 # Celery beat 스케줄 상태 파일(beat 실행 디렉터리에 생긴다)
 celerybeat-schedule*
+
+# 전수 통합(E2E) 산출물 — 프로세스 출력·로그(tests/e2e/conftest.py, CI 는 실패 시 artifact 로 올린다)
+/.e2e-artifacts/

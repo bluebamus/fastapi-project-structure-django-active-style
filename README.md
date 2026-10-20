@@ -253,6 +253,36 @@ uv run python -m pytest -m mysql
 docker compose -f compose.test.yaml down -v
 ```
 
+#### 전수 통합(E2E) — `tests/e2e/`, 마커 `e2e`
+
+실제 프로세스·실제 복제 위에서 앱 전체를 확인합니다: MySQL 8.4 primary + GTID replica, Redis 7.4
+(`compose.e2e.yaml`, 데이터는 tmpfs), 실제 uvicorn(`main:app`)·Celery worker·Chromium(Playwright).
+`-m e2e` 를 줄 때만 수집되므로 위의 다른 실행에는 skip·deselect 를 남기지 않습니다.
+
+```bash
+uv run python -m playwright install chromium            # 한 번
+export E2E_MYSQL_PASSWORD="$(python -c 'import secrets; print(secrets.token_hex(16))')"   # 실행마다 새 값(32자 이하)
+docker compose -p itest-active -f compose.e2e.yaml up -d --wait
+REDIS_HOST=127.0.0.1 REDIS_PORT=16392 uv run python -m pytest -m e2e
+docker compose -p itest-active -f compose.e2e.yaml down    # -v 불필요(tmpfs)
+```
+
+- 포트는 `127.0.0.1` 의 MySQL `13331`(primary)·`13332`(replica), Redis `16392`, 앱 `18092` 입니다. 하네스는 접속
+  대상이 이 값이 아니면 시작하지 않습니다(`E2E_*_PORT` 로 바꿔도 거부 — 남의 DB·Redis 에 붙는 사고 방지).
+  Redis 대상은 `REDIS_HOST`·`REDIS_PORT` 를 **둘 다 명시**해야 합니다 — 빠지면 실패합니다(기본 6379 로 떨어지지 않게).
+- 앱·worker 는 산출물 폴더(`.e2e-artifacts/`, `E2E_ARTIFACT_DIR`)를 작업 디렉터리로 쓰므로 저장소 `.env` 를 읽지
+  않습니다. JWT·세션 키·사용자 비밀번호는 실행마다 새로 만들고, 끝에 모든 로그에서 그 값과 DSN 원문을 grep 합니다.
+- WSL 에서 Docker 를 띄우고 Windows 에서 pytest 를 돌리면, 붙잡는 `wsl.exe` 가 없을 때 WSL 이 내려가며 컨테이너도
+  멈춥니다. 도는 동안 `wsl.exe -e bash -lc "sleep 7200"` 를 띄워 두고 끝나면 끕니다.
+- 보장하는 것: 모든 API operation 의 정상·검증 오류·미인증·권한 부족·없음·잘못된 메서드·접근 정책 대조(L2),
+  인증·rate limit·소유권·폐기·접속 로그·보존 삭제·매출·Celery·읽기/쓰기 분리(L3), 관리 화면 7 뷰의 브라우저 동작과
+  인증·CSRF·세션 만료(L4), Redis·primary·replica·worker 장애(L5), Alembic 왕복·기동 거부·로깅(L6).
+  `test_inventory.py` 가 실제 앱에서 뽑은 대상마다 실행한 테스트(또는 N/A 사유)가 있는지 대조하고, 빈 칸이 있으면 실패합니다.
+- **새 API 를 추가하면** `tests/e2e/test_api_matrix.py` 의 `OPS` 에 한 줄(정상·422·소유권·404 요청)을 더합니다 —
+  빠뜨리면 인벤토리 대조가 실패해 알려 줍니다. 새 관리 뷰·Celery 태스크·Redis 키 접두어도 같은 대조에 걸립니다.
+- 테스트마다 시간 제한(`E2E_TEST_TIMEOUT`, 기본 300초)이 있습니다. CI 는 별도 job `e2e`(매 push)가 같은 compose 로 돌리고,
+  skip·xfail 이 있거나 0건이면 실패, 실패하면 산출물·compose 로그를 artifact 로 올립니다.
+
 `uv run pytest` 대신 `python -m pytest` 를 씁니다(콘솔 스크립트가 다른 인터프리터를 집은 전례).
 **커버리지**는 CI 의 단위 테스트 단계와 `tests` 게이트가 `--cov=app --cov-config=pyproject.toml --cov-report=term-missing` 으로 측정·출력합니다.
 하한은 `pyproject.toml` 의 `[tool.coverage.report] fail_under` 하나가 정하고 **기본값은 0**(하한 없음)입니다 —
@@ -365,7 +395,7 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | 파일 | 쓰는 프로세스 | 내용 |
 |---|---|---|
 | `app.log` · `error.log` | 웹(앱·uvicorn) | 전체(`LOG_FILE_LEVEL` 이상) · ERROR 이상 |
-| `celery.log` · `celery-error.log` | Celery 워커 | 전체 · ERROR 이상 |
+| `celery.log` · `celery-error.log` | Celery 워커·beat | 전체 · ERROR 이상. 프로세스 종류는 진입점(`celery` CLI·`python -m celery`)으로 import 때 정하므로 기동 초기 줄도 여기에 남는다 |
 | `--logfile` 경로 | Celery 워커(지정했을 때) | 같은 파일 형식으로 그대로 쓴다 |
 
 매일 **UTC 자정**에 `app.log` → `app.log.2026-10-19` 로 바뀌고, 하루 안에서 크기를 넘으면
@@ -615,6 +645,8 @@ Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워
 | `/docs` 가 404 | `DEBUG=false` | `DEBUG=true` (MySQL 필요) |
 | 기능 API 만 500, `/ready` 503 | 앱은 떴지만 DB 가 없다 | MySQL 준비 |
 | 기능 API 는 정상인데 `/ready` 503 | 기동 뒤 Redis 가 끊겼다(로그 `[Readiness] Redis 점검 실패`) | Redis 상태·`REDIS_*` 확인 |
+| 로그인·가입·재발급·로그아웃·사용자 비활성화가 503 `SERVICE_UNAVAILABLE` | Redis 연결 실패 — rate limit·refresh 저장소·세션 폐기가 Redis 에 있다(fail-closed, 로그 `[RedisUnavailable]` 한 번) | Redis·`REDIS_*` 확인, `/ready` |
+| 로그에 WARNING `replica 연결 오류 … primary 로 한 번 다시 실행` | replica 에 닿지 못해 그 읽기를 primary 가 대신 처리했다(응답은 정상) | replica 상태·`MYSQL_REPLICA_*` 확인. `/ready` 는 replica 를 보지 않는다 |
 | 새 기능이 마운트되지 않음 | 디렉터리명이 식별자가 아니거나 `_` 로 시작, `__init__.py` 없음, 라우터 모듈 경로가 `api/routers/router.py` 가 아님(변수명이 틀린 경우는 아래 `AppContractError` 행) | [ARCHITECTURE §2](docs/guides/ARCHITECTURE.md). 파일 **안의** import 오류라면 조용히 넘어가지 않고 기동이 실패한다 |
 | startup 에서 `AppContractError` | `router.py`/`admin.py` 의 export 가 규약과 다르거나 두 앱이 같은 객체를 내보냄 | 오류 메시지의 앱과 export 를 고친다 |
 | 기동 INFO 로그가 안 보임 | `LOG_LEVEL`/`LOG_CONSOLE_LEVEL` 명시값이 우선 | [ARCHITECTURE §5](docs/guides/ARCHITECTURE.md) |

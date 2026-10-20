@@ -1,0 +1,107 @@
+# 전수 통합(E2E) 테스트 환경 — 로컬과 CI 가 **같은 파일**을 쓴다 (integration-e2e W1, ADR-001).
+#
+# MySQL 8.4 primary + GTID replica(실제 비동기 복제) + Redis 7.4. 기존 `compose.test.yaml`(mysql 마커용
+# 단일 MySQL)과 분리했다 — 그쪽은 container_name·포트가 고정이고, 복제를 붙이면 mysql 마커 테스트까지
+# 무거워진다. 프로젝트 이름은 `itest-active` 로 고정해 다른 compose 프로젝트와 섞이지 않게 한다.
+#
+#   export E2E_MYSQL_PASSWORD="$(python -c 'import secrets; print(secrets.token_hex(16))')"
+#   docker compose -p itest-active -f compose.e2e.yaml up -d --wait
+#   uv run python -m pytest -m e2e
+#   docker compose -p itest-active -f compose.e2e.yaml down      # 데이터는 tmpfs 라 down 으로 끝난다
+#
+# 비밀번호는 실행마다 새로 만든다(E2E_MYSQL_PASSWORD, 필수). 하네스는 같은 변수로 접속하고, 이 값이 로그
+# 어디에도 나오지 않는지 검사한다(L6). root·앱 계정·복제 계정이 이 한 값을 쓴다 — 테스트 전용 컨테이너다.
+#
+# 포트는 127.0.0.1 에만 바인딩한다. 기본값은 계획서 §0 의 active 행이고, 하네스는 이 값이 아니면 시작하지
+# 않는다(남의 DB 에 붙는 사고 방지). WSL 에서 띄우고 Windows 쪽 pytest 로 붙어도 된다(localhost 전달).
+# WSL 은 붙잡는 wsl.exe 프로세스가 없으면 내려가며 컨테이너도 함께 멈춘다 — 실행 중에는
+# `wsl.exe -e bash -lc "sleep 7200"` 같은 keepalive 를 띄워 두고, 끝나면 끈다.
+
+name: itest-active
+
+x-mysql: &mysql
+  # compose.test.yaml 과 같은 digest(8.4). 갱신은 두 파일을 함께 바꾼다.
+  image: mysql@sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb  # 8.4
+  tmpfs:
+    - /var/lib/mysql
+  environment: &mysql-env
+    MYSQL_ROOT_PASSWORD: ${E2E_MYSQL_PASSWORD:?E2E_MYSQL_PASSWORD 를 실행마다 무작위로 정하세요}
+    TZ: Asia/Seoul
+
+services:
+  mysql-primary:
+    <<: *mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --server-id=1
+      - --log-bin=mysql-bin
+      - --gtid-mode=ON
+      - --enforce-gtid-consistency=ON
+      - --innodb-flush-log-at-trx-commit=2
+      - --sync-binlog=0
+    environment:
+      <<: *mysql-env
+      MYSQL_DATABASE: fastapi_active_e2e
+      MYSQL_USER: fastapi_active_e2e
+      MYSQL_PASSWORD: ${E2E_MYSQL_PASSWORD:?E2E_MYSQL_PASSWORD 를 실행마다 무작위로 정하세요}
+    volumes:
+      - ./tests/e2e/compose/primary-init.sh:/docker-entrypoint-initdb.d/10-repl-user.sh:ro
+    ports:
+      - "127.0.0.1:${E2E_MYSQL_PRIMARY_PORT:-13331}:3306"
+    healthcheck:
+      # -h 127.0.0.1: 초기화용 임시 서버(--skip-networking)는 TCP 를 열지 않으므로 진짜 서버만 healthy 가 된다.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+
+  mysql-replica:
+    <<: *mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --server-id=2
+      - --log-bin=mysql-bin
+      - --gtid-mode=ON
+      - --enforce-gtid-consistency=ON
+      # 앱 계정(SUPER 없음)은 쓰지 못한다 — 라우팅이 쓰기를 replica 로 보내면 에러로 드러난다.
+      - --read-only=ON
+      - --innodb-flush-log-at-trx-commit=2
+      - --sync-binlog=0
+    volumes:
+      - ./tests/e2e/compose/replica-init.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro
+    depends_on:
+      mysql-primary:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${E2E_MYSQL_REPLICA_PORT:-13332}:3306"
+    healthcheck:
+      # 복제 IO·SQL 스레드가 모두 돌 때만 healthy. 앱 DB 가 복제돼 왔는지도 본다.
+      # \G 출력에 -N 을 주면 필드 이름이 빠져 grep 이 영원히 실패한다.
+      test:
+        - CMD-SHELL
+        - >-
+          mysql -h 127.0.0.1 -uroot -p"$$MYSQL_ROOT_PASSWORD" -e "SHOW REPLICA STATUS\G" 2>/dev/null
+          | grep -q "Replica_IO_Running: Yes"
+          && mysql -h 127.0.0.1 -uroot -p"$$MYSQL_ROOT_PASSWORD" -e "SHOW REPLICA STATUS\G" 2>/dev/null
+          | grep -q "Replica_SQL_Running: Yes"
+          && mysql -h 127.0.0.1 -uroot -p"$$MYSQL_ROOT_PASSWORD" -N -e "SHOW DATABASES" 2>/dev/null
+          | grep -qx fastapi_active_e2e
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+
+  redis:
+    # compose.test.yaml 과 같은 digest(7.4-alpine). 앱 최소 요구는 7.0(REDIS_MIN_VERSION).
+    image: redis@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499  # 7.4-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:${E2E_REDIS_PORT:-16392}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10

@@ -338,7 +338,8 @@ staging/production 만:
   `RedactingFilter` → `SQLNoiseFilter`. root 레벨은 `LOG_LEVEL` 과 헤더별 레벨 중 최솟값으로 내려 레코드가 필터까지 옵니다.
   콘솔·파일 핸들러 레벨(`LOG_CONSOLE_LEVEL`·`LOG_FILE_LEVEL`)은 출력처 하한으로 그대로 적용됩니다.
 - **파일.** staging/production + `LOG_FILE_ENABLED=true` 에서만. 이름은 프로세스 종류가 정합니다(`LOG_FILES`: 웹 `app.log`·`error.log`,
-  Celery `celery.log`·`celery-error.log`). 핸들러 `handlers.DailyRotatingFileHandler` 가 UTC 자정·하루 안 크기 초과 때 교체하고
+  Celery `celery.log`·`celery-error.log`). 종류는 import 때 진입점(argv — `celery` CLI·`python -m celery` 면 celery)으로 정하고
+  Celery 로깅 신호가 한 번 더 확정합니다 — 설정 로드 직후의 기동 초기 줄도 그 프로세스의 파일에 남습니다(integration-e2e F-006). 핸들러 `handlers.DailyRotatingFileHandler` 가 UTC 자정·하루 안 크기 초과 때 교체하고
   교체 시점에 `LOG_RETENTION_DAYS` 보다 오래된 날짜·분할 파일을 지웁니다. 파일 핸들러는 bounded queue 뒤 listener 스레드가 씁니다
   (이벤트 루프가 파일 I/O 로 멈추지 않게). prefork 자식은 listener 스레드를 물려받지 못하므로 `worker_process_init` 에서 다시 세웁니다
   (`queue_logging.restart_queue_listener_after_fork()`, 같은 프로세스면 아무것도 하지 않음). 한 파일은 한 프로세스가 쓴다는 전제라
@@ -403,6 +404,11 @@ finally: resources.close(); app.state.redis = None; app.state.resources = None
 상태는 `/ready` 가 호출마다 `PING`(2초 상한)으로 확인합니다(§9). 요청 쪽은 core provider
 `get_redis`(`app/core/redis.py`) 하나를 `Depends` 로 받습니다 — client 가 없으면(기동 전·종료 후)
 503 `SERVICE_UNAVAILABLE` 이고, 테스트는 `app.dependency_overrides[get_redis]` 로 가짜를 넣습니다.
+요청 중 Redis 연결·시간 초과 오류(`redis.exceptions.ConnectionError`·`TimeoutError`)는 전역 핸들러
+(`main._register_exception_handlers` 의 `redis_unavailable_handler`)가 503 `SERVICE_UNAVAILABLE` 로 끝냅니다 —
+요청은 거부하고(fail-closed), traceback 은 그 핸들러가 한 번만 남기며, 정상 응답이라 keep-alive 연결도 유지됩니다.
+전역 `Exception` 핸들러(500)로 흘러가면 Starlette 가 응답 뒤 예외를 다시 올려 서버가 traceback 을 한 번 더 남기고
+연결을 끊습니다(integration-e2e F-004). 관리 화면은 자기 세션 미들웨어가 같은 상황을 503 으로 끝냅니다.
 
 **개발용 DDL.** `create_db_tables()` 는 writer 엔진에서 `Base.metadata.create_all` 을 실행합니다.
 없는 테이블만 만들고(checkfirst) 컬럼 변경·삭제는 하지 않습니다. 모델 발견은 하지 않으며,
@@ -553,6 +559,14 @@ DELETE" 두 단계로 두 DB 에서 같은 쿼리를 씁니다. 실행은 Celery
 
 복제 지연을 허용할 수 없는 읽기는 writer 세션을 쓰거나 `using_writer(session)` 으로 고정합니다.
 sticky 는 세션 내부 정책이라 다음 요청의 read-only 세션까지 지연을 없애지 않습니다.
+
+**replica 장애 대체(integration-e2e F-005).** read-only 세션(`get_read_only_db_session`)의 읽기가 replica 에서
+연결 계열 오류(접속 불가 2002·2003·2005, 끊김 2006·2013·2055, 서버 종료·오프라인 1053·3032, 연결 수 초과 1040,
+또는 SQLAlchemy 의 `connection_invalidated`)로 실패하면, 그 세션을 롤백하고 writer 에 고정한 뒤 **같은 구문을 한 번**
+primary 로 다시 실행하고 WARNING(`replica 연결 오류(...) — 이 읽기를 primary 로 한 번 다시 실행합니다`, 비밀값 없음)을
+남깁니다. 실행 지점은 `RoutingSession._execute_internal`(`execute`·`scalars`·`get` 이 모두 지난다)입니다.
+쓰기·routed 세션, 이미 writer 에 고정된 세션, 문법·제약·잠금 오류, 복제 지연(오류가 아니다), 라우터가 꺼진 구성은
+바뀌지 않습니다. `/ready` 는 replica 를 보지 않습니다(writer·Redis 만).
 
 **read-only 집행**은 라우터가 꺼져 있어도 적용됩니다. 세션 클래스 이벤트(`before_flush`,
 `do_orm_execute`)가 read-only 세션에서 ORM flush 와, 읽기로 판별되지 않는 구문을 거부합니다.
@@ -867,6 +881,7 @@ CI(`.github/workflows/ci.yml`)는 두 job 입니다: gate job 이 `static struct
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-20 | **integration-e2e**: 전수 통합 스위트(`tests/e2e/`, `compose.e2e.yaml` primary+GTID replica+Redis, CI job `e2e`). 고친 결함 — `pymysql[rsa]`(인증 캐시가 빈 MySQL 에 TLS 없이 붙을 때 RSA 필요, F-001), 401 의 `WWW-Authenticate: Bearer`(F-002), 상품 관리 폼의 서버 관리 열 제외(F-003). 사용자 결정 반영 — Redis 연결 장애 503(F-004), read-only 읽기의 replica 연결 오류 → primary 한 번 재시도(F-005), 프로세스 종류를 진입점으로 정해 Celery 기동 초기 줄도 `celery.log`(F-006). |
 | 2026-10-19 | **logging-overhaul**: 모든 실행 경로(앱·`python main.py`·`uvicorn main:app`·Celery 메인·태스크)가 root 의 핸들러 한 벌로 같은 형식을 쓴다(`setup_uvicorn_logging()`·`TzAccessFormatter` 삭제). 헤더에 라이브러리 출처(`celery`·`uvicorn`·`sqlalchemy`·`alembic`), 형식 필수 필드 검사, 헤더별 레벨 `LOG_APP_LEVELS`, 프로세스별 파일(`app.log`·`error.log`/`celery.log`·`celery-error.log`), UTC 자정+크기 교체와 `LOG_RETENTION_DAYS`(예전 `LOG_BACKUP_COUNT`·`LOG_*_FILENAME` 삭제), DSN 사용자명·설정 비밀값 원문 마스킹(§5). |
 | 2026-10-19 | **config-cleanup R-804**: `python main.py` 의 uvicorn 접속 줄이 매번 logging 오류로 사라지던 결함(포매터가 args 를 요청 라인 필드로 풀지 못함)을 `TzAccessFormatter` 로 고쳤다. `?token=` 처럼 비밀값이 든 요청은 두 경로(`python main.py`·`uvicorn main:app`) 모두 마스킹이 args 를 비워 같은 오류가 났다 — 이제 인자 단위로 가린다(§5). |
 | 2026-10-19 | **config-cleanup 2차**: `API_VERSION`(`ApiSettings`)을 삭제했다(URL 버전은 router 의 `/v1/...`). `LOG_CONSOLE_FORMAT`·`LOG_FILE_FORMAT`·`LOG_DATE_FORMAT`·`LOG_CONSOLE_ENABLED` 를 로깅 구성에 연결했다 — 기본값은 기존 하드코딩 형식과 같고, 잘못된 형식은 기동 오류, 출력이 모두 꺼지면 stderr 경고(§5). 설정 사용 계약 테스트의 예외 목록을 없앴다. |

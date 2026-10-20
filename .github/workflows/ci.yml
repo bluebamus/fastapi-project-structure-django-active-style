@@ -80,7 +80,12 @@ jobs:
       # 이 job 에는 MySQL 이 없다. mysql 마커를 함께 돌리면 전부 skip 되고, 아래
       # "SKIP 0" 판정에 걸려 초록을 받을 수 없다. 그래서 여기서는 명시적으로
       # 제외하고, 그 집합은 아래 mysql job 이 **실제 MySQL 에 대고** 실행한다.
+      # REDIS_HOST·REDIS_PORT 를 명시한다(integration-e2e W0). 이 job 에는 Redis 가 없고 단위 테스트는
+      # 가짜 클라이언트를 쓴다 — 실수로 실물 접속이 생기면 기본 6379 가 아니라 닫힌 포트에서 실패한다.
       - name: pytest (mysql 마커 제외)
+        env:
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: "16392"
         run: |
           set -o pipefail
           uv run python -m pytest -m "not mysql" -q -rsxX --cov=app --cov-config=pyproject.toml --cov-report=term-missing | tee pytest.log
@@ -135,6 +140,9 @@ jobs:
       # 없어서 전부 건너뛴 초록이 이 단계의 존재 이유를 지운다(C-4).
       # deselected 는 -m 필터가 만드는 정상 결과이므로 판정에서 뺀다.
       - name: pytest -m mysql (skip 금지)
+        env:
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: "16392"
         run: |
           set -o pipefail
           uv run python -m pytest -m mysql -q -rsxX | tee mysql.log
@@ -153,9 +161,91 @@ jobs:
       # 전체 suite 의 skip/xfail/deselected 0 판정은 MySQL 이 떠 있는 이 job 에서만
       # 성립한다. 판정 규칙은 gate job 과 같은 파일이 소유한다.
       - name: review gate (tests — 전체 suite, skip·deselect 0)
+        env:
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: "16392"
         run: uv run python -m scripts.review_gate --group tests
 
       # 실패해도 정리한다 — 러너가 재사용되는 환경에서 컨테이너와 볼륨이 남지 않게.
       - name: MySQL 정리
         if: always()
         run: docker compose -f compose.test.yaml down -v
+
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 전수 통합(E2E) — integration-e2e W6
+  #
+  # 로컬과 같은 compose.e2e.yaml(MySQL 8.4 primary + GTID replica, Redis 7.4) 위에서 실제 uvicorn·Celery
+  # worker·Chromium 을 띄워 tests/e2e 를 돌린다. 매 push 에 돈다. skip·xfail·xpass 가 하나라도 있거나
+  # 실행된 테스트가 0 이면 실패다. 실패하면 앱·worker·MySQL 로그와 산출물 폴더를 artifact 로 올린다.
+  # ──────────────────────────────────────────────────────────────────────────
+  e2e:
+    name: E2E (compose.e2e.yaml, -m e2e)
+    runs-on: ubuntu-24.04  # ubuntu-latest 는 2026-10-19 부터 Ubuntu 26 으로 바뀐다 — 검증 전까지 고정
+    timeout-minutes: 45
+
+    env:
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: "16392"
+      E2E_ARTIFACT_DIR: ${{ github.workspace }}/.e2e-artifacts
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: uv 설치
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: 의존성 설치
+        run: uv sync --locked
+
+      - name: Chromium 설치
+        run: uv run python -m playwright install --with-deps chromium
+
+      # 실행마다 새 DB 비밀번호 — 로그 비밀값 grep(L6) 의 대상이기도 하다.
+      - name: 실행 비밀값
+        run: |
+          pw=$(openssl rand -hex 16)
+          echo "::add-mask::$pw"
+          echo "E2E_MYSQL_PASSWORD=$pw" >> "$GITHUB_ENV"
+
+      - name: compose 기동
+        run: docker compose -p itest-active -f compose.e2e.yaml up -d --wait
+
+      # 요약 줄은 마지막 줄이 아닐 수 있다(로그 listener 종료 줄이 뒤에 붙는다) — 정규식으로 찾는다.
+      - name: pytest -m e2e (skip·xfail 0, 0건 금지)
+        run: |
+          set -o pipefail
+          uv run python -m pytest -m e2e -q -rsxX | tee e2e.log
+          plain=$(sed 's/\x1b\[[0-9;]*m//g' e2e.log)
+          if echo "$plain" | grep -qE '\b[1-9][0-9]* (skipped|xfailed|xpassed)\b'; then
+            echo "::error::E2E 에 skip·xfail 이 있습니다."
+            echo "$plain" | grep -E '(skipped|xfailed|xpassed)' || true
+            exit 1
+          fi
+          if ! echo "$plain" | grep -qE '\b[1-9][0-9]* passed\b'; then
+            echo "::error::E2E 테스트가 0건입니다."
+            exit 1
+          fi
+
+      - name: 실패 로그 수집
+        if: failure()
+        run: |
+          mkdir -p "$E2E_ARTIFACT_DIR"
+          cp e2e.log "$E2E_ARTIFACT_DIR/" 2>/dev/null || true
+          docker compose -p itest-active logs --no-color > "$E2E_ARTIFACT_DIR/compose.log" 2>&1 || true
+
+      - name: 실패 산출물 업로드
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: e2e-artifacts
+          path: .e2e-artifacts/
+          retention-days: 7
+
+      # 데이터는 tmpfs 라 down 으로 끝난다(-v 불필요).
+      - name: compose 정리
+        if: always()
+        run: docker compose -p itest-active -f compose.e2e.yaml down

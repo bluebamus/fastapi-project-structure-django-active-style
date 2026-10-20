@@ -30,6 +30,7 @@ Django 와 같은 점 / 다른 점 (ADR-019 — 이 설계를 유지하기로 �
 from __future__ import annotations
 
 import logging
+import sys
 
 from config import LogSettings, app_settings, log_settings
 
@@ -44,8 +45,25 @@ LOG_FILES = {
     "celery": ("celery.log", "celery-error.log"),
 }
 
-# 이 프로세스의 종류. 웹이 기본이고, Celery 워커는 로깅 신호 수신자가 바꾼다(set_process).
-_process = "app"
+
+def process_from_argv(argv: list[str]) -> str:
+    """진입점으로 프로세스 종류를 정한다 — ``celery`` CLI·``python -m celery`` 면 celery, 그 밖은 app.
+
+    로깅 신호(on_setup_logger)를 기다리면 그 전에 찍힌 기동 초기 줄(설정 로드·라우팅 구성)이 웹 파일로
+    간다(integration-e2e F-006). 모듈 import 가 아니라 argv 로 정하므로 웹이 Celery 모듈을 import 해도
+    웹 줄은 그대로 app.log 다.
+    """
+    if not argv:
+        return "app"
+    entry = argv[0].replace("\\", "/").lower()
+    name = entry.rsplit("/", 1)[-1]
+    if name in ("celery", "celery.exe") or entry.endswith("/celery/__main__.py"):
+        return "celery"
+    return "app"
+
+
+# 이 프로세스의 종류. 진입점이 정하고(process_from_argv), Celery 신호 수신자가 한 번 더 확정한다(set_process).
+_process = process_from_argv(sys.argv)
 
 
 def set_process(kind: str) -> None:

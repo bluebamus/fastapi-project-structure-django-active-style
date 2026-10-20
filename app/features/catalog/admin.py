@@ -24,6 +24,8 @@ class ProductAdmin(ModelView, model=Product):
     can_delete = True
     can_view_details = True
     can_export = True
+    # 서버가 채우는 열은 폼에서 뺀다 — 폼의 시각 입력은 타임존이 없어 UTCDateTime 이 거부한다(F-003).
+    form_excluded_columns = [Product.id, Product.created_at, Product.updated_at]
 
 
 admin_views: list[type] = [ProductAdmin]

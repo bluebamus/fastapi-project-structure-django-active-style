@@ -97,7 +97,9 @@ def test_describe_routing_hides_the_password_but_keeps_the_location():
     assert summary["writer"] == "mysql+aiomysql://root:***@db.internal:3306/fastapi_db"
 
 
-def test_redis_url_round_trips_a_password_with_separators():
+def test_redis_url_round_trips_a_password_with_separators(monkeypatch):
+    # 기본 포트를 본다 — 테스트 대상 Redis 를 가리키는 REDIS_PORT(W0·CI)가 결과를 바꾸지 않게.
+    monkeypatch.delenv("REDIS_PORT", raising=False)
     settings = RedisSettings(
         _env_file=None, REDIS_HOST="cache.internal", REDIS_PASSWORD=NASTY_PASSWORD
     )
