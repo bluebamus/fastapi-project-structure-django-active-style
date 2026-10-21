@@ -135,11 +135,13 @@ async def create_or_promote(
 
 
 def _redis_from_settings() -> Redis:
-    return Redis.from_url(
+    # from_url 은 타입 정보가 Any 다 — 수명주기(resources.py)와 같은 인자로 만들고 타입을 밝혀 둔다.
+    client: Redis = Redis.from_url(
         redis_settings.REDIS_URL,
         socket_connect_timeout=REDIS_TIMEOUT_SECONDS,
         socket_timeout=REDIS_TIMEOUT_SECONDS,
     )
+    return client
 
 
 async def _revoke_sessions(redis_factory: Callable[[], Redis], user_id: str) -> None:
