@@ -199,6 +199,15 @@ def test_replica_lag_keeps_read_after_write_on_primary(app, api, stack, cover):
             assert (
                 api.request("GET", item).status_code == 404
             )  # 지연은 연결 오류가 아니다 — 재시도 없음
+            # 인증 사용자 조회는 primary(e2e-policy-2 결정 5): replica 에 아직 없는 새 사용자도 /me 200
+            # (api.user() 가 /me 를 부른다), primary 의 비활성화는 replica 를 기다리지 않고 401.
+            fresh = api.user()
+            with stack.mysql() as conn, conn.cursor() as primary:
+                primary.execute("UPDATE users SET is_active=0 WHERE id=%s", (user.id,))
+                conn.commit()
+            me = api.request("GET", f"{V1}/auth/me", headers=user.auth)
+            assert me.status_code == 401, me.text
+            assert api.request("GET", f"{V1}/auth/me", headers=fresh.auth).status_code == 200
         finally:
             cur.execute("START REPLICA SQL_THREAD")
     got = wait_until(lambda: (r := api.request("GET", item)).status_code == 200 and r, 15, "복제")

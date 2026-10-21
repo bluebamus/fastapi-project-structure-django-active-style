@@ -658,8 +658,9 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
 - **해시 이전:** 새 해시는 Argon2(pwdlib). `$2` 로 시작하는 옛 bcrypt 해시는 옛 규칙(UTF-8 72바이트
   절단)으로 검증하고, 맞으면 Argon2 해시로 바꿔 저장합니다 — `/login` 핸들러가 커밋합니다.
 - `get_current_user`(auth)는 `get_current_principal` 이 검증한 주체로 read-only 세션에서 활성 사용자를
-  읽습니다 — 엔티티가 필요한 `/me` 만 씁니다. 이 객체를 쓰기 세션에서 직접 수정하지 말고, 쓰기
-  세션으로 다시 조회합니다.
+  읽습니다 — 엔티티가 필요한 `/me` 만 씁니다. 이 조회는 replica 가 아니라 **primary** 로 갑니다(`using_writer`,
+  e2e-policy-2 결정 5) — 복제 지연 때 유효한 토큰이 401 이 되지 않고, 비활성화·삭제가 바로 반영됩니다. 나머지
+  read-only 조회의 라우팅은 그대로입니다. 이 객체를 쓰기 세션에서 직접 수정하지 말고, 쓰기 세션으로 다시 조회합니다.
 - **상수 시간 인증:** 사용자가 없거나 해시가 없어도 Argon2 더미 해시로 검증을 수행해 응답 시간으로
   사용자명 존재를 알아내기 어렵게 합니다(네트워크 변동까지 없애지는 못합니다).
 - **논블로킹 해싱:** 해시·검증은 `asyncio.to_thread` 로 이벤트 루프 밖에서 돕니다.

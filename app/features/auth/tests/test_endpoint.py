@@ -347,3 +347,52 @@ def test_every_401_exception_is_an_unauthorized_exception():
         if c.status_code == 401 and not issubclass(c, UnauthorizedException)
     ]
     assert not stray, stray
+
+
+async def _db(user: User | None):
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    if user is not None:
+        async with async_sessionmaker(engine)() as session:
+            session.add(user)
+            await session.commit()
+    return engine
+
+
+@pytest.mark.parametrize(
+    ("primary_active", "replica_row", "expected"),
+    [(True, False, 200), (False, True, 401)],
+    ids=["replica-lag-new-user", "deactivated-on-primary-only"],
+)
+async def test_authenticated_user_is_read_from_primary(primary_active, replica_row, expected):
+    """토큰의 사용자 조회는 replica 가 아니라 primary 에서 읽는다 (e2e-policy-2 결정 5).
+
+    복제 지연 중인 replica 에 사용자가 아직 없어도 유효한 토큰은 200 이고, primary 의 비활성화는
+    replica 가 따라오기 전에도 바로 401 이다.
+    """
+    from app.core.db.router import DatabaseRouter, create_routing_sessionmaker
+
+    def row(active: bool) -> User:
+        return User(
+            id="u-1", username="alice", email="a@ex.com", hashed_password="x", is_active=active
+        )
+
+    writer = await _db(row(primary_active))
+    reader = await _db(row(True) if replica_row else None)
+    maker = create_routing_sessionmaker(DatabaseRouter(writer=writer, readers=[reader]))
+    app.dependency_overrides.update(session_overrides(maker, writer=False))
+    token = get_token_service().issue_access("u-1", "alice", False)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            response = await c.get("/api/v1/auth/me", headers=_bearer(token))
+    finally:
+        app.dependency_overrides.clear()
+        await writer.dispose()
+        await reader.dispose()
+
+    assert response.status_code == expected, response.text
