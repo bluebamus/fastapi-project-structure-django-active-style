@@ -67,7 +67,9 @@ def test_auth_lifecycle_rotates_and_revokes_refresh_families(api, stack, cover):
 
 def _window_passes(r: Any, key: str) -> None:
     ttl = r.ttl(key)
-    assert 0 < ttl <= 6, f"{key} TTL={ttl} (AUTH_*_WINDOW_SECONDS=6)"
+    # 만료가 걸려 있고(-1 이 아님) 창을 넘지 않는다. 시도가 창(6초)의 끝까지 걸리면 읽는 순간 0(곧 만료)이나
+    # -2(이미 만료)일 수 있다 — 느린 머신에서 IP 한도 21회 로그인이 그랬다. 그것도 창이 지나 지워진 것이다.
+    assert ttl != -1 and ttl <= 6, f"{key} TTL={ttl} (AUTH_*_WINDOW_SECONDS=6)"
     wait_until(lambda: not r.exists(key), 15, f"{key} 만료")
 
 
