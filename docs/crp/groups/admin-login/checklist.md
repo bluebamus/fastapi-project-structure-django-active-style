@@ -21,7 +21,7 @@
 - [x] (F-003) `ADMIN` → `ADMIN_DISABLED`, `validate_renamed_settings`, 기존 테스트·기능 docstring·생성기 템플릿 갱신
 - [x] (F-003) `ADMIN_DISABLED=true` 보장 4가지 테스트(404·응답/헤더·기동 로그·미들웨어)
 - [x] 세션 범위 확인(감독자 가정과 일치) + 테스트 4건
-- [x] `docs/guides/admin-auth-guide.html`(12절·도식 8개) + 문서 계약 테스트 등록 + README 문서 표·ARCHITECTURE §10.3 링크
+- [x] `docs/guides/workflows/admin-authentication.html`(12절·도식 8개) + 문서 계약 테스트 등록 + README 문서 표·ARCHITECTURE §10.3 링크
 - [x] (F-007) 모든 문서 반영 — README·`.env.example`·ARCHITECTURE·HTML 가이드 2종·CRP(이 그룹, service-hardening, orm-raw-repository 상태 주석)
 - [x] 실제 기동 스모크, 낡은 서술 grep 확인(run-log)
 - [x] (F-006) 기존 ModelView `column_filters` 의 sqladmin 0.32 비호환 — Round 3 에서 처리

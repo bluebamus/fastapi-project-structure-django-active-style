@@ -276,3 +276,81 @@ def test_admin_disabled_removes_the_admin_surface(restart, stack, api, cover):
             assert "/admin" not in client.get(path).text, path
     assert api.request("GET", f"{V1}/blog/posts").status_code == 200  # API 는 그대로
     cover("admin 인증", "ADMIN_DISABLED 재기동")
+
+
+# ---------------------------------------------------------------------------
+# CSRF 본문 버퍼링 상한 (e2e-policy-2 결정 7)
+# ---------------------------------------------------------------------------
+
+_MiB = 1024 * 1024
+_FORM = {"Content-Type": "application/x-www-form-urlencoded"}
+
+
+def _rss(pid: int) -> int:
+    """프로세스 RSS(바이트) — Linux 는 /proc, Windows 는 그 프로세스와 자식의 working set 합.
+
+    Windows 의 venv ``python.exe`` 는 실제 인터프리터를 자식으로 띄우는 런처라 자식까지 더한다.
+    """
+    import os
+    import subprocess
+
+    if os.name != "nt":
+        with open(f"/proc/{pid}/status", encoding="ascii") as status:
+            line = next(x for x in status if x.startswith("VmRSS:"))
+        return int(line.split()[1]) * 1024
+    query = (
+        "(Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -eq "
+        f"{pid} -or $_.ParentProcessId -eq {pid}"
+        " } | Measure-Object -Property WorkingSetSize -Sum).Sum"
+    )
+    done = subprocess.run(
+        ["powershell", "-NoProfile", "-Command", query], capture_output=True, text=True, check=True
+    )
+    return int(done.stdout.strip())
+
+
+def _declared_too_large(stack: Any) -> bytes:
+    """Content-Length 만 11 MiB 로 밝히고 본문은 보내지 않는다 — 앱은 읽기 전에 413 으로 답해야 한다."""
+    import socket
+
+    with socket.create_connection(("127.0.0.1", stack.app_port), timeout=30) as sock:
+        sock.sendall(
+            b"POST /admin/post/create HTTP/1.1\r\nHost: e2e\r\n"
+            b"Content-Type: application/x-www-form-urlencoded\r\n"
+            + f"Content-Length: {11 * _MiB}\r\n\r\n".encode()
+        )
+        return sock.recv(4096)
+
+
+def test_csrf_form_body_limits(stack, superuser, app, cover):
+    client = logged_in(stack, superuser)
+    token = client.csrf("/admin/")
+    rss_before = _rss(app.proc.popen.pid)
+    log_before = len(app.proc.output())
+
+    head = _declared_too_large(stack)
+    assert head.startswith(b"HTTP/1.1 413"), head[:200]
+
+    def chunks():  # Content-Length 없이(chunked) 10 MiB 를 넘긴다 — 누적 크기로 판정
+        yield f"csrf_token={token}&title=t&pad=".encode()
+        for _ in range(10):
+            yield b"a" * _MiB
+
+    for _ in range(5):
+        chunked = client.request("POST", "/admin/post/create", content=chunks(), headers=_FORM)
+        assert chunked.status_code == 413, chunked.text[:200]
+
+    field = f"csrf_token={token}&title=t&content=c&pad=".encode() + b"a" * (2 * _MiB)
+    too_big_field = client.request("POST", "/admin/post/create", content=field, headers=_FORM)
+    assert too_big_field.status_code == 400, too_big_field.text[:200]
+    assert too_big_field.headers.get("connection", "").lower() != "close"
+    assert client.request("GET", "/admin/").status_code == 200  # 같은 클라이언트로 계속 쓴다
+
+    rss_after = _rss(app.proc.popen.pid)
+    (stack.artifacts / "measure-csrf-body-limit-rss.txt").write_text(
+        f"413(Content-Length 11 MiB) 1회 + 413(chunked 10 MiB 초과) 5회 + 400(필드 2 MiB) 1회\n"
+        f"uvicorn RSS before={rss_before} after={rss_after} delta={rss_after - rss_before}\n",
+        encoding="utf-8",
+    )
+    assert "Traceback" not in app.proc.output()[log_before:]  # 500·처리되지 않은 예외 없음
+    cover("admin 인증", "CSRF 본문 상한 413·필드 400")

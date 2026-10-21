@@ -14,7 +14,7 @@
 - [x] (F-003) DSN `URL.create`·마스킹 `render_as_string`·Alembic `%%`·Redis 비밀번호 인코딩 + 왕복 테스트, 문자열 비교 테스트를 URL 의미 비교로
 - [x] (F-004) 잠금 읽기 = 쓰기(라우터 on/off), read-only 거부 + 테스트
 - [x] (F-005) `get_all` 기본 정렬 + PK 보조 키, 결정적 순서·겹치지 않는 페이지 테스트
-- [x] 문서 정정 — `docs/guides/ARCHITECTURE.md` §8.3 라우팅 규칙·Alembic URL, `docs/guides/DEVELOPMENT.md` §5.3·§6.5, `docs/guides/feature-development-guide.html` 의 "정렬 없음"
+- [x] 문서 정정 — `docs/guides/ARCHITECTURE.md` §8.3 라우팅 규칙·Alembic URL, `docs/guides/DEVELOPMENT.md` §5.3·§6.5, `docs/guides/workflows/feature-development.html` 의 "정렬 없음"
 - [x] 각 Fix fail-on-revert 확인, GATE 3 그린(845 passed / 32 deselected / skip 0), run-log 기록
 
 ## Round 2 — 2026-10-12 단계 B (접속 로그 · 오류 매핑) — 완료

@@ -243,3 +243,45 @@ def test_tag_metadata_entries_are_well_formed():
     for entry in tags_metadata:
         assert entry.get("name"), f"이름 없는 tag entry: {entry}"
         assert entry.get("description", "").strip(), f"설명 없는 tag: {entry['name']}"
+
+
+# ------------------------------------------------------------------ 422 문서 = 실제 형식 (e2e-policy-2 결정 1)
+
+
+def _actual_422_body() -> dict:
+    """앱이 등록한 검증 오류 핸들러가 실제로 내는 본문."""
+    import asyncio
+    import json
+
+    from fastapi.exceptions import RequestValidationError
+    from starlette.requests import Request
+
+    handler = app.exception_handlers[RequestValidationError]
+    request = Request({"type": "http", "method": "POST", "path": "/x", "headers": []})
+    error = RequestValidationError([{"loc": ("body", "name"), "msg": "필수", "type": "missing"}])
+    response = asyncio.run(handler(request, error))
+    assert response.status_code == 422
+    return json.loads(response.body)
+
+
+def test_every_422_documents_the_actual_error_body(spec, operations):
+    """422 를 광고하는 모든 operation 은 실제 본문(ErrorResponse)을 광고한다 — FastAPI 기본
+    ``HTTPValidationError``(loc·msg)가 아니다."""
+    wrong = {
+        _label(path, method): ref
+        for path, method, operation in operations
+        if "422" in operation.get("responses", {})
+        and (
+            ref := operation["responses"]["422"]["content"]["application/json"]["schema"].get(
+                "$ref"
+            )
+        )
+        != "#/components/schemas/ErrorResponse"
+    }
+    assert not wrong, f"422 가 실제 형식과 다르게 문서화됐습니다: {wrong}"
+    assert "HTTPValidationError" not in spec["components"]["schemas"]
+
+    documented = spec["components"]["schemas"]["ErrorResponse"]
+    body = _actual_422_body()
+    assert set(documented["required"]) <= set(body) <= set(documented["properties"]), body
+    assert body["error_code"] == "VALIDATION_ERROR"

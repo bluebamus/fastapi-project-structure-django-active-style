@@ -99,3 +99,81 @@ def test_server_error_app_exception_logs_error_with_detail(caplog):
     records = _handler_records(caplog)
     assert [r.levelno for r in records] == [logging.ERROR]
     assert records[0].detail == {"model": "Post"}
+
+
+# ------------------------------------------------------------------ e2e-policy-2 결정 2 (P-003)
+# 처리기가 없는 예외는 ServerErrorMiddleware 바로 안쪽(가장 바깥 사용자 미들웨어)에서 받아 기존 Exception
+# 처리기로 응답을 끝낸다 — 로그 1번, 연결 유지, 응답 불변. 다시 올라가면 uvicorn 이 traceback 을 한 번 더
+# 남기고 keep-alive 연결을 닫는다. raise_server_exceptions=True(기본)인 TestClient 는 앱 밖으로 나온 예외를 던진다.
+
+_BODY_500 = {
+    "error_code": "INTERNAL_SERVER_ERROR",
+    "message": "내부 서버 오류가 발생했습니다.",
+    "detail": None,
+}
+
+
+def _bug_route() -> str:
+    path = f"/_bug_{len(main.app.routes)}" + "/{item_id}"
+
+    @main.app.get(path, include_in_schema=False)
+    async def bug(item_id: str):
+        raise RuntimeError(SENTINEL)
+
+    return path
+
+
+def _tracebacks(caplog) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.exc_info]
+
+
+def test_unhandled_exception_is_answered_once_and_not_reraised(monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setattr(main.app_settings, "DEBUG", False)  # pytest env 는 DEBUG=true
+    path = _bug_route()
+    with caplog.at_level(logging.DEBUG):
+        response = TestClient(main.app).get(path.replace("{item_id}", "7"))
+
+    assert response.status_code == 500
+    assert response.json() == _BODY_500
+    assert _tracebacks(caplog) == ["[UnhandledException] RuntimeError"]
+    record = next(r for r in caplog.records if r.exc_info)
+    assert record.path == path  # route template — 기존 처리기의 로그 형식 그대로
+
+
+def test_exception_inside_another_middleware_is_caught(monkeypatch, caplog):
+    """사용자 미들웨어(UserInfo) 안에서 난 예외도 받는다 — 그래서 가장 바깥에 둔다."""
+    import logging
+
+    from app.core.middlewares.user_info_middleware import UserInfoMiddleware
+
+    async def explode(self, request, call_next):
+        raise RuntimeError(SENTINEL)
+
+    monkeypatch.setattr(main.app_settings, "DEBUG", False)
+    monkeypatch.setattr(UserInfoMiddleware, "dispatch", explode)
+    monkeypatch.setattr(main.app, "middleware_stack", None)  # 새 dispatch 로 다시 조립
+    with caplog.at_level(logging.DEBUG):
+        response = TestClient(main.app).get("/health")
+
+    assert response.status_code == 500
+    assert response.json() == _BODY_500
+    assert _tracebacks(caplog) == ["[UnhandledException] RuntimeError"]
+
+
+def test_debug_mode_reraises(monkeypatch):
+    """DEBUG=true 는 지금처럼 다시 던진다(개발 중 오류 화면·테스트 클라이언트의 예외)."""
+    import pytest
+
+    monkeypatch.setattr(main.app_settings, "DEBUG", True)
+    path = _bug_route()
+
+    with pytest.raises(RuntimeError):
+        TestClient(main.app).get(path.replace("{item_id}", "7"))
+
+
+def test_unhandled_exception_middleware_is_the_outermost_user_middleware():
+    """등록 순서 고정 — 가장 나중에 등록한 것이 가장 바깥(user_middleware[0])이다."""
+    first = main.app.user_middleware[0]
+    assert first.kwargs.get("dispatch") is main.answer_unhandled_exception

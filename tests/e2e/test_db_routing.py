@@ -11,7 +11,8 @@ def test_reads_survive_an_empty_auth_cache(stack, app, api, cover):
     """서버 인증 캐시가 비어도(재기동·복제로 받은 계정) 앱이 TLS 없이 붙는다 — F-001.
 
     primary 에서 비밀번호를 다시 지정하면(같은 값) 그 사용자의 caching_sha2 캐시가 primary·replica
-    모두에서 비워진다(복제로 넘어간다). 그다음 replica 를 읽는 /me 와 primary 에 쓰는 가입이 200·201 이어야 한다.
+    모두에서 비워진다(복제로 넘어간다). 그다음 replica 를 읽는 목록·primary 를 읽는 /me(e2e-policy-2 결정 5)와
+    primary 에 쓰는 가입이 200·200·201 이어야 한다.
     """
     user = api.user()
     with stack.mysql(root=True) as conn, conn.cursor() as cur:
@@ -33,4 +34,6 @@ def test_reads_survive_an_empty_auth_cache(stack, app, api, cover):
     assert made.status_code == 201, made.text
     me = api.request("GET", "/api/v1/auth/me", headers=user.auth)
     assert me.status_code == 200, me.text
+    listed = api.request("GET", "/api/v1/blog/posts")
+    assert listed.status_code == 200, listed.text
     cover("MySQL", "인증 캐시가 빈 서버에 새 연결")

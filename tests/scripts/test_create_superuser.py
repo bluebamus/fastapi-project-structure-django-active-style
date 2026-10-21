@@ -10,6 +10,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import pytest
+from fakeredis import FakeAsyncRedis, FakeServer
+from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -52,9 +54,13 @@ def db(tmp_path):
     return session_factory, load_user
 
 
-def _run(session_factory, *args: str, stdin: str = "") -> int:
+def _run(session_factory, *args: str, stdin: str = "", redis_factory=None) -> int:
+    server = FakeServer()
     return create_superuser.main(
-        list(args), session_factory=session_factory, stdin=io.StringIO(stdin)
+        list(args),
+        session_factory=session_factory,
+        stdin=io.StringIO(stdin),
+        redis_factory=redis_factory or (lambda: FakeAsyncRedis(server=server)),
     )
 
 
@@ -183,3 +189,86 @@ def test_script_reuses_core_providers():
     assert create_superuser.background_db_session is background_db_session
     assert create_superuser.get_password_hasher is get_password_hasher
     assert create_superuser.main.__kwdefaults__["session_factory"] is background_db_session
+
+
+def _alice(session_factory) -> None:
+    assert (
+        _run(
+            session_factory,
+            "--username",
+            "alice",
+            "--email",
+            "alice@example.com",
+            "--password-stdin",
+            stdin="original-pass\n",
+        )
+        == 0
+    )
+
+
+def test_set_password_revokes_refresh_and_admin_sessions(db):
+    """CLI 비밀번호 변경도 API 와 같게 그 사용자의 refresh family 와 관리 세션을 끊는다
+    (e2e-policy-2 결정 4, P-002)."""
+    from app.core.security.admin_session import AdminSessionStore
+    from app.core.security.refresh_store import RefreshTokenStore
+
+    session_factory, load_user = db
+    _alice(session_factory)
+    user = load_user("alice")
+    assert user is not None
+    server = FakeServer()
+
+    async def _sign_in() -> None:
+        redis = FakeAsyncRedis(server=server)
+        await RefreshTokenStore(redis, 3600).register("jti-1", user.id, "fam-1")
+        sessions = AdminSessionStore(redis, "k" * 32, max_age=3600, idle=600)
+        await sessions.save("sid-1", {"user_id": user.id}, sessions.now(), create=True)
+
+    asyncio.run(_sign_in())
+
+    code = _run(
+        session_factory,
+        "--username",
+        "alice",
+        "--set-password",
+        "--password-stdin",
+        stdin="rotated-pass\n",
+        redis_factory=lambda: FakeAsyncRedis(server=server),
+    )
+
+    async def _state() -> tuple[bool, int]:
+        redis = FakeAsyncRedis(server=server)
+        revoked = await RefreshTokenStore(redis, 3600).is_family_revoked("fam-1")
+        return revoked, await redis.exists(AdminSessionStore.user_key(user.id))
+
+    assert code == 0
+    assert asyncio.run(_state()) == (True, 0)
+
+
+class _DownRedis(FakeAsyncRedis):
+    async def smembers(self, *args, **kwargs):
+        raise RedisConnectionError("down")
+
+
+def test_set_password_fails_closed_without_redis(db, capsys):
+    """Redis 에 닿지 못하면 0 이 아닌 코드로 끝나고 비밀번호도 바뀌지 않는다(fail-closed)."""
+    session_factory, load_user = db
+    _alice(session_factory)
+    before = load_user("alice")
+    assert before is not None
+
+    code = _run(
+        session_factory,
+        "--username",
+        "alice",
+        "--set-password",
+        "--password-stdin",
+        stdin="rotated-pass\n",
+        redis_factory=_DownRedis,
+    )
+
+    assert code != 0
+    after = load_user("alice")
+    assert after is not None and after.hashed_password == before.hashed_password
+    err = capsys.readouterr().err
+    assert "Redis" in err and "rotated-pass" not in err

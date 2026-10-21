@@ -23,9 +23,9 @@ README = REPO_ROOT / "README.md"
 GUIDE = REPO_ROOT / "docs" / "guides" / "DEVELOPMENT.md"
 ARCHITECTURE = REPO_ROOT / "docs" / "guides" / "ARCHITECTURE.md"
 HTML_GUIDES = (
-    REPO_ROOT / "docs" / "guides" / "server-lifecycle-guide.html",
-    REPO_ROOT / "docs" / "guides" / "feature-development-guide.html",
-    REPO_ROOT / "docs" / "guides" / "admin-auth-guide.html",
+    REPO_ROOT / "docs" / "guides" / "workflows" / "server-lifecycle.html",
+    REPO_ROOT / "docs" / "guides" / "workflows" / "feature-development.html",
+    REPO_ROOT / "docs" / "guides" / "workflows" / "admin-authentication.html",
 )
 # 문서 목록은 README 의 이 절 한 곳에만 둔다(별도 docs/README.md 없음).
 DOCS_INDEX_HEADING = "## 문서 안내"
@@ -89,7 +89,8 @@ def test_docs_index_reaches_the_guide():
     assert "docs/guides/DEVELOPMENT.md" in index
     assert "docs/guides/ARCHITECTURE.md" in index
     for page in HTML_GUIDES:
-        assert f"docs/guides/{page.name}" in index, f"문서 안내에 {page.name} 이 없습니다."
+        relative = page.relative_to(REPO_ROOT).as_posix()
+        assert relative in index, f"문서 안내에 {relative} 이 없습니다."
 
 
 def test_html_guides_links_resolve():

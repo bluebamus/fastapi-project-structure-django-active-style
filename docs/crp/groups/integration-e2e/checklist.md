@@ -18,8 +18,8 @@
 - [x] L5 장애 주입·L6 운영(사용자 결정을 기대값으로)
 - [x] W3 인벤토리 대조(빈 칸 0·모르는 Redis 키 0·로그 비밀값 0)
 - [x] W6 CI job `e2e`, review gate 의 `E2E_*` 허용
-- [ ] (P-001) OpenAPI 422 스키마 — 사용자 결정 대기
-- [ ] (P-002) `create_superuser --set-password` 세션 폐기 — 사용자 결정 대기
+- [x] (P-001) OpenAPI 422 스키마 — Round 3 에서 결정 반영(`7df4a54`)
+- [x] (P-002) `create_superuser --set-password` 세션 폐기 — Round 3 에서 결정 반영(`c8758ed`)
 
 ## Round 2 — 2026-10-20 REQ-002 (사용자 결정)
 - [x] (F-004) Redis 연결 장애 503·traceback 한 번·연결 유지
@@ -28,3 +28,14 @@
 - [x] W7 README·ARCHITECTURE·DEVELOPMENT
 - [x] Windows·Linux(`.env` 없는 WSL 네이티브 클론) 전체 재실행
 - [ ] (P-003) 그 밖의 처리되지 않은 500 의 traceback 중복·연결 종료 — 사용자 결정 대기
+
+## Round 3 — 2026-10-21 REQ-003 (브랜치 `fix/e2e-policy-2`)
+- [x] 결정 1 OpenAPI 422 = `ErrorResponse`(`7df4a54`)
+- [x] 결정 2 처리되지 않은 500 의 traceback 한 번·keep-alive — ① 미들웨어로 직접 받기(`626e506`)
+- [x] 추가 결정: 의존성 `aiomysql[rsa]` 로 통일(`d214d24`)
+- [x] 결정 3 모든 401 `WWW-Authenticate: Bearer` — 이미 충족, 계약 테스트(`02018e4`)
+- [x] 결정 4 `create_superuser --set-password` 세션 폐기·fail-closed(`c8758ed`, mypy 후속 `cc34570`)
+- [x] 결정 5 인증 사용자 조회 primary(`bea5b38`)
+- [x] 결정 6 관리 화면 Redis 장애 모두 503 — 이미 충족, 계약 테스트(`af46062`)
+- [x] 결정 7 CSRF 폼 본문 상한 413·필드 400(`341f584`)
+- [x] README·ARCHITECTURE·관리 인증 안내서 갱신

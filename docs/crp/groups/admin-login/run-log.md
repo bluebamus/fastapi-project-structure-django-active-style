@@ -23,7 +23,7 @@
 - **Fix:** F-003 · F-007 → **Fixed**. **신규:** F-006(MED, 범위 밖 — 감독자 결정 대기).
 - **세션 범위 확인:** 감독자 가정과 코드가 일치했다 — 메인 앱 미들웨어는 CORS·`UserInfoMiddleware` 뿐이고 `SessionMiddleware` 는 sqladmin 하위 앱에만 있다. API 보호는 `get_current_principal`(Bearer)뿐. `SESSION_COOKIE_NAME` 은 접속 로그 기록용. `SESSION_SECRET_KEY` 소비처는 `app/features/admin.py`(관리 세션 서명)와 config 설정 검사(필수 환경 변수 목록·placeholder/길이)뿐.
 - **동작이 바뀐 기존 테스트:** `tests/core/test_admin_lazy_import.py`·`tests/test_admin_wiring.py` 의 `ADMIN=false/true` 를 `ADMIN_DISABLED=true/false` 로(단언 동일).
-- **가이드:** `docs/guides/admin-auth-guide.html` — 12절, Mermaid 도식 8개(구성도·주입 관계·기동 결정·로그인 시퀀스·요청별 인증·실패 경로·로그아웃·계정 수명주기), 기존 HTML 가이드와 같은 형식·Mermaid 11.12.0, `tests/test_docs_learnability.py` 의 `HTML_GUIDES` 에 등록.
+- **가이드:** `docs/guides/workflows/admin-authentication.html` — 12절, Mermaid 도식 8개(구성도·주입 관계·기동 결정·로그인 시퀀스·요청별 인증·실패 경로·로그아웃·계정 수명주기), 기존 HTML 가이드와 같은 형식·Mermaid 11.12.0, `tests/test_docs_learnability.py` 의 `HTML_GUIDES` 에 등록.
 - **낡은 서술 확인:** `git grep -n -E "인증 없|ADMIN=|ADMIN_ALLOW_UNAUTHENTICATED|ADMIN_UNAUTHENTICATED_ACK|unauthenticated|무인증"`(CRP 이력 제외). 남은 것은 모두 예외로 분류했다 — 이름 변경 안내(`.env.example`·config 메시지·README 문제 해결), 제거 회귀 테스트·이력 허용 목록(`scripts/review_gate.py`), Redis·MySQL 계정의 "인증 없는/무인증"(관리 화면과 무관), 고정 기준선 `docs/specs/**`(README 문서 유지 규칙상 고쳐 쓰지 않음).
 
 ### fail-on-revert (Round 1·2 공통)

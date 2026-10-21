@@ -8,7 +8,7 @@
 |---|---|---|---|
 | 학습 가이드 | `docs/guides/DEVELOPMENT.md` | 문서 | ADR-001 — 살아 있는 가이드 (2026-09-17 ADR-007 로 `orm-raw-workflow.md` 에서 개명) |
 | 구조 레퍼런스 | `docs/guides/ARCHITECTURE.md` | 문서 | 런타임·구조의 소유 문서(ADR-006) |
-| HTML 안내서 | `docs/guides/server-lifecycle-guide.html`, `docs/guides/feature-development-guide.html` | 문서 | ADR-007 로 복원 — 흐름 도식 |
+| HTML 안내서 | `docs/guides/workflows/server-lifecycle.html`, `docs/guides/workflows/feature-development.html` | 문서 | ADR-007 로 복원 — 흐름 도식 |
 | 문서 진입점 | `README.md` 「문서 안내」 절 | 문서 | ADR-006 — 문서 목록은 여기 하나뿐(`docs/README.md` 는 삭제) |
 | 최상위 안내 | `README.md` | 문서 | 제목·목차·ORM/Raw 섹션 |
 | 프로젝트 메타 | `pyproject.toml` | 설정 | 패키지명 |

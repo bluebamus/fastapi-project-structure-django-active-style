@@ -303,3 +303,96 @@ async def test_token_service_is_injected(client):
     access = (await _login(client)).json()["access_token"]
     app.dependency_overrides[get_token_service] = _RejectAll
     assert (await client.get("/api/v1/auth/me", headers=_bearer(access))).status_code == 401
+
+
+async def test_every_auth_401_carries_www_authenticate_bearer(client):
+    """로그인·refresh·logout·/me 의 모든 401 이 ``WWW-Authenticate: Bearer`` 를 싣는다 (e2e-policy-2 결정 3)."""
+    await _register(client)
+    tokens = (await _login(client)).json()
+    await _refresh(client, tokens["refresh_token"])  # 소비 → 다음 사용은 재사용 탐지
+    responses = {
+        "login 비밀번호 틀림": await _login(client, password="wrong-password"),
+        "login 없는 사용자": await _login(client, username="nobody"),
+        "refresh 위조": await _refresh(client, "not-a-token"),
+        "refresh access 토큰": await _refresh(client, tokens["access_token"]),
+        "refresh 재사용": await _refresh(client, tokens["refresh_token"]),
+        "logout 위조": await client.post(
+            "/api/v1/auth/logout", json={"refresh_token": "not-a-token"}
+        ),
+        "me 토큰 없음": await client.get("/api/v1/auth/me"),
+        "me refresh 토큰": await client.get(
+            "/api/v1/auth/me", headers=_bearer(tokens["refresh_token"])
+        ),
+    }
+    wrong = {
+        name: (r.status_code, r.headers.get("www-authenticate"))
+        for name, r in responses.items()
+        if (r.status_code, r.headers.get("www-authenticate")) != (401, "Bearer")
+    }
+    assert not wrong, wrong
+
+
+def test_every_401_exception_is_an_unauthorized_exception():
+    """401 을 내는 앱 예외는 모두 ``UnauthorizedException`` 계열 — 헤더를 붙이는 곳이 하나다."""
+    from app.core.exception import AppException, UnauthorizedException
+
+    def subclasses(cls):
+        for sub in cls.__subclasses__():
+            yield sub
+            yield from subclasses(sub)
+
+    stray = [
+        c.__name__
+        for c in subclasses(AppException)
+        if c.status_code == 401 and not issubclass(c, UnauthorizedException)
+    ]
+    assert not stray, stray
+
+
+async def _db(user: User | None):
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    if user is not None:
+        async with async_sessionmaker(engine)() as session:
+            session.add(user)
+            await session.commit()
+    return engine
+
+
+@pytest.mark.parametrize(
+    ("primary_active", "replica_row", "expected"),
+    [(True, False, 200), (False, True, 401)],
+    ids=["replica-lag-new-user", "deactivated-on-primary-only"],
+)
+async def test_authenticated_user_is_read_from_primary(primary_active, replica_row, expected):
+    """토큰의 사용자 조회는 replica 가 아니라 primary 에서 읽는다 (e2e-policy-2 결정 5).
+
+    복제 지연 중인 replica 에 사용자가 아직 없어도 유효한 토큰은 200 이고, primary 의 비활성화는
+    replica 가 따라오기 전에도 바로 401 이다.
+    """
+    from app.core.db.router import DatabaseRouter, create_routing_sessionmaker
+
+    def row(active: bool) -> User:
+        return User(
+            id="u-1", username="alice", email="a@ex.com", hashed_password="x", is_active=active
+        )
+
+    writer = await _db(row(primary_active))
+    reader = await _db(row(True) if replica_row else None)
+    maker = create_routing_sessionmaker(DatabaseRouter(writer=writer, readers=[reader]))
+    app.dependency_overrides.update(session_overrides(maker, writer=False))
+    token = get_token_service().issue_access("u-1", "alice", False)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            response = await c.get("/api/v1/auth/me", headers=_bearer(token))
+    finally:
+        app.dependency_overrides.clear()
+        await writer.dispose()
+        await reader.dispose()
+
+    assert response.status_code == expected, response.text

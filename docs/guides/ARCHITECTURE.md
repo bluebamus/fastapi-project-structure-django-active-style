@@ -5,7 +5,7 @@
 
 - 설치·실행·API 목록은 [README](../../README.md), 새 기능을 만드는 절차는
   [기능 개발 가이드](./DEVELOPMENT.md)를 봅니다.
-- §3~§9 의 흐름을 도식으로 따라가려면 [서버 수명주기 안내서](./server-lifecycle-guide.html)를 엽니다.
+- §3~§9 의 흐름을 도식으로 따라가려면 [서버 수명주기 안내서](./workflows/server-lifecycle.html)를 엽니다.
   표·목록의 원문은 이 문서입니다.
 - 코드와 이 문서가 다르면 **코드가 정답**입니다. 차이를 발견하면 이 문서를 고칩니다.
 
@@ -407,8 +407,8 @@ finally: resources.close(); app.state.redis = None; app.state.resources = None
 요청 중 Redis 연결·시간 초과 오류(`redis.exceptions.ConnectionError`·`TimeoutError`)는 전역 핸들러
 (`main._register_exception_handlers` 의 `redis_unavailable_handler`)가 503 `SERVICE_UNAVAILABLE` 로 끝냅니다 —
 요청은 거부하고(fail-closed), traceback 은 그 핸들러가 한 번만 남기며, 정상 응답이라 keep-alive 연결도 유지됩니다.
-전역 `Exception` 핸들러(500)로 흘러가면 Starlette 가 응답 뒤 예외를 다시 올려 서버가 traceback 을 한 번 더 남기고
-연결을 끊습니다(integration-e2e F-004). 관리 화면은 자기 세션 미들웨어가 같은 상황을 503 으로 끝냅니다.
+(처리기가 없는 그 밖의 예외도 이제 연결을 끊지 않습니다 — §9 의 `answer_unhandled_exception`.) 관리 화면은 자기 세션
+미들웨어가 같은 상황을 503 으로 끝냅니다.
 
 **개발용 DDL.** `create_db_tables()` 는 writer 엔진에서 `Base.metadata.create_all` 을 실행합니다.
 없는 테이블만 만들고(checkfirst) 컬럼 변경·삭제는 하지 않습니다. 모델 발견은 하지 않으며,
@@ -596,9 +596,9 @@ beat 표시에만 쓰입니다. 리포트는 지역 날짜 범위를 UTC 반열�
 | 예외 | 응답 |
 |---|---|
 | `AppException` 계열 (`NotFoundException`, `DuplicateException`, `ValidationException`, `DatabaseException`, 기능 예외) | 예외가 정한 상태 코드·`error_code`·`detail` |
-| `RequestValidationError` | 422, `detail` 에 `field`·`message`·`type` 목록 |
+| `RequestValidationError` | 422, `detail` 에 `field`·`message`·`type` 목록. OpenAPI 도 모든 operation 의 422 를 이 형식(`ErrorResponse`)으로 광고한다 — FastAPI 기본 `HTTPValidationError` 는 `main.py` 의 문서 후처리가 바꾼다 |
 | Starlette `HTTPException` | 해당 상태, `error_code=HTTP_<status>`. 예외의 `headers` 를 그대로 싣는다(405 `Allow`·401 `WWW-Authenticate` 등) |
-| 그 밖의 `Exception` | 500 `INTERNAL_SERVER_ERROR`, 고정 메시지, `detail=null` — **DEBUG 여부와 무관** |
+| 그 밖의 `Exception` | 500 `INTERNAL_SERVER_ERROR`, 고정 메시지, `detail=null` — **DEBUG 여부와 무관**. 가장 바깥 사용자 미들웨어 `answer_unhandled_exception`(`main.py`, 가장 나중에 등록)이 이 처리기로 응답을 끝내 traceback 은 `[UnhandledException]` 한 번, keep-alive 연결은 유지된다(Starlette `ServerErrorMiddleware` 까지 가면 응답 뒤 예외를 다시 던져 uvicorn 이 한 번 더 남기고 연결을 닫는다). `DEBUG=true` 면 지금처럼 다시 던진다. 관리 화면(sqladmin 하위 앱)은 자기 `ServerErrorMiddleware` 가 먼저 응답하므로 해당하지 않는다 |
 
 500 의 예외 타입·route template·스택은 로그에만 남습니다(경로에 박힌 식별자 대신 template).
 Repository 의 DB 오류 변환(`DBErrorTranslator` — MySQL 오류 코드·SQLite 메시지로 중복 409·필수 값
@@ -658,8 +658,9 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
 - **해시 이전:** 새 해시는 Argon2(pwdlib). `$2` 로 시작하는 옛 bcrypt 해시는 옛 규칙(UTF-8 72바이트
   절단)으로 검증하고, 맞으면 Argon2 해시로 바꿔 저장합니다 — `/login` 핸들러가 커밋합니다.
 - `get_current_user`(auth)는 `get_current_principal` 이 검증한 주체로 read-only 세션에서 활성 사용자를
-  읽습니다 — 엔티티가 필요한 `/me` 만 씁니다. 이 객체를 쓰기 세션에서 직접 수정하지 말고, 쓰기
-  세션으로 다시 조회합니다.
+  읽습니다 — 엔티티가 필요한 `/me` 만 씁니다. 이 조회는 replica 가 아니라 **primary** 로 갑니다(`using_writer`,
+  e2e-policy-2 결정 5) — 복제 지연 때 유효한 토큰이 401 이 되지 않고, 비활성화·삭제가 바로 반영됩니다. 나머지
+  read-only 조회의 라우팅은 그대로입니다. 이 객체를 쓰기 세션에서 직접 수정하지 말고, 쓰기 세션으로 다시 조회합니다.
 - **상수 시간 인증:** 사용자가 없거나 해시가 없어도 Argon2 더미 해시로 검증을 수행해 응답 시간으로
   사용자명 존재를 알아내기 어렵게 합니다(네트워크 변동까지 없애지는 못합니다).
 - **논블로킹 해싱:** 해시·검증은 `asyncio.to_thread` 로 이벤트 루프 밖에서 돕니다.
@@ -731,7 +732,7 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
   해시 변경일 때만, 변경 전후 비교)·`on_model_delete` 가 `UserService` 와 같은 판정 `revocation_for`·폐기
   `revoke_user_access` 를 부릅니다(규칙 한 곳 — 관리 화면 경로 = API 경로). 비활성화·슈퍼유저 해제·비밀번호 해시
   변경·삭제면 관리 세션과 refresh 를 모두 끊습니다. Redis 폐기가 실패하면 예외로 커밋이 막혀 DB 변경이 남지 않습니다(fail-closed).
-  자기 강등은 지금 세션도 끊습니다. 매 요청 DB 확인도 유지합니다(이중 방어). Redis 오류는 503 입니다(fail-closed).
+  자기 강등은 지금 세션도 끊습니다. 매 요청 DB 확인도 유지합니다(이중 방어). Redis 오류는 503 입니다(fail-closed) — 쿠키 없는 첫 요청처럼 응답 직전에 새 세션을 저장하다 실패해도 같습니다.
 - **세션은 관리 화면 전용입니다.** 메인 앱에는 세션 미들웨어가 없고, API 보호 경로는 Bearer
   토큰만 봅니다 — 관리 세션 쿠키로 API 를 호출해도 401 입니다. 회귀 가드: `tests/test_admin_login.py`
   의 세션 범위 테스트.
@@ -742,7 +743,9 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
   리밋·자격 확인 **전에** `csrf_valid`(bytes `hmac.compare_digest`)로 비교합니다. 로그인 이후의 모든
   POST·PUT·PATCH·DELETE(생성·수정·삭제·일괄 삭제·가져오기·로그아웃)는 하위 앱의 `AdminCsrfMiddleware` 가
   헤더 `X-CSRF-Token` 또는 폼 필드 `csrf_token`(본문 버퍼링 후 receive 재생)을 같은 함수로 비교해 403 으로
-  막습니다(로그인 POST 는 건너뜀 — 검사는 한 번). 토큰은 `app/templates/admin/sqladmin/base.html`(원본
+  막습니다(로그인 POST 는 건너뜀 — 검사는 한 번). 버퍼링하는 폼 본문은 10 MiB 까지입니다 — `Content-Length` 로
+  먼저, 없거나 거짓이면 읽는 도중 누적 크기로 판정해 넘으면 413, 1 MiB 를 넘는 필드(starlette 폼 파서 기본 상한)나
+  깨진 폼은 400 입니다(e2e-policy-2 결정 7, 상한은 `admin_auth.py` 의 상수). 토큰은 `app/templates/admin/sqladmin/base.html`(원본
   `sqladmin_original/base.html` 상속, `head_tail` 블록만 추가)의 meta 와 인라인 스크립트가 폼 제출·XHR·fetch
   에 붙입니다. 로그아웃은 `_make_logout_post_only` 가 POST 전용으로 바꾸고(GET 405) 스크립트가 링크를
   POST 폼으로 바꿉니다. sqladmin 원본이 어긋나면 `test_packaged_templates_still_fit_the_base_override` 가 실패합니다.
@@ -758,7 +761,7 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
   (`tests/test_admin_disabled.py`). 관리 화면을 쓰지 않는 배포는 끕니다.
 - `User.hashed_password` 는 목록·상세·폼·내보내기 어디에도 나오지 않고, `User` 는 Admin 에서
   생성할 수 없습니다(비밀번호 없는 계정 방지). 구조 증거: `tests/core/test_admin_views.py`.
-- 설계·흐름도·위협 모델·운영 절차 전체: [admin 인증 안내서](admin-auth-guide.html).
+- 설계·흐름도·위협 모델·운영 절차 전체: [admin 인증 안내서](workflows/admin-authentication.html).
 
 ### 10.4 현재 한계 — 외부 공개 전에 결정할 것
 
@@ -881,6 +884,7 @@ CI(`.github/workflows/ci.yml`)는 두 job 입니다: gate job 이 `static struct
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-21 | **e2e-policy-2**(사용자 결정): OpenAPI 의 422 를 실제 본문 `ErrorResponse` 로 광고(문서 후처리 한 곳), 처리기가 없는 예외를 가장 바깥 사용자 미들웨어 `answer_unhandled_exception` 이 500 으로 끝냄(traceback 한 번·keep-alive 유지, DEBUG 는 다시 던짐), `create_superuser --set-password` 도 refresh·관리 세션을 커밋 전에 폐기(Redis 불가면 종료 코드 2), `/me` 의 사용자 조회는 primary, 관리 CSRF 폼 버퍼링 상한(본문 10 MiB 초과 413, 필드 1 MiB 초과·깨진 폼 400). 모든 401 의 `WWW-Authenticate: Bearer`·관리 화면 Redis 장애 503 은 이미 충족 — 계약 테스트로 고정. 의존성: `cryptography` 를 `aiomysql[rsa]` 로 선언(`pymysql` 은 추가 옵션 없이). |
 | 2026-10-20 | **integration-e2e**: 전수 통합 스위트(`tests/e2e/`, `compose.e2e.yaml` primary+GTID replica+Redis, CI job `e2e`). 고친 결함 — `pymysql[rsa]`(인증 캐시가 빈 MySQL 에 TLS 없이 붙을 때 RSA 필요, F-001), 401 의 `WWW-Authenticate: Bearer`(F-002), 상품 관리 폼의 서버 관리 열 제외(F-003). 사용자 결정 반영 — Redis 연결 장애 503(F-004), read-only 읽기의 replica 연결 오류 → primary 한 번 재시도(F-005), 프로세스 종류를 진입점으로 정해 Celery 기동 초기 줄도 `celery.log`(F-006). |
 | 2026-10-19 | **logging-overhaul**: 모든 실행 경로(앱·`python main.py`·`uvicorn main:app`·Celery 메인·태스크)가 root 의 핸들러 한 벌로 같은 형식을 쓴다(`setup_uvicorn_logging()`·`TzAccessFormatter` 삭제). 헤더에 라이브러리 출처(`celery`·`uvicorn`·`sqlalchemy`·`alembic`), 형식 필수 필드 검사, 헤더별 레벨 `LOG_APP_LEVELS`, 프로세스별 파일(`app.log`·`error.log`/`celery.log`·`celery-error.log`), UTC 자정+크기 교체와 `LOG_RETENTION_DAYS`(예전 `LOG_BACKUP_COUNT`·`LOG_*_FILENAME` 삭제), DSN 사용자명·설정 비밀값 원문 마스킹(§5). |
 | 2026-10-19 | **config-cleanup R-804**: `python main.py` 의 uvicorn 접속 줄이 매번 logging 오류로 사라지던 결함(포매터가 args 를 요청 라인 필드로 풀지 못함)을 `TzAccessFormatter` 로 고쳤다. `?token=` 처럼 비밀값이 든 요청은 두 경로(`python main.py`·`uvicorn main:app`) 모두 마스킹이 args 를 비워 같은 오류가 났다 — 이제 인자 단위로 가린다(§5). |

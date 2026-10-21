@@ -4,7 +4,7 @@
 
 ## Round 0 — 2026-10-19 (계획·조사)
 - [x] 요청을 design-baseline §2 에 기록(REQ-001)
-- [x] `git grep` 으로 세 묶음의 모든 참조 목록 작성 — app·scripts·migrations·CI·compose 에는 없음. `config.py`·`.env.example`·`tests/core/test_deployment_safety.py`·`README.md`·`docs/guides/ARCHITECTURE.md`·`docs/guides/server-lifecycle-guide.html`, 과거 CRP 3곳(이력, 고치지 않음)
+- [x] `git grep` 으로 세 묶음의 모든 참조 목록 작성 — app·scripts·migrations·CI·compose 에는 없음. `config.py`·`.env.example`·`tests/core/test_deployment_safety.py`·`README.md`·`docs/guides/ARCHITECTURE.md`·`docs/guides/workflows/server-lifecycle.html`, 과거 CRP 3곳(이력, 고치지 않음)
 - [x] 모든 설정 클래스 `extra="ignore"` 확인, `python-multipart` 사용처 확인(`OAuth2PasswordRequestForm`, `admin_auth.py` 의 `request.form()`)
 
 ## Round 1 — 2026-10-19 REQ-001 — 완료 (브랜치 `chore/config-cleanup`)

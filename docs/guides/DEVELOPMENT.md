@@ -681,8 +681,8 @@ uv run python -m scripts.review_gate --group static structure docs
 | 문서 | 내용 |
 |---|---|
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) | 조립·설정·세션·라우팅·보안 경계 |
-| [`feature-development-guide.html`](./feature-development-guide.html) | 이 문서의 흐름을 catalog·reports 요청 도식으로 따라가는 안내서 |
-| [`server-lifecycle-guide.html`](./server-lifecycle-guide.html) | 설정 → 기동 → 요청 → 종료 추적 안내서 |
+| [`feature-development-guide.html`](./workflows/feature-development.html) | 이 문서의 흐름을 catalog·reports 요청 도식으로 따라가는 안내서 |
+| [`server-lifecycle-guide.html`](./workflows/server-lifecycle.html) | 설정 → 기동 → 요청 → 종료 추적 안내서 |
 | [`../specs/orm-raw-repository/`](../specs/orm-raw-repository/) | ORM/Raw 요구명세·개발계획·지침 원본 (착수 기준선, 코드 주석의 `workflow-guide §N` 출처) |
 | [`../crp/groups/orm-raw-repository/design-baseline.md`](../crp/groups/orm-raw-repository/design-baseline.md) | 설계 결정과 선택 근거 |
 | [`../specs/django-style-app-automation.md`](../specs/django-style-app-automation.md) | 앱 자동 등록 요구사항·설계 근거 |
