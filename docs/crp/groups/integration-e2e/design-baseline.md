@@ -104,9 +104,9 @@ operation·관리 화면·백그라운드·장애·운영 경로를 검사하고
 - 결정: `main.py` 의 `@app.middleware("http")` `answer_unhandled_exception` — `call_next` 의 예외를 기존 `Exception` 처리기
   (`general_exception_handler`, 로그 형식·마스킹·본문 그대로)로 응답한다. 가장 나중에 등록해 사용자 미들웨어 중 가장 바깥
   (`ServerErrorMiddleware` 바로 안쪽)에 둔다 — CORS·UserInfo 안에서 난 예외도 받는다. `DEBUG=true` 면 다시 던진다(기존 동작).
-- 이유: Starlette `ServerErrorMiddleware` 는 처리기로 응답한 뒤 예외를 다시 던지고(`starlette/middleware/errors.py` 186행),
+- 이유: Starlette `ServerErrorMiddleware` 는 처리기로 응답한 뒤 예외를 다시 던지고(설치된 starlette 1.6.0 의 `ServerErrorMiddleware.__call__` 끝 `raise exc`),
   uvicorn 은 그 예외를 `Exception in ASGI application` 으로 한 번 더 기록하고 응답이 시작됐으므로 transport 를 닫는다
-  (`uvicorn/protocols/http/h11_impl.py` 414~420행).
+  (uvicorn 0.54.0 의 HTTP 프로토콜 `run_asgi` — `self.transport.close()`).
 - 범위: 본문 전송 중의 예외는 `call_next` 가 돌려준 뒤라 여기 오지 않는다(기존대로). 관리 화면(sqladmin 하위 Starlette 앱)은 자기
   `ServerErrorMiddleware` 가 먼저 평문 500 을 보내므로 해당하지 않는다(R-1109).
 
