@@ -303,3 +303,47 @@ async def test_token_service_is_injected(client):
     access = (await _login(client)).json()["access_token"]
     app.dependency_overrides[get_token_service] = _RejectAll
     assert (await client.get("/api/v1/auth/me", headers=_bearer(access))).status_code == 401
+
+
+async def test_every_auth_401_carries_www_authenticate_bearer(client):
+    """로그인·refresh·logout·/me 의 모든 401 이 ``WWW-Authenticate: Bearer`` 를 싣는다 (e2e-policy-2 결정 3)."""
+    await _register(client)
+    tokens = (await _login(client)).json()
+    await _refresh(client, tokens["refresh_token"])  # 소비 → 다음 사용은 재사용 탐지
+    responses = {
+        "login 비밀번호 틀림": await _login(client, password="wrong-password"),
+        "login 없는 사용자": await _login(client, username="nobody"),
+        "refresh 위조": await _refresh(client, "not-a-token"),
+        "refresh access 토큰": await _refresh(client, tokens["access_token"]),
+        "refresh 재사용": await _refresh(client, tokens["refresh_token"]),
+        "logout 위조": await client.post(
+            "/api/v1/auth/logout", json={"refresh_token": "not-a-token"}
+        ),
+        "me 토큰 없음": await client.get("/api/v1/auth/me"),
+        "me refresh 토큰": await client.get(
+            "/api/v1/auth/me", headers=_bearer(tokens["refresh_token"])
+        ),
+    }
+    wrong = {
+        name: (r.status_code, r.headers.get("www-authenticate"))
+        for name, r in responses.items()
+        if (r.status_code, r.headers.get("www-authenticate")) != (401, "Bearer")
+    }
+    assert not wrong, wrong
+
+
+def test_every_401_exception_is_an_unauthorized_exception():
+    """401 을 내는 앱 예외는 모두 ``UnauthorizedException`` 계열 — 헤더를 붙이는 곳이 하나다."""
+    from app.core.exception import AppException, UnauthorizedException
+
+    def subclasses(cls):
+        for sub in cls.__subclasses__():
+            yield sub
+            yield from subclasses(sub)
+
+    stray = [
+        c.__name__
+        for c in subclasses(AppException)
+        if c.status_code == 401 and not issubclass(c, UnauthorizedException)
+    ]
+    assert not stray, stray
