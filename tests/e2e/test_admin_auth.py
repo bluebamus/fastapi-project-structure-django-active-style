@@ -287,38 +287,26 @@ _FORM = {"Content-Type": "application/x-www-form-urlencoded"}
 
 
 def _rss(pid: int) -> int:
-    """프로세스 RSS(바이트) — Linux 는 /proc, Windows 는 psapi."""
+    """프로세스 RSS(바이트) — Linux 는 /proc, Windows 는 그 프로세스와 자식의 working set 합.
+
+    Windows 의 venv ``python.exe`` 는 실제 인터프리터를 자식으로 띄우는 런처라 자식까지 더한다.
+    """
     import os
+    import subprocess
 
     if os.name != "nt":
         with open(f"/proc/{pid}/status", encoding="ascii") as status:
             line = next(x for x in status if x.startswith("VmRSS:"))
         return int(line.split()[1]) * 1024
-    import ctypes
-    from ctypes import wintypes
-
-    class Counters(ctypes.Structure):
-        _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD)] + [
-            (name, ctypes.c_size_t)
-            for name in (
-                "PeakWorkingSetSize",
-                "WorkingSetSize",
-                "QuotaPeakPagedPoolUsage",
-                "QuotaPagedPoolUsage",
-                "QuotaPeakNonPagedPoolUsage",
-                "QuotaNonPagedPoolUsage",
-                "PagefileUsage",
-                "PeakPagefileUsage",
-            )
-        ]
-
-    handle = ctypes.windll.kernel32.OpenProcess(0x1000 | 0x0010, False, pid)
-    try:
-        counters = Counters(cb=ctypes.sizeof(Counters))
-        assert ctypes.windll.psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb)
-        return int(counters.WorkingSetSize)
-    finally:
-        ctypes.windll.kernel32.CloseHandle(handle)
+    query = (
+        "(Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -eq "
+        f"{pid} -or $_.ParentProcessId -eq {pid}"
+        " } | Measure-Object -Property WorkingSetSize -Sum).Sum"
+    )
+    done = subprocess.run(
+        ["powershell", "-NoProfile", "-Command", query], capture_output=True, text=True, check=True
+    )
+    return int(done.stdout.strip())
 
 
 def _declared_too_large(stack: Any) -> bytes:
