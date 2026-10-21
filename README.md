@@ -663,6 +663,7 @@ Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워
 | 문서 | 역할 | 언제 보나 |
 |---|---|---|
 | 이 README | 개요 · 빠른 시작 · API 목록 · 운영 전 확인 · 문서 안내 | 처음 받았을 때 |
+| [docs/guides/index.html](docs/guides/index.html) | HTML 가이드 허브 — 부팅, 설계, API, 요청 처리, 인증, 기능, 개발, 테스트, 운영 문서를 주제별로 연결 | 브라우저에서 전체 매뉴얼을 탐색할 때 |
 | [docs/guides/ARCHITECTURE.md](docs/guides/ARCHITECTURE.md) | 구조 · 런타임 동작 레퍼런스 — 앱 자동 등록, 설정·로깅, 기동·종료, 요청 처리, DB 세션·라우팅, 보안 경계 | 실행 중에 무엇이 어떻게 조립되는지 찾을 때 |
 | [docs/guides/DEVELOPMENT.md](docs/guides/DEVELOPMENT.md) | 기능 개발 가이드 — ORM/Raw 선택, 파일 순서, 세션·트랜잭션, migration, 테스트, 체크리스트 | 새 기능을 만들 때 |
 | [docs/guides/workflows/server-lifecycle.html](docs/guides/workflows/server-lifecycle.html) | 서버 수명주기 안내서 — 설정 → 기동 → 요청 → 종료를 도식으로 추적 (브라우저로 연다) | 기동·종료 흐름을 한 번에 따라가 볼 때 |
