@@ -356,6 +356,36 @@ app = FastAPI(
     openapi_url="/openapi.json" if app_settings.DEBUG else None,
 )
 
+_default_openapi = app.openapi
+
+
+def _openapi_with_actual_422() -> dict[str, Any]:
+    """FastAPI 가 붙이는 422 ``HTTPValidationError`` 문서를 실제 본문(``ErrorResponse``)으로 바꾼다.
+
+    검증 오류는 위 ``validation_exception_handler`` 가 ``ErrorResponse``(VALIDATION_ERROR,
+    detail[field·message·type])로 낸다. 문서만 바꾸고 응답은 그대로다(e2e-policy-2 결정 1).
+    """
+    if app.openapi_schema is None:
+        schema = _default_openapi()
+        default_ref = "#/components/schemas/HTTPValidationError"
+        for item in schema.get("paths", {}).values():
+            for operation in item.values():
+                content = operation.get("responses", {}).get("422", {}).get("content", {})
+                body = content.get("application/json", {})
+                if body.get("schema", {}).get("$ref") == default_ref:
+                    body["schema"] = {"$ref": "#/components/schemas/ErrorResponse"}
+        schemas = schema.get("components", {}).get("schemas", {})
+        schemas.setdefault(
+            "ErrorResponse",
+            ErrorResponse.model_json_schema(ref_template="#/components/schemas/{model}"),
+        )
+        schemas.pop("HTTPValidationError", None)
+        schemas.pop("ValidationError", None)
+    return app.openapi_schema  # type: ignore[return-value]
+
+
+app.openapi = _openapi_with_actual_422  # type: ignore[method-assign]
+
 # 미들웨어 설정
 CustomCORSMiddleware(app).configure_cors()
 setup_user_info_middleware(app)

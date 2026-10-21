@@ -491,19 +491,20 @@ def test_normal(op_key, world, inventory, stack, cover):
 def test_validation_error(op_key, world, inventory, stack, cover):
     """검증 오류: 422 + 앱 공통 오류 형식(ErrorResponse, VALIDATION_ERROR, detail[field·message·type]).
 
-    OpenAPI 는 대부분의 operation 에서 422 를 FastAPI 기본 ``HTTPValidationError``(loc·msg)로 광고한다 —
-    실제 형식과 다르다(P-001, 정책 결정 대기). 어느 쪽인지 산출물 ``openapi-422.json`` 에 기록한다.
+    OpenAPI 가 그 operation 에 광고한 422 스키마로 실제 본문을 검증한다(P-001 → e2e-policy-2 결정 1:
+    문서 = 실제 형식). 광고 스키마 이름은 산출물 ``openapi-422.json`` 에 기록한다.
     """
     openapi = inventory["openapi"]
     response = call(world, op_key, OPS[op_key].bad(world))
     assert response.status_code == 422, response.text
     body = response.json()
-    check_schema(openapi, {"$ref": "#/components/schemas/ErrorResponse"}, body)
+    documented = response_schema(openapi, op_key, 422) or {}
+    assert documented == {"$ref": "#/components/schemas/ErrorResponse"}, documented
+    check_schema(openapi, documented, body)
     assert body["error_code"] == "VALIDATION_ERROR", body
     assert body["detail"] and all(
         set(d) == {"field", "message", "type"} for d in body["detail"]
     ), body
-    documented = response_schema(openapi, op_key, 422) or {}
     DOCUMENTED_422[op_key] = documented.get("$ref", "").rsplit("/", 1)[-1]
     (stack.artifacts / "openapi-422.json").write_text(
         json.dumps(DOCUMENTED_422, ensure_ascii=False, indent=1), encoding="utf-8"

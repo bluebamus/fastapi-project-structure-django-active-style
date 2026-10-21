@@ -596,7 +596,7 @@ beat 표시에만 쓰입니다. 리포트는 지역 날짜 범위를 UTC 반열�
 | 예외 | 응답 |
 |---|---|
 | `AppException` 계열 (`NotFoundException`, `DuplicateException`, `ValidationException`, `DatabaseException`, 기능 예외) | 예외가 정한 상태 코드·`error_code`·`detail` |
-| `RequestValidationError` | 422, `detail` 에 `field`·`message`·`type` 목록 |
+| `RequestValidationError` | 422, `detail` 에 `field`·`message`·`type` 목록. OpenAPI 도 모든 operation 의 422 를 이 형식(`ErrorResponse`)으로 광고한다 — FastAPI 기본 `HTTPValidationError` 는 `main.py` 의 문서 후처리가 바꾼다 |
 | Starlette `HTTPException` | 해당 상태, `error_code=HTTP_<status>`. 예외의 `headers` 를 그대로 싣는다(405 `Allow`·401 `WWW-Authenticate` 등) |
 | 그 밖의 `Exception` | 500 `INTERNAL_SERVER_ERROR`, 고정 메시지, `detail=null` — **DEBUG 여부와 무관** |
 
