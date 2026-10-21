@@ -407,8 +407,8 @@ finally: resources.close(); app.state.redis = None; app.state.resources = None
 요청 중 Redis 연결·시간 초과 오류(`redis.exceptions.ConnectionError`·`TimeoutError`)는 전역 핸들러
 (`main._register_exception_handlers` 의 `redis_unavailable_handler`)가 503 `SERVICE_UNAVAILABLE` 로 끝냅니다 —
 요청은 거부하고(fail-closed), traceback 은 그 핸들러가 한 번만 남기며, 정상 응답이라 keep-alive 연결도 유지됩니다.
-전역 `Exception` 핸들러(500)로 흘러가면 Starlette 가 응답 뒤 예외를 다시 올려 서버가 traceback 을 한 번 더 남기고
-연결을 끊습니다(integration-e2e F-004). 관리 화면은 자기 세션 미들웨어가 같은 상황을 503 으로 끝냅니다.
+(처리기가 없는 그 밖의 예외도 이제 연결을 끊지 않습니다 — §9 의 `answer_unhandled_exception`.) 관리 화면은 자기 세션
+미들웨어가 같은 상황을 503 으로 끝냅니다.
 
 **개발용 DDL.** `create_db_tables()` 는 writer 엔진에서 `Base.metadata.create_all` 을 실행합니다.
 없는 테이블만 만들고(checkfirst) 컬럼 변경·삭제는 하지 않습니다. 모델 발견은 하지 않으며,
@@ -598,7 +598,7 @@ beat 표시에만 쓰입니다. 리포트는 지역 날짜 범위를 UTC 반열�
 | `AppException` 계열 (`NotFoundException`, `DuplicateException`, `ValidationException`, `DatabaseException`, 기능 예외) | 예외가 정한 상태 코드·`error_code`·`detail` |
 | `RequestValidationError` | 422, `detail` 에 `field`·`message`·`type` 목록. OpenAPI 도 모든 operation 의 422 를 이 형식(`ErrorResponse`)으로 광고한다 — FastAPI 기본 `HTTPValidationError` 는 `main.py` 의 문서 후처리가 바꾼다 |
 | Starlette `HTTPException` | 해당 상태, `error_code=HTTP_<status>`. 예외의 `headers` 를 그대로 싣는다(405 `Allow`·401 `WWW-Authenticate` 등) |
-| 그 밖의 `Exception` | 500 `INTERNAL_SERVER_ERROR`, 고정 메시지, `detail=null` — **DEBUG 여부와 무관** |
+| 그 밖의 `Exception` | 500 `INTERNAL_SERVER_ERROR`, 고정 메시지, `detail=null` — **DEBUG 여부와 무관**. 가장 바깥 사용자 미들웨어 `answer_unhandled_exception`(`main.py`, 가장 나중에 등록)이 이 처리기로 응답을 끝내 traceback 은 `[UnhandledException]` 한 번, keep-alive 연결은 유지된다(Starlette `ServerErrorMiddleware` 까지 가면 응답 뒤 예외를 다시 던져 uvicorn 이 한 번 더 남기고 연결을 닫는다). `DEBUG=true` 면 지금처럼 다시 던진다. 관리 화면(sqladmin 하위 앱)은 자기 `ServerErrorMiddleware` 가 먼저 응답하므로 해당하지 않는다 |
 
 500 의 예외 타입·route template·스택은 로그에만 남습니다(경로에 박힌 식별자 대신 template).
 Repository 의 DB 오류 변환(`DBErrorTranslator` — MySQL 오류 코드·SQLite 메시지로 중복 409·필수 값

@@ -136,6 +136,27 @@ def test_primary_outage_ready_503_health_200_no_leak(app, api, stack, cover):
             assert 500 <= failed.status_code < 600, failed.status_code
             assert failed.json()["error_code"], failed.text
             no_leak(stack, failed)
+            # 처리되지 않은 예외(e2e-policy-2 결정 2): 로그인의 사용자 조회는 저장소가 번역하지 않는 읽기라
+            # OperationalError 가 그대로 올라간다 — 500 한 번, traceback 은 핸들러의 한 레코드, 연결은 유지.
+            log_before = len(app.proc.output())
+            with httpx.Client(base_url=stack.base_url, timeout=30) as http:
+                unhandled = http.post(
+                    f"{V1}/auth/login",
+                    data={"username": user.username, "password": user.password},
+                    headers={"X-Forwarded-For": fresh_ip()},
+                )
+                assert unhandled.status_code == 500, unhandled.text
+                assert unhandled.json() == {
+                    "error_code": "INTERNAL_SERVER_ERROR",
+                    "message": "내부 서버 오류가 발생했습니다.",
+                    "detail": None,
+                }
+                assert unhandled.headers.get("connection", "").lower() != "close"
+                no_leak(stack, unhandled)
+                assert http.get("/health").status_code == 200  # 같은 keep-alive 연결
+            tail = app.proc.output()[log_before:]
+            assert "Exception in ASGI application" not in tail, tail[-3000:]
+            assert tail.count("[UnhandledException]") == 1, tail[-3000:]
         finally:
             cur.execute("SET GLOBAL offline_mode = OFF")
     wait_until(lambda: api.request("GET", "/ready").status_code == 200, 30, "primary 회복")

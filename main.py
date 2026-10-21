@@ -11,13 +11,13 @@ lifespan·Admin 활성화 분기).
 """
 
 import asyncio
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
@@ -399,6 +399,29 @@ else:
 # 글로벌 예외 핸들러
 _register_exception_handlers(app)
 logger.info("글로벌 예외 핸들러 설정 완료")
+
+
+@app.middleware("http")
+async def answer_unhandled_exception(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    """처리기가 없는 예외를 ``ServerErrorMiddleware`` 바로 안쪽에서 받아 기존 ``Exception`` 처리기로 끝낸다.
+
+    Starlette ``ServerErrorMiddleware`` 는 ``Exception`` 처리기로 응답한 뒤 예외를 다시 던진다 — uvicorn 이
+    traceback 을 한 번 더 남기고 keep-alive 연결을 닫는다. 여기서 끝내면 로그는 처리기의 ``[UnhandledException]``
+    한 번, 연결은 유지, 응답(500 ``INTERNAL_SERVER_ERROR``)은 그대로다(e2e-policy-2 결정 2).
+
+    가장 나중에 등록해 사용자 미들웨어 중 가장 바깥에 둔다 — 다른 미들웨어 안에서 난 예외도 받는다.
+    ``DEBUG=true`` 면 지금처럼 다시 던진다. 응답 본문을 보내는 중의 예외는 ``call_next`` 밖에서 나므로 여기 오지 않는다.
+    """
+    try:
+        return await call_next(request)
+    except Exception as exc:
+        if app_settings.DEBUG:
+            raise
+        response: Response = await app.exception_handlers[Exception](request, exc)
+        return response
+
 
 # 라우터 취합 — 발견된 앱의 `<name>_router` 를 registry 가 /api 에 마운트한다.
 # 새 라우터 때문에 이 파일을 고치지 않는다 (FR-02, FR-08).
