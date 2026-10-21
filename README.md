@@ -289,7 +289,8 @@ docker compose -p itest-active -f compose.e2e.yaml down    # -v 불필요(tmpfs)
 처음에는 기능이 제대로 동작하는지 확인하는 것이 우선이라서입니다. 하한이 필요해지면 그 값 하나만 올립니다
 (명령줄 `--cov-fail-under` 는 쓰지 않는다. 올리는 법은 [개발 가이드 §11](docs/guides/DEVELOPMENT.md)).
 `tests` 게이트는 skip 0 을 요구하므로 MySQL 이 필요하고, `deps` 게이트는 네트워크가 필요합니다. CI 는
-gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전체 suite)으로 나뉩니다.
+gate job(`-m "not mysql"`), MySQL job(`compose.test.yaml` + `-m mysql` + 전체 suite), e2e job(`compose.e2e.yaml` +
+`-m e2e`, 위 "전수 통합(E2E)") 세 개로 나뉩니다.
 
 ---
 
@@ -355,7 +356,7 @@ gate job(`-m "not mysql"`)과 MySQL job(`compose.test.yaml` + `-m mysql` + 전�
 | `loggers[이름]["level"]` | `LOG_APP_LEVELS="blog=DEBUG,sqlalchemy=WARNING"` — 키는 로거 이름이 아니라 **헤더 이름** |
 | `root["level"]` | `LOG_LEVEL`(미설정이면 `DEBUG` 에 따라 DEBUG/INFO) |
 | `handlers[..]["level"]` | `LOG_CONSOLE_LEVEL`·`LOG_FILE_LEVEL`(출력처별 하한, 에러 파일은 ERROR 고정) |
-| `filters` | 출처 헤더(`ContextFilter`) → 앱별 레벨(`AppLevelFilter`) → 비밀값 마스킹(`RedactingFilter`) → SQL 소음 차단 |
+| `filters` | 콘솔: 출처 헤더(`ContextFilter`) → 앱별 레벨(`AppLevelFilter`) → 비밀값 마스킹(`RedactingFilter`) → SQL 소음 차단. 파일은 큐 앞에서 출처 헤더·앱별 레벨·SQL 소음 차단, listener 뒤 파일 핸들러가 출처 헤더·마스킹 |
 | `RotatingFileHandler`·`TimedRotatingFileHandler` | `DailyRotatingFileHandler` — 날짜 + 크기 + 보관 일수 |
 
 **형식과 헤더.** 모든 줄 = `[시각 시간대] 레벨 [app=헤더] [모듈:클래스:함수:줄] 메시지`. 앱 로거·`python main.py`·
@@ -479,7 +480,7 @@ CSRF 토큰은 세션에 하나이고, 로그인 폼과 로그인 이후의 모�
 
 ## API
 
-`app.openapi()` 실측 **22 경로 / 37 오퍼레이션**입니다. 경로를 바꾸면 이 표와
+`app.openapi()` 실측 **23 경로 / 38 오퍼레이션**입니다. 경로를 바꾸면 이 표와
 `tests/test_route_inventory.py` 를 함께 갱신합니다. 목록은 `skip`·`limit` 페이지 조회, 생성은 201,
 삭제는 204 입니다.
 
@@ -544,7 +545,7 @@ CSRF 토큰은 세션에 하나이고, 로그인 폼과 로그인 이후의 모�
   무시되고 수정할 수 없습니다. 작성자 컬럼이 생기기 전의 글(`author_id` 가 null)은 관리자만 고칩니다.
 - 사용자를 비활성화·강등·삭제하면 그 사용자의 refresh 토큰이 모두 폐기됩니다. 이미 발급된 access
   토큰은 만료(기본 15분)까지 남습니다 — 권한은 토큰의 `su` claim 으로 판정하고 DB 를 다시 보지 않습니다.
-- `/admin`(SQLAdmin)은 이 표와 별개로 **슈퍼유저 로그인**(서명 세션 쿠키)을 요구합니다. API 의 Bearer
+- `/admin`(SQLAdmin)은 이 표와 별개로 **슈퍼유저 로그인**(Redis 서버 세션)을 요구합니다. API 의 Bearer
   토큰으로는 들어갈 수 없고, 관리 세션 쿠키로 API 를 호출할 수도 없습니다([운영 배포](#운영-배포)).
 
 ### 인증 흐름
@@ -649,8 +650,8 @@ Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워
 | 기능 API 는 정상인데 `/ready` 503 | 기동 뒤 Redis 가 끊겼다(로그 `[Readiness] Redis 점검 실패`) | Redis 상태·`REDIS_*` 확인 |
 | 로그인·가입·재발급·로그아웃·사용자 비활성화가 503 `SERVICE_UNAVAILABLE` | Redis 연결 실패 — rate limit·refresh 저장소·세션 폐기가 Redis 에 있다(fail-closed, 로그 `[RedisUnavailable]` 한 번) | Redis·`REDIS_*` 확인, `/ready` |
 | 로그에 WARNING `replica 연결 오류 … primary 로 한 번 다시 실행` | replica 에 닿지 못해 그 읽기를 primary 가 대신 처리했다(응답은 정상) | replica 상태·`MYSQL_REPLICA_*` 확인. `/ready` 는 replica 를 보지 않는다 |
-| 새 기능이 마운트되지 않음 | 디렉터리명이 식별자가 아니거나 `_` 로 시작, `__init__.py` 없음, 라우터 모듈 경로가 `api/routers/router.py` 가 아님(변수명이 틀린 경우는 아래 `AppContractError` 행) | [ARCHITECTURE §2](docs/guides/ARCHITECTURE.md). 파일 **안의** import 오류라면 조용히 넘어가지 않고 기동이 실패한다 |
-| startup 에서 `AppContractError` | `router.py`/`admin.py` 의 export 가 규약과 다르거나 두 앱이 같은 객체를 내보냄 | 오류 메시지의 앱과 export 를 고친다 |
+| 새 기능이 마운트되지 않음 | 디렉터리명이 `_` 로 시작, `__init__.py` 없음, 라우터 모듈 경로가 `api/routers/router.py` 가 아님(변수명이 틀린 경우는 아래 `AppContractError` 행) | [ARCHITECTURE §2](docs/guides/ARCHITECTURE.md). 파일 **안의** import 오류라면 조용히 넘어가지 않고 기동이 실패한다 |
+| startup 에서 `AppContractError` | `router.py`/`admin.py` 의 export 가 규약과 다르거나(디렉터리명이 식별자가 아니면 — 예: `order-items` — `<name>_router` 를 선언할 수 없다) 두 앱이 같은 객체를 내보냄 | 오류 메시지의 앱과 export 를 고친다 |
 | 기동 INFO 로그가 안 보임 | `LOG_LEVEL`/`LOG_CONSOLE_LEVEL` 명시값이 우선 | [ARCHITECTURE §5](docs/guides/ARCHITECTURE.md) |
 
 ---
