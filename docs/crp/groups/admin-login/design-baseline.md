@@ -25,7 +25,7 @@ C-8, service-hardening ADR-017)을 유지해, 배포 환경에서는 확인 플�
 `/admin` 에 **슈퍼유저 로그인**(Bootstrap 로그인 화면, 서명 세션 쿠키)을 붙이고, 관리 화면 자체를 완전히
 끄는 설정(`ADMIN_DISABLED`)을 둔다. 함께 "배포 전에 해야 할 일"(프록시 홉 수·KST→UTC 리비전·첫 관리자·
 관리 로그인)을 운영자가 보는 모든 문서·주석에 일관되게 적고, 세션 인증이 관리 화면에만 쓰인다는 사실을
-확인해 테스트와 별도 가이드(`docs/guides/admin-auth-guide.html`)로 남긴다.
+확인해 테스트와 별도 가이드(`docs/guides/workflows/admin-authentication.html`)로 남긴다.
 
 ## 2. 요구사항 레지스터 (요청 히스토리 — append-only)
 
@@ -48,7 +48,7 @@ C-8, service-hardening ADR-017)을 유지해, 배포 환경에서는 확인 플�
 | ADR-007 | 2026-10-12 | `ADMIN_DISABLED=true` 면: ① `/admin`·`/admin/`·`/admin/login`·`/admin/statics/...` 모두 404(마운트 없음, sqladmin 미import 가드 유지) ② 앱이 내보내는 어떤 응답(OpenAPI·DEBUG `/docs`·오류 본문·헤더)에도 `/admin` 이 없음 ③ 기동 로그는 "관리 화면 비활성화 (ADMIN_DISABLED=true)" 만 — 경로 없음 ④ 관리 세션 미들웨어·인증 백엔드를 만들지 않음. 각각 `tests/test_admin_disabled.py` 가 깨끗한 서브프로세스에서 고정한다. | 사용자 요구 "링크 자체가 존재하지 않아야 한다(보안)". 저장소 문서의 링크는 앱 응답이 아니므로 별개다. | Active | — |
 | ADR-008 | 2026-10-12 | **세션 인증은 `/admin` 전용이다(확인 결과).** API 인증은 Bearer JWT(`get_current_principal`)뿐이고 메인 앱에 `SessionMiddleware` 가 없다. `SESSION_COOKIE_NAME` 은 접속 로그 미들웨어가 session_id 를 기록용으로 읽을 뿐이다. `SESSION_SECRET_KEY` 소비처는 관리 세션 서명(`app/features/admin.py`)과 config 의 설정 검사뿐이다. 고정 테스트: 메인 앱 미들웨어에 세션 없음·하위 앱에만 있음, 유효한 `admin_session` 쿠키로 API 보호 경로 401, `/admin` 밖 응답은 그 쿠키를 설정하지 않음. API 에 세션 인증을 섞지 않는다(C-3). | 감독자 사전 확인과 코드가 일치했다. 쿠키 인증을 API 에 섞으면 CSRF 방어가 필요해지고 토큰 폐기 모델이 둘로 갈라진다. | Active | — |
 | ADR-009 | 2026-10-12 | Celery include 모듈을 실제로 import 해 각 모듈이 태스크를 등록하는지 보는 테스트를 둔다(`celery_app.loader.import_default_modules()` — 워커 기동과 같은 경로). | `tasks.py` 의 import 오류가 워커 기동 때가 아니라 CI 에서 드러나게(명세 §4). | Active | — |
-| ADR-010 | 2026-10-12 | "배포 전 확인" 은 README 운영 배포 체크리스트가 소유하고(항목 2a 첫 관리자·2b 관리 화면/`ADMIN_DISABLED`/`SESSION_SECRET_KEY`·4 `TRUSTED_PROXY_HOPS`·7 KST→UTC 백업·`_LOCAL_OFFSET`), `.env.example`·config Field 주석·`ClientIPResolver`·리비전 docstring(맨 위 경고)·스크립트·조립 지점 docstring 은 같은 내용을 그 자리의 맥락으로 적는다. 관리 인증의 설계·흐름·위협 모델은 새 HTML 가이드 `docs/guides/admin-auth-guide.html` 이 소유하고 README 문서 표·ARCHITECTURE §10.3 이 링크한다. | 한 주제는 한 문서가 소유한다(README 문서 유지 규칙). | Active | — |
+| ADR-010 | 2026-10-12 | "배포 전 확인" 은 README 운영 배포 체크리스트가 소유하고(항목 2a 첫 관리자·2b 관리 화면/`ADMIN_DISABLED`/`SESSION_SECRET_KEY`·4 `TRUSTED_PROXY_HOPS`·7 KST→UTC 백업·`_LOCAL_OFFSET`), `.env.example`·config Field 주석·`ClientIPResolver`·리비전 docstring(맨 위 경고)·스크립트·조립 지점 docstring 은 같은 내용을 그 자리의 맥락으로 적는다. 관리 인증의 설계·흐름·위협 모델은 새 HTML 가이드 `docs/guides/workflows/admin-authentication.html` 이 소유하고 README 문서 표·ARCHITECTURE §10.3 이 링크한다. | 한 주제는 한 문서가 소유한다(README 문서 유지 규칙). | Active | — |
 | ADR-011 | 2026-10-12 | ModelView 필터는 sqladmin 0.32 의 `sqladmin.filters` 클래스로 준다 — bool 은 `BooleanFilter`, 문자열·숫자는 `OperationColumnFilter`. `created_at`(`UTCDateTime`) 필터는 뺀다 — `OperationColumnFilter` 는 `TypeDecorator` 를 날짜 타입으로 보지 않아 문자열을 그대로 바인딩하고, `UTCDateTime` 이 naive·문자열을 거부해 500 이 난다. 목록은 `created_at` 정렬로 본다. 생성기 템플릿(`scripts/new_app.py`)은 필터를 만들지 않으므로 예시 주석만 더했다. | 감독자 결정(REQ-003). 날짜 필터를 살리려면 `UTCDateTime` 용 필터 클래스를 새로 써야 해 범위를 넘는다(R-310). | Active | — |
 
 ## 4. 불가침 제약 (INVARIANT REQUIREMENTS)

@@ -34,7 +34,7 @@ Repository 패턴과 계층 분리를 적용한 FastAPI 프로젝트 골격입�
   ([권한 표](#권한-표)). 첫 슈퍼유저는 `scripts/create_superuser.py` 로 만든다.
 - **관리 화면** — SQLAdmin `/admin` 은 활성 슈퍼유저 로그인(Bootstrap 로그인 화면, Redis 서버 세션,
   모든 상태 변경 요청 CSRF 토큰) 뒤에 있고, `ADMIN_DISABLED=true` 면 경로·링크·로그까지 통째로 사라진다
-  ([admin 인증 안내서](docs/guides/admin-auth-guide.html)).
+  ([admin 인증 안내서](docs/guides/workflows/admin-authentication.html)).
 - **운영 안전장치** — staging/production 에서 위험한 설정이면 기동 거부, 오류 응답에 내부 정보 비노출,
   접속 로그 비동기 수집, 로그 비밀값 마스킹(메시지·예외 traceback·stack — uvicorn·Celery 핸들러 포함).
 - **검증 게이트** — 로컬과 CI 가 같은 `scripts/review_gate.py` 로 정적 검사·테스트·공급망·문서를 판정.
@@ -440,7 +440,7 @@ Celery 워커도 이제 프로젝트 형식으로 찍고(예전에는 각자의 
 | 1 | `ENV` 를 실제 환경 값으로 넘겼는가 | 기본값 `development` 에서는 위 표의 staging·production 검사가 돌지 않는다. `.env` 없이 환경 변수로 주입하는 배포는 `ENV` 가 없으면 기동 거부 |
 | 2 | 트래픽 전환 전에 `alembic upgrade head` 를 적용했는가 | 서버 기동은 migration 을 하지 않는다 |
 | 2a | 첫 관리자를 만들었는가 — `scripts/create_superuser.py`(대화형 또는 `--password-stdin`, [첫 관리자 만들기](#첫-관리자-만들기)) | 관리 API(사용자·상품 쓰기·리포트·접속 로그)는 슈퍼유저 전용이고 API 로는 첫 슈퍼유저를 만들 수 없다. 이 계정이 `/admin` 로그인 계정이기도 하다 |
-| 2b | 관리 화면을 쓰는가 — 쓰지 않으면 `ADMIN_DISABLED=true`. 쓰면 `/admin` 이 **슈퍼유저 로그인**을 요구하고, 관리 세션이 **Redis** 에 있으며(`ADMIN_SESSION_*` 만료) Redis 키가 `SESSION_SECRET_KEY` HMAC 임을 확인했는가 | 끄면 `/admin` 경로·링크·로그가 모두 사라진다. 켜면 staging/production 에서 Secure 쿠키라 HTTPS 가 필요하다. Redis 가 죽으면 관리 화면은 503(fail-closed), Redis 를 비우거나 키를 바꾸면 관리 세션이 모두 끊긴다. 상태 변경은 JavaScript 가 CSRF 토큰을 붙이므로 관리 화면에서 스크립트를 막지 않는다([admin 인증 안내서](docs/guides/admin-auth-guide.html)) |
+| 2b | 관리 화면을 쓰는가 — 쓰지 않으면 `ADMIN_DISABLED=true`. 쓰면 `/admin` 이 **슈퍼유저 로그인**을 요구하고, 관리 세션이 **Redis** 에 있으며(`ADMIN_SESSION_*` 만료) Redis 키가 `SESSION_SECRET_KEY` HMAC 임을 확인했는가 | 끄면 `/admin` 경로·링크·로그가 모두 사라진다. 켜면 staging/production 에서 Secure 쿠키라 HTTPS 가 필요하다. Redis 가 죽으면 관리 화면은 503(fail-closed), Redis 를 비우거나 키를 바꾸면 관리 세션이 모두 끊긴다. 상태 변경은 JavaScript 가 CSRF 토큰을 붙이므로 관리 화면에서 스크립트를 막지 않는다([admin 인증 안내서](docs/guides/workflows/admin-authentication.html)) |
 | 3 | 외부 노출이 필요 없으면 `SERVER_HOST=127.0.0.1` 인가 | 기본 바인딩은 `0.0.0.0` 이다. 관리 화면을 켰다면 프록시·방화벽으로 `/admin` 접근 범위를 좁히는 것도 권장한다 |
 | 4 | 프록시 뒤라면 `TRUSTED_PROXY_HOPS` 를 앞단 프록시 단 수로 설정했는가 | `0` 이면 모든 클라이언트가 프록시 IP 하나로 보여 접속 로그와 로그인 rate limit(API·`/admin`)이 전체 사용자를 한 사람으로 취급한다. 실제보다 크게 잡으면 IP 위조가 가능하다 |
 | 4a | Redis 가 **7.0 이상**인가 | rate limit 이 `EXPIRE … NX`(7.0)를 쓴다. 낮으면 기동이 멈춘다. 관리형 Redis 가 `INFO` 를 막으면 확인을 건너뛰고 WARNING 만 남기므로(`Redis 버전 확인 불가`) 그때는 운영자가 버전을 직접 확인한다 |
@@ -472,7 +472,7 @@ CSRF 토큰은 세션에 하나이고, 로그인 폼과 로그인 이후의 모�
 거를 수 있습니다(같은 날 / 이후(포함) / 이전(미포함) / **기간**(시작일~종료일, 양 끝 포함, 한쪽만 넣으면
 열린 구간) + 빠른 선택 오늘·최근 7일·30일).
 관리 화면을 쓰지 않으면 `ADMIN_DISABLED=true` 로 경로 자체를 없앱니다. 설계·흐름·위협 모델은
-[admin 인증 안내서](docs/guides/admin-auth-guide.html), 보안 경계 전체는 [ARCHITECTURE §10](docs/guides/ARCHITECTURE.md)
+[admin 인증 안내서](docs/guides/workflows/admin-authentication.html), 보안 경계 전체는 [ARCHITECTURE §10](docs/guides/ARCHITECTURE.md)
 에 있습니다.
 
 ---
@@ -664,9 +664,9 @@ Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워
 | 이 README | 개요 · 빠른 시작 · API 목록 · 운영 전 확인 · 문서 안내 | 처음 받았을 때 |
 | [docs/guides/ARCHITECTURE.md](docs/guides/ARCHITECTURE.md) | 구조 · 런타임 동작 레퍼런스 — 앱 자동 등록, 설정·로깅, 기동·종료, 요청 처리, DB 세션·라우팅, 보안 경계 | 실행 중에 무엇이 어떻게 조립되는지 찾을 때 |
 | [docs/guides/DEVELOPMENT.md](docs/guides/DEVELOPMENT.md) | 기능 개발 가이드 — ORM/Raw 선택, 파일 순서, 세션·트랜잭션, migration, 테스트, 체크리스트 | 새 기능을 만들 때 |
-| [docs/guides/server-lifecycle-guide.html](docs/guides/server-lifecycle-guide.html) | 서버 수명주기 안내서 — 설정 → 기동 → 요청 → 종료를 도식으로 추적 (브라우저로 연다) | 기동·종료 흐름을 한 번에 따라가 볼 때 |
-| [docs/guides/feature-development-guide.html](docs/guides/feature-development-guide.html) | 신규 뷰·테이블 개발 안내서 — catalog·reports 요청을 따라가는 도식 설명 (브라우저로 연다) | 개발 가이드를 예제 흐름으로 익힐 때 |
-| [docs/guides/admin-auth-guide.html](docs/guides/admin-auth-guide.html) | admin 인증 안내서 — `/admin` 로그인·세션 범위(관리 전용)·`ADMIN_DISABLED`·위협 모델·운영 (브라우저로 연다) | 관리 화면 인증을 이해하거나 바꿀 때 |
+| [docs/guides/workflows/server-lifecycle.html](docs/guides/workflows/server-lifecycle.html) | 서버 수명주기 안내서 — 설정 → 기동 → 요청 → 종료를 도식으로 추적 (브라우저로 연다) | 기동·종료 흐름을 한 번에 따라가 볼 때 |
+| [docs/guides/workflows/feature-development.html](docs/guides/workflows/feature-development.html) | 신규 뷰·테이블 개발 안내서 — catalog·reports 요청을 따라가는 도식 설명 (브라우저로 연다) | 개발 가이드를 예제 흐름으로 익힐 때 |
+| [docs/guides/workflows/admin-authentication.html](docs/guides/workflows/admin-authentication.html) | admin 인증 안내서 — `/admin` 로그인·세션 범위(관리 전용)·`ADMIN_DISABLED`·위협 모델·운영 (브라우저로 연다) | 관리 화면 인증을 이해하거나 바꿀 때 |
 | [docs/specs/orm-raw-repository/requirements.md](docs/specs/orm-raw-repository/requirements.md) | 고정 기준선 — ORM/Raw 착수 요구명세 | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/orm-raw-repository/development-plan.md](docs/specs/orm-raw-repository/development-plan.md) | 고정 기준선 — ORM/Raw 개발 계획 | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/orm-raw-repository/workflow-guide.md](docs/specs/orm-raw-repository/workflow-guide.md) | 고정 기준선 — ORM/Raw 지침 원본 (코드 주석의 `workflow-guide §N` 출처) | 규칙의 원래 의도를 볼 때 |

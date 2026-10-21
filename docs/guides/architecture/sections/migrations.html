@@ -1,0 +1,36 @@
+<!-- generated-by: gsd-doc-writer -->
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>12. Alembic</title><link rel="stylesheet" href="../../assets/site.css"></head><body>
+<nav class="topbar"><strong><a href="../../index.html">프로젝트 가이드</a></strong><a href="../../index.html">전체 메뉴</a><a href="../../architecture/index.html">아키텍처</a><a href="../../development/index.html">개발</a><a href="../../reference/api.html">API</a><a href="../../workflows/sequence-diagrams.html">시퀀스</a></nav>
+<header class="hero"><div class="eyebrow">코드 기준 HTML 매뉴얼 · 2026-10-21</div><h1>12. Alembic</h1><p>아키텍처의 세부 주제입니다. 목적·책임·운영 및 확장 시 지켜야 할 계약을 설명합니다.</p></header>
+<div class="layout"><main class="content"><section><h2 id="12-alembic">12. Alembic</h2>
+<p><code>migrations/env.py</code> 는 런타임과 <strong>같은 발견 규칙</strong>으로 모델을 모읍니다. 새 앱을 추가해도 이 파일은
+고치지 않습니다. FastAPI lifespan 에 들어가지 않으므로 Redis ping 도 하지 않습니다.</p>
+<pre><code class="language-python">_registry = AppRegistry()
+_registry.discover()
+_registry.import_models()
+target_metadata = Base.metadata
+config.set_main_option(
+    &quot;sqlalchemy.url&quot;,
+    db_settings.ALEMBIC_URL.render_as_string(hide_password=False).replace(&quot;%&quot;, &quot;%%&quot;),
+)
+</code></pre>
+<ul>
+<li>URL 우선순위(<code>DatabaseSettings.ALEMBIC_URL</code>, <code>URL</code> 객체): <code>ALEMBIC_DATABASE_URL</code> 설정값(<code>make_url</code>) →
+  primary URL 의 드라이버만 <code>mysql+pymysql</code> 로 바꾼 값. <code>env.py</code> 는 환경변수를 직접 읽지 않습니다.</li>
+<li>DSN 은 문자열로 이어 붙이지 않고 <code>URL.create(...)</code> 로 만듭니다 — 비밀번호의 <code>@ / : #</code> 는 렌더링 때
+  인코딩되고, <code>%</code> 는 ConfigParser 보간을 피하려고 <code>%%</code> 로 넘깁니다. 회귀 가드: <code>tests/core/test_dsn_urls.py</code>.</li>
+<li>revision 체인: <code>f4adf0ae24ea</code>(baseline) → <code>b2f1a9c0d3e4</code>(user 비밀번호) →
+  <code>c3d5e7a91b02</code>(catalog_products) → <code>d4e6f8b12c34</code>(sales_orders) → <code>e5a7c9d1f3b5</code>(시각 컬럼 UTC·<code>DATETIME(6)</code>) →
+  <code>a7c3e9f1b2d4</code>(슈퍼유저·작성자 id 컬럼, head).</li>
+<li><code>e5a7c9d1f3b5</code> 는 MySQL 에서만 동작합니다(SQLite no-op). 기존 값을 <code>CONVERT_TZ(col, '+09:00', '+00:00')</code> 로
+  옮기므로 <strong>기존 데이터가 <code>+09:00</code>(Asia/Seoul 벽시계)으로 저장됐다는 가정</strong>입니다 — 적용 전에 백업하고,
+  다른 시간대로 운영하던 DB 는 적용 전에 리비전의 <code>_LOCAL_OFFSET</code> 상수를 그 오프셋으로 바꿔야 합니다(README
+  운영 배포 확인 7). downgrade 는 역변환 후 <code>DATETIME</code> 으로 좁힙니다(소수 초 반올림).</li>
+<li>autogenerate 는 <code>UTCDateTime</code> 을 <code>sa.DateTime().with_variant(mysql.DATETIME(fsp=6), "mysql")</code> 로 적습니다
+  (<code>env.py</code> 의 <code>render_item=render_alembic_type</code>) — 리비전이 앱 클래스를 import 하지 않습니다.</li>
+<li>서버 기동은 upgrade 를 하지 않습니다. 운영은 트래픽 전환 전에 <code>alembic upgrade head</code> 를 적용합니다.</li>
+<li>회귀 가드: <code>tests/core/test_migration_chain.py</code>(빈 DB <code>upgrade head</code> 결과 = ORM metadata),
+  <code>tests/core/test_alembic_metadata.py</code>, 게이트 <code>structure</code> 그룹(<code>alembic heads</code> 단일 head).</li>
+</ul>
+<p>작성 절차는 <a href="../../development/index.html">기능 개발 가이드 §10</a>, 자동 생성과의 전환은 README 를 봅니다.</p>
+<hr><nav class="pager"><a href="request-processing-2.html">← 이전</a><a href="../index.html">전체 아키텍처</a><a href="quality-gates.html">다음 →</a></nav></section></main></div><footer>코드와 문서가 다르면 코드가 기준입니다. 변경 시 관련 소스·테스트·이 문서를 함께 갱신하세요.</footer><script type="module" src="../../assets/site.js"></script></body></html>

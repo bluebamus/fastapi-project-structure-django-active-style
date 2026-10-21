@@ -1,0 +1,129 @@
+<!-- generated-by: gsd-doc-writer -->
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>4. 설정 (`config.py`)</title><link rel="stylesheet" href="../../assets/site.css"></head><body>
+<nav class="topbar"><strong><a href="../../index.html">프로젝트 가이드</a></strong><a href="../../index.html">전체 메뉴</a><a href="../../architecture/index.html">아키텍처</a><a href="../../development/index.html">개발</a><a href="../../reference/api.html">API</a><a href="../../workflows/sequence-diagrams.html">시퀀스</a></nav>
+<header class="hero"><div class="eyebrow">코드 기준 HTML 매뉴얼 · 2026-10-21</div><h1>4. 설정 (`config.py`)</h1><p>아키텍처의 세부 주제입니다. 목적·책임·운영 및 확장 시 지켜야 할 계약을 설명합니다.</p></header>
+<div class="layout"><main class="content"><section><h2 id="4-configpy">4. 설정 (<code>config.py</code>)</h2>
+<h3 id="41">4.1 값이 정해지는 방식</h3>
+<ul>
+<li>각 <code>BaseSettings</code> 클래스가 <code>env_file=".env"</code>, <code>extra="ignore"</code> 로 자기 필드를 직접 읽습니다.
+  우선순위는 <strong>프로세스 환경변수 → 현재 작업 디렉터리의 <code>.env</code> → 필드 기본값</strong> 입니다.</li>
+<li><code>.env</code> 는 작업 디렉터리 기준이라 저장소 루트에서 실행합니다. <code>.env.example</code> 은 복사용일 뿐
+  자동으로 읽히지 않습니다. <code>.env</code> 가 없어도 기본값으로 뜨지만, 기본 주소의 Redis·MySQL 이
+  준비됐다는 뜻은 아닙니다.</li>
+<li>리스트는 JSON 배열로 씁니다: <code>CORS_ALLOW_ORIGINS=["http://localhost:3000"]</code>.</li>
+<li><code>get_*_settings()</code> 는 <code>@lru_cache</code> 이고, 파일 끝의 <code>app_settings = get_app_settings()</code> 등이
+  import 시 전역 인스턴스를 만듭니다. 실행 중 <code>.env</code> 를 바꿔도 반영되지 않습니다. 테스트에서
+  캐시만 비워도 이미 가져간 전역 참조는 바뀌지 않으므로 새 프로세스나 monkeypatch 로 확인합니다.</li>
+<li>타입 오류·validator 위반은 config import 를 실패시켜 lifespan 전에 기동을 막습니다.</li>
+</ul>
+<h3 id="42">4.2 클래스별 소비 지점</h3>
+<table>
+<thead>
+<tr>
+<th>전역 인스턴스</th>
+<th>쓰는 곳</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>timezone_settings</code></td>
+<td>로그 시각(지역), 모델 시각 기본값(<code>utc_now()</code>, UTC), 리포트 영업일 경계(<code>local_dates_to_utc</code>·<code>utc_offset</code>), Celery beat timezone</td>
+</tr>
+<tr>
+<td><code>app_settings</code></td>
+<td>앱 메타데이터, <code>DEBUG</code>/<code>ENV</code>/<code>ADMIN_DISABLED</code>, 직접 실행 host/port</td>
+</tr>
+<tr>
+<td><code>db_settings</code></td>
+<td>엔진 URL·라우팅·풀, Alembic URL(<code>ALEMBIC_URL</code>), <code>describe_routing()</code>(DSN 마스킹)</td>
+</tr>
+<tr>
+<td><code>cors_settings</code></td>
+<td><code>CustomCORSMiddleware.configure_cors()</code></td>
+</tr>
+<tr>
+<td><code>log_settings</code></td>
+<td><code>build_dictconfig()</code>(형식·레벨·헤더별 레벨·파일·회전·보관), <code>console_enabled()</code>(콘솔 on/off) — 모든 실행 경로 공통</td>
+</tr>
+<tr>
+<td><code>middleware_settings</code></td>
+<td><code>UserInfoMiddleware</code> (활성·제외 규칙·민감 query 키), <code>ClientIPResolver</code>(<code>TRUSTED_PROXY_HOPS</code>)</td>
+</tr>
+<tr>
+<td><code>redis_settings</code></td>
+<td>startup Redis ping client, Celery broker/backend</td>
+</tr>
+<tr>
+<td><code>jwt_settings</code></td>
+<td><code>TokenService</code>(서명·검증·수명·iss/aud·leeway), 로그인·가입 rate limit(<code>AUTH_*</code>)</td>
+</tr>
+<tr>
+<td><code>session_settings</code></td>
+<td><code>SESSION_SECRET_KEY</code> 는 <code>/admin</code> 관리 세션의 Redis 키 HMAC 키이고(<code>get_admin_session_store</code>) 배포 게이트가 검사한다. <code>ADMIN_SESSION_MAX_AGE_SECONDS</code>·<code>ADMIN_SESSION_IDLE_SECONDS</code> 가 관리 세션의 절대·미사용 만료다(기본값은 README <a href="../../../../README.md#세션토큰-만료">세션·토큰 만료</a>). <code>UserInfoMiddleware</code> 는 <code>SESSION_COOKIE_NAME</code> 쿠키를 session_id 로 <strong>기록만</strong> 한다. API 인증에 쓰는 쿠키 세션은 없다(§10.3)</td>
+</tr>
+</tbody>
+</table>
+<p>설정 클래스가 있다고 기능이 있는 것은 아닙니다. API 쿠키 세션·Redis 캐시는
+구현돼 있지 않습니다. URL 버전은 설정이 아니라 각 앱 router 의 <code>/v1/...</code> 선언이 정합니다
+(<code>API_VERSION</code> 설정은 config-cleanup 2차에서 지웠고, <code>.env</code> 에 남은 줄은 무시됩니다).</p>
+<h3 id="43">4.3 검증</h3>
+<table>
+<thead>
+<tr>
+<th>검증</th>
+<th>거부하는 것</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DatabaseSettings._validate_routing()</code></td>
+<td>복제 활성인데 라우터가 꺼짐 / replica 목록이 빔 / 잘못된 replica host 표기</td>
+</tr>
+<tr>
+<td><code>CORSSettings._reject_wildcard_with_credentials()</code></td>
+<td>와일드카드 Origin + credentials</td>
+</tr>
+<tr>
+<td><code>validate_env_source()</code></td>
+<td><code>.env</code> 가 없으면 필수 값이 환경 변수로 와야 함(아래)</td>
+</tr>
+<tr>
+<td><code>validate_deployment_safety()</code></td>
+<td>아래 배포 게이트</td>
+</tr>
+</tbody>
+</table>
+<p><strong>설정 검사.</strong> <code>config.py</code> import 마지막에 두 검사가 차례로 실행되고, 위반은 <code>RuntimeError</code> 로 기동을
+막습니다(메시지에는 설정 이름만, 값은 담지 않습니다). <code>ENV=test</code> 는 둘 다 건너뜁니다(pytest 가 지정).</p>
+<ol>
+<li><code>validate_env_source()</code> — <strong>출처.</strong> <code>.env</code> 가 없으면 <code>REQUIRED_WITHOUT_ENV_FILE</code>(<code>ENV</code>·비밀 키 3종·
+   <code>MYSQL_HOST/USER/PASSWORD/DATABASE</code>)이 환경 변수로 모두 있어야 합니다. 컨테이너 주입은 통과합니다.</li>
+<li><code>validate_renamed_settings()</code> — <strong>이름이 바뀐 설정.</strong> 예전 <code>ADMIN</code>(true=켬)은 <code>ADMIN_DISABLED</code>
+   (true=끔)로 바뀌었습니다. <code>.env</code>·환경 변수에 <code>ADMIN</code> 이 남아 있으면 Settings 가 조용히 버리고(extra
+   "ignore") 관리 화면이 <strong>켜지므로</strong> 기동을 멈춥니다(test 제외).</li>
+<li><code>validate_deployment_safety()</code> — <strong>내용.</strong> 위반을 <strong>한 번에 모아</strong> 알립니다.</li>
+</ol>
+<p>test 외 <strong>모든 ENV</strong>(개발 환경 포함 — 기본값·예시 값 그대로는 <code>.env</code> 를 채우라는 신호):</p>
+<ul>
+<li>placeholder 인 <code>ACCESS_TOKEN_SECRET_KEY</code>·<code>REFRESH_TOKEN_SECRET_KEY</code>·<code>SESSION_SECRET_KEY</code> —
+  <code>is_placeholder_secret()</code> 가 판정한다: 앞뒤 공백 제거·소문자화 후 <code>change-this</code> 를 포함하거나 <code>your-</code> 로 시작하거나 빈 값.
+  옛 예시 파일의 <code>your-...-change-this</code> 형식도 여기에 걸린다. 32자 미만도 위반</li>
+<li>access/refresh 서명 키가 같음</li>
+<li>placeholder 인 <code>MYSQL_PASSWORD</code> — 같은 <code>is_placeholder_secret()</code> 판정이고, <strong>빈 값도 위반</strong>이다
+  (무인증 DB 계정). <code>REDIS_PASSWORD</code> 는 빈 값이 정당한 구성(인증 없는 사설망 Redis)이라
+  <strong>값이 있을 때만</strong> 본다</li>
+</ul>
+<p>staging/production 만:</p>
+<ul>
+<li><code>DEBUG=true</code></li>
+<li><code>CORS_ALLOW_ORIGINS</code> 에 <code>*</code></li>
+<li><code>LOG_SQL_ECHO_ENABLED=true</code></li>
+<li><code>LOG_LEVEL=DEBUG</code> — 롤백 상세(SQL 본문)는 DEBUG 레코드로만 나갑니다(§8.2). 바인드 값은 모든 엔진의
+  <code>hide_parameters=True</code> 가 예외 문자열·SQLAlchemy 로그에서 이미 뺍니다(§8.1).
+  <code>DEBUG</code> 와 달리 <code>LOG_LEVEL</code> 은 단독으로도 유효 레벨을 DEBUG 로 올립니다</li>
+</ul>
+<p>관리 화면을 켠 배포(<code>ADMIN_DISABLED=false</code>)는 위반이 아닙니다 — <code>/admin</code> 은 슈퍼유저 로그인이 필요합니다
+(§10.3). <code>development</code>/<code>test</code> 는 편의 기본값(<code>DEBUG=true</code>, 관리 화면 켬)을 그대로 둡니다. 회귀 가드:
+<code>tests/core/test_deployment_safety.py</code>, 설정과 <code>.env.example</code> 의 동기화는
+<code>tests/core/test_settings_contract.py</code>.</p>
+<hr><nav class="pager"><a href="boot-lifecycle.html">← 이전</a><a href="../index.html">전체 아키텍처</a><a href="logging.html">다음 →</a></nav></section></main></div><footer>코드와 문서가 다르면 코드가 기준입니다. 변경 시 관련 소스·테스트·이 문서를 함께 갱신하세요.</footer><script type="module" src="../../assets/site.js"></script></body></html>

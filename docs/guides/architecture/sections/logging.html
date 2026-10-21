@@ -1,0 +1,89 @@
+<!-- generated-by: gsd-doc-writer -->
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>5. 로깅</title><link rel="stylesheet" href="../../assets/site.css"></head><body>
+<nav class="topbar"><strong><a href="../../index.html">프로젝트 가이드</a></strong><a href="../../index.html">전체 메뉴</a><a href="../../architecture/index.html">아키텍처</a><a href="../../development/index.html">개발</a><a href="../../reference/api.html">API</a><a href="../../workflows/sequence-diagrams.html">시퀀스</a></nav>
+<header class="hero"><div class="eyebrow">코드 기준 HTML 매뉴얼 · 2026-10-21</div><h1>5. 로깅</h1><p>아키텍처의 세부 주제입니다. 목적·책임·운영 및 확장 시 지켜야 할 계약을 설명합니다.</p></header>
+<div class="layout"><main class="content"><section><h2 id="5">5. 로깅</h2>
+<p>키 표·파일 목록·Django <code>LOGGING</code> 대응표·다중 워커 주의·업그레이드 노트는 README <a href="../../../../README.md#로깅">로깅</a> 이 정본입니다.
+여기는 구조만 적습니다.</p>
+<ul>
+<li><strong>설정 한 곳.</strong> <code>app/utils/logs/config.py</code> 의 <code>build_dictconfig()</code> 가 Django <code>settings.LOGGING</code> 자리이고, 첫
+  <code>get_logger()</code> 가 <code>configure_logging()</code> 으로 한 번 적용합니다. 핸들러는 <strong>root 에만</strong> 붙고 <code>loggers</code> 키는 없습니다.</li>
+<li><strong>모든 실행 경로가 root 의 핸들러 한 벌을 씁니다.</strong> 앱 로거는 root 로 전파합니다. <code>python main.py</code> 는 uvicorn 에
+  <code>log_config=None</code> 을 넘겨 uvicorn 로거도 root 로 갑니다. <code>uvicorn main:app</code>·<code>fastapi dev</code> 는 앱 import 전에 붙인
+  자기 핸들러를 <code>configure_logging()</code> 이 걷어 내고(<code>setup.adopt_external_handlers()</code>) root 로 보냅니다. Celery 워커는
+  <code>after_setup_logger</code> 수신자(<code>app/celery/worker_lifecycle.py</code>)가 프로세스를 <code>celery</code> 로 정하고 root 를 다시 구성합니다
+  (<code>setup.configure_worker_logging()</code> — <code>--logfile</code> 은 같은 파일 형식의 핸들러로 유지). 태스크 로거(<code>celery.task</code>)는
+  <code>after_setup_task_logger</code> 에서 자기 핸들러를 걷고 root 로 전파합니다. 그래서 형식·헤더·마스킹·헤더별 레벨이 경로마다 같습니다.</li>
+<li><strong>형식.</strong> 포매터는 <code>TzFormatter</code> 하나(<code>LOG_CONSOLE_FORMAT</code>·<code>LOG_FILE_FORMAT</code>·<code>LOG_DATE_FORMAT</code>, development 는 <code>.밀리초</code>,
+  staging/production 은 UTC)입니다. 설정 로드 때 샘플 레코드를 렌더해 형식 오류를 막고, 필수 자리표시자
+  (<code>{asctime}</code>·<code>{levelname}</code>·<code>{appname}</code>·<code>{module}</code>·<code>{classname}</code>·<code>{funcName}</code>·<code>{message}</code>)가 빠지면 빠진 목록과 함께 기동 오류입니다.
+  uvicorn 접속 줄은 <code>{message}</code> 가 요청 줄입니다(전용 포매터 없음 — 예전 <code>TzAccessFormatter</code> 는 args 를 풀다 줄을 잃는 위험만 있었다).</li>
+<li><strong>헤더(<code>app=</code>).</strong> 판별은 <code>filters._app_from_path(pathname, name)</code> 한 함수입니다. 우리 코드는 소스 경로(기능명·<code>core</code>·<code>celery</code>·
+  <code>utils</code>·<code>migrations</code>·<code>app</code>), 설치된 라이브러리는 로거 이름 표(<code>celery</code>/<code>kombu</code>→<code>celery</code>, <code>uvicorn</code>, <code>sqlalchemy</code>, <code>alembic</code>, 그 밖 <code>ext</code>).
+  새 기능은 등록 없이 기능명 헤더가 붙습니다.</li>
+<li><strong>필터 순서</strong>(모든 핸들러): <code>ContextFilter</code>(헤더·클래스명) → <code>AppLevelFilter</code>(<code>LOG_APP_LEVELS</code>, 지정 없는 헤더는 <code>LOG_LEVEL</code>) →
+  <code>RedactingFilter</code> → <code>SQLNoiseFilter</code>. root 레벨은 <code>LOG_LEVEL</code> 과 헤더별 레벨 중 최솟값으로 내려 레코드가 필터까지 옵니다.
+  콘솔·파일 핸들러 레벨(<code>LOG_CONSOLE_LEVEL</code>·<code>LOG_FILE_LEVEL</code>)은 출력처 하한으로 그대로 적용됩니다.</li>
+<li><strong>파일.</strong> staging/production + <code>LOG_FILE_ENABLED=true</code> 에서만. 이름은 프로세스 종류가 정합니다(<code>LOG_FILES</code>: 웹 <code>app.log</code>·<code>error.log</code>,
+  Celery <code>celery.log</code>·<code>celery-error.log</code>). 종류는 import 때 진입점(argv — <code>celery</code> CLI·<code>python -m celery</code> 면 celery)으로 정하고
+  Celery 로깅 신호가 한 번 더 확정합니다 — 설정 로드 직후의 기동 초기 줄도 그 프로세스의 파일에 남습니다(integration-e2e F-006). 핸들러 <code>handlers.DailyRotatingFileHandler</code> 가 UTC 자정·하루 안 크기 초과 때 교체하고
+  교체 시점에 <code>LOG_RETENTION_DAYS</code> 보다 오래된 날짜·분할 파일을 지웁니다. 파일 핸들러는 bounded queue 뒤 listener 스레드가 씁니다
+  (이벤트 루프가 파일 I/O 로 멈추지 않게). prefork 자식은 listener 스레드를 물려받지 못하므로 <code>worker_process_init</code> 에서 다시 세웁니다
+  (<code>queue_logging.restart_queue_listener_after_fork()</code>, 같은 프로세스면 아무것도 하지 않음). 한 파일은 한 프로세스가 쓴다는 전제라
+  여러 워커는 파일 로그를 끄고 stdout 을 수집합니다 — uvicorn 이 spawn 한 워커에서 파일이 켜져 있으면 기동 시 WARNING 한 줄.</li>
+<li><strong>콘솔 on/off.</strong> <code>LOG_CONSOLE_ENABLED=false</code> 면 root 에 콘솔 핸들러가 없고(모든 경로가 root 를 쓰므로 전부 꺼짐), 파일도 없으면
+  <code>configure_logging()</code> 이 stderr 에 경고 한 줄을 남깁니다.</li>
+</ul>
+<p><strong>마스킹 범위.</strong> 메시지·인자·예외 traceback(체인 <code>raise … from</code> 포함)·<code>stack_info</code> 에서 DSN 의 사용자명·비밀번호, <code>password=</code>/<code>token=</code>
+형태 값, <code>Bearer &lt;토큰&gt;</code>, 그리고 설정된 비밀값 원문(<code>config.LOG_SECRET_SETTINGS</code> → <code>log_secret_values()</code> → <code>configure_logging()</code> 이
+<code>filters.set_secret_values()</code> 로 설치)을 가립니다. 4글자 미만 값은 DSN·<code>user=</code>·<code>username=</code> 에서만 가립니다(일반 단어 보호).
+필터가 <code>exc_info</code> 를 traceback 문자열로 미리 렌더해 <code>exc_text</code> 에 고정한 뒤 가리므로 포매터는 가린 본문을 찍고, 예외 타입·파일·줄은
+남습니다. 비밀값이 인자 하나 안에 있으면 그 인자만 가려 args 모양을 지키고, 틀과 인자에 걸쳐 있으면(<code>password=%s</code>) 전개한 문자열을
+가리고 args 를 비웁니다. 정규식 정본은 <code>filters.redact()</code> 하나입니다. 접속 로그 테이블의 <code>session_id</code> 쿠키·Referer·X-Forwarded-For
+원문 저장은 로그 마스킹 대상이 아니며 그대로 유지합니다(사용자 결정 — §7.1).</p>
+<p><strong>레벨.</strong> 명시값이 <code>DEBUG</code> 기반 기본값보다 우선합니다. 레벨은 "최소 심각도" 입니다.</p>
+<table>
+<thead>
+<tr>
+<th>DEBUG</th>
+<th>LOG_LEVEL / LOG_CONSOLE_LEVEL</th>
+<th>콘솔에 나오는 것</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>false</td>
+<td>미설정 / 미설정</td>
+<td>INFO 이상</td>
+</tr>
+<tr>
+<td>true</td>
+<td>미설정 / 미설정</td>
+<td>DEBUG 이상</td>
+</tr>
+<tr>
+<td>false</td>
+<td>DEBUG / DEBUG</td>
+<td>DEBUG 이상 (앱은 여전히 DEBUG=false 동작)</td>
+</tr>
+<tr>
+<td>무관</td>
+<td>INFO / DEBUG</td>
+<td>INFO 이상 — 헤더별 레벨(<code>LOG_APP_LEVELS</code>)로 낮춘 헤더만 DEBUG</td>
+</tr>
+<tr>
+<td>무관</td>
+<td>DEBUG / INFO</td>
+<td>INFO 이상</td>
+</tr>
+</tbody>
+</table>
+<p>기동 로그의 <code>(DEBUG=%s)</code> 는 표시값일 뿐 출력 조건이 아닙니다. 기동 INFO 가 안 보이면 <code>LOG_LEVEL</code>·<code>LOG_CONSOLE_LEVEL</code>·
+<code>LOG_APP_LEVELS</code> 를 먼저 봅니다.</p>
+<pre><code class="language-python">from app.utils.logs import get_logger
+
+logger = get_logger(__name__)          # 헤더 app= 은 이름이 아니라 소스 경로가 정한다
+logger.info(&quot;상품 생성: %s&quot;, product.id)
+logger.exception(&quot;저장 실패&quot;)            # 스택 트레이스 포함
+</code></pre>
+<hr><nav class="pager"><a href="configuration.html">← 이전</a><a href="../index.html">전체 아키텍처</a><a href="lifespan.html">다음 →</a></nav></section></main></div><footer>코드와 문서가 다르면 코드가 기준입니다. 변경 시 관련 소스·테스트·이 문서를 함께 갱신하세요.</footer><script type="module" src="../../assets/site.js"></script></body></html>

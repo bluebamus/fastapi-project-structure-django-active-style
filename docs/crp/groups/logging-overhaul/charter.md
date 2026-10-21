@@ -11,7 +11,7 @@
 | 진입점 | `main.py`, `app/celery/worker_lifecycle.py` | 소스 | `log_config=None`, Celery 수신자가 프로세스 종류·root 재구성, prefork listener 재시작 |
 | 설정 | `config.py`, `.env.example` | 소스·설정 | `LOG_APP_LEVELS`·`LOG_RETENTION_DAYS` 추가, `LOG_BACKUP_COUNT`·`LOG_APP_FILENAME`·`LOG_ERROR_FILENAME` 삭제, 필수 필드 검사, `LOG_SECRET_SETTINGS`·`log_secret_values()` |
 | 테스트 | `tests/utils/test_logging_overhaul.py`(신규), `test_logs.py`·`test_log_redaction.py`·`test_log_settings_wiring.py`·`test_queue_logging.py`, `tests/core/test_settings_contract.py` | 테스트 | "CLI·Celery 기본 출력 불변" 테스트를 "모든 경로 같은 형식" 으로 교체 |
-| 문서 | `README.md`(로깅 절 신설), `docs/guides/ARCHITECTURE.md`(§3·§4.2·§5·§14), `docs/guides/DEVELOPMENT.md`(§8.1), `docs/guides/server-lifecycle-guide.html` | 문서 | |
+| 문서 | `README.md`(로깅 절 신설), `docs/guides/ARCHITECTURE.md`(§3·§4.2·§5·§14), `docs/guides/DEVELOPMENT.md`(§8.1), `docs/guides/workflows/server-lifecycle.html` | 문서 | |
 
 - 기준선: base `ede6e1c`(main) · alembic 변경 없음 · 새 의존성 없음.
 

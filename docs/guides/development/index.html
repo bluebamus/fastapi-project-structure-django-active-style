@@ -1,0 +1,998 @@
+<!-- generated-by: gsd-doc-writer -->
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>개발·확장 전체 레퍼런스</title><link rel="stylesheet" href="../assets/site.css"></head><body>
+<nav class="topbar"><strong><a href="../index.html">프로젝트 가이드</a></strong><a href="../index.html">전체 메뉴</a><a href="../architecture/index.html">아키텍처</a><a href="../development/index.html">개발</a><a href="../reference/api.html">API</a><a href="../workflows/sequence-diagrams.html">시퀀스</a></nav>
+<header class="hero"><div class="eyebrow">코드 기준 HTML 매뉴얼 · 2026-10-21</div><h1>개발·확장 전체 레퍼런스</h1><p>설계 의도, 런타임 계약, 적용 방법과 확장 규칙을 코드 경로와 함께 설명합니다.</p></header>
+<div class="layout"><aside class="sidebar"><strong>이 문서</strong><ul><li><a href="sections/decisions.html">1. 먼저 정할 것</a></li><li><a href="sections/layer-rules.html">2. 공통 계층 규칙 (ORM·Raw 둘 다)</a></li><li><a href="sections/feature-workflow.html">3. 앱 만들기 — 생성기와 표준 레이아웃</a></li><li><a href="sections/persistence-choice.html">4. ORM 이냐 Raw 냐</a></li><li><a href="sections/orm-workflow.html">5. ORM 워크플로 — catalog 따라 읽기</a></li><li><a href="sections/raw-sql-workflow.html">6. Raw 워크플로 — reports 따라 읽기</a></li><li><a href="sections/database-sessions.html">7. 세션 선택과 주입</a></li><li><a href="sections/transactions.html">8. 트랜잭션 경계와 오류</a></li><li><a href="sections/request-processing.html">9. 요청 밖 작업 — background·Celery</a></li><li><a href="sections/migrations.html">10. 스키마 변경 — migration 절차</a></li><li><a href="sections/testing.html">11. 테스트</a></li><li><a href="sections/completion-checklist.html">12. 완료 체크리스트</a></li><li><a href="sections/further-reading.html">13. 더 깊이</a></li></ul></aside><main class="content"><section><div class="callout"><strong>저술 원본:</strong> <a href="../DEVELOPMENT.md">DEVELOPMENT.md</a>. 아래 HTML은 원문의 전체 내용이며, 각 2단계 제목은 독립 페이지로도 제공됩니다.</div></section><section><h1 id="orm-raw">기능 개발 가이드 — ORM / Raw 워크플로</h1>
+<p>새 API·테이블을 이 구조로 만드는 개발자를 위한 문서입니다. 무엇을 먼저 정하고, 어떤 파일을 어떤
+순서로 만들고, 세션·트랜잭션·테스트를 어떻게 다루는지 설명합니다. 이 저장소의 새 기능은
+<strong>ORM 과 Raw SQL 중 무엇으로 데이터에 접근할지</strong>를 정하는 데서 출발하므로 그 선택이 이 문서의
+중심입니다.</p>
+<ul>
+<li>실행 중의 조립·설정·세션 구조는 <a href="../architecture/index.html">ARCHITECTURE</a>, 설치와 API 목록은
+  <a href="../../../README.md">README</a>를 봅니다.</li>
+<li>두 방식은 <strong>각각 완결된 예제</strong>로 들어 있습니다. 설명보다 코드를 함께 여는 편이 빠릅니다.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>ORM 예제</th>
+<th>Raw 예제</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>기능</td>
+<td><code>app/features/catalog/</code> (상품 CRUD)</td>
+<td><code>app/features/reports/</code> (일별 매출 집계)</td>
+</tr>
+<tr>
+<td>공개 API</td>
+<td><code>GET·POST /api/v1/catalog/products</code>, <code>GET·PATCH·DELETE /api/v1/catalog/products/{product_id}</code></td>
+<td><code>GET /api/v1/reports/sales/daily?start_date=&amp;end_date=</code></td>
+</tr>
+<tr>
+<td>핵심 파일</td>
+<td><code>app/features/catalog/repositories/product_repository.py</code></td>
+<td><code>app/features/reports/repositories/sales_report_repository.py</code></td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="1">1. 먼저 정할 것</h2>
+<ol>
+<li><strong>새 앱이 필요한가.</strong> 기존 기능에 엔드포인트 하나를 더하면 되는 일이면 그 기능 안에서 합니다.</li>
+<li><strong>HTTP 계약</strong> — method·경로·입력·공개할 응답 필드·오류 응답.</li>
+<li><strong>데이터 소유</strong> — 새 테이블인가, 기존 테이블의 계산 결과인가(§4 의 선택 기준).</li>
+<li><strong>읽기/쓰기 의도</strong> — 조회만인가, 조회 후 쓰기인가, 잠금이 필요한가(§7).</li>
+<li><strong>권한</strong> — 공개·로그인·작성자 본인(또는 슈퍼유저)·슈퍼유저 전용 중 무엇인지 정합니다(§7.1,
+   <a href="../architecture/index.html">ARCHITECTURE §10.2</a>). 인증 성공과 수정 권한은 별개입니다. 정한 수준은 뷰마다
+   선언합니다 — 선언하지 않은 뷰가 하나라도 있으면 서버가 기동하지 않습니다.</li>
+<li><strong>동시성·멱등성</strong> — 재고 차감·상태 전환은 "조회 후 UPDATE" 만으로 안전하지 않습니다. 조건부
+   UPDATE·잠금·DB 제약 중 무엇을 쓸지 정합니다.</li>
+</ol>
+<hr>
+<h2 id="2-ormraw">2. 공통 계층 규칙 (ORM·Raw 둘 다)</h2>
+<p>두 방식은 <strong>데이터 접근 방법만</strong> 다르고 계층 규칙은 같습니다.</p>
+<pre><code class="language-text">View(Router)  →  Dependency  →  Service  →  Repository  →  AsyncSession → DB
+  HTTP 만        조립만        업무 규칙     데이터 접근
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>계층</th>
+<th>위치</th>
+<th>한다</th>
+<th>하지 않는다</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>View</strong> (MVC 의 Controller)</td>
+<td><code>api/routers/v1/*.py</code></td>
+<td>파라미터·본문 수신(Pydantic), Service 호출, 응답 DTO 변환, <strong>쓰기면 commit 1회</strong></td>
+<td>SQL, 업무 분기</td>
+</tr>
+<tr>
+<td><strong>Dependency</strong> (조립 지점)</td>
+<td><code>dependencies/&lt;name&gt;_dependencies.py</code></td>
+<td>세션 선택, <code>Service(session)</code> 를 <strong>반환</strong>(<code>yield</code> 아님)</td>
+<td>commit, Service 메서드 실행</td>
+</tr>
+<tr>
+<td><strong>Service</strong></td>
+<td><code>services/</code> (<code>BaseService</code> 상속)</td>
+<td>업무 규칙, 같은 세션으로 Repository 조립, Raw 결과의 DTO 변환</td>
+<td>HTTP 객체 인지, commit 시점 결정</td>
+</tr>
+<tr>
+<td><strong>Repository</strong></td>
+<td><code>repositories/</code> (<code>BaseRepository</code> 또는 <code>RawRepositoryBase</code>)</td>
+<td>데이터 접근, SQL 소유</td>
+<td>commit, HTTP 응답 생성</td>
+</tr>
+<tr>
+<td><strong>Model</strong></td>
+<td><code>models/models.py</code></td>
+<td>테이블·컬럼·PK·제약</td>
+<td>응답 계약 대신하기</td>
+</tr>
+<tr>
+<td><strong>Schema</strong></td>
+<td><code>schemas/</code></td>
+<td>입력 검증, 공개 응답 필드, OpenAPI 설명</td>
+<td>테이블 생성</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>commit 은 쓰기 View 가 응답 직전에 한 번만</strong> 합니다. 커밋 주체가 둘이면 실패했을 때 어디까지
+  남았는지 알 수 없고, 중간 commit 뒤의 실패는 앞 변경을 되돌리지 못합니다.</li>
+<li>Service 는 FastAPI 를 모르므로 요청 밖(background·Celery·테스트)에서도 <code>Service(session)</code> 로
+  그대로 씁니다. Service 를 전역 싱글턴으로 두지 않습니다(보관한 세션이 요청을 넘나듭니다).</li>
+<li>기능끼리 import 하지 않습니다(예외: <code>auth → user</code>). 공통 기반은 <code>app/core</code>, 순수 도구는
+  <code>app/utils</code> 에 있습니다.</li>
+<li>UnitOfWork·Factory 같은 추가 추상화는 요구가 생기기 전에는 만들지 않습니다. 트랜잭션 상태는
+  <code>AsyncSession</code> 이 갖고, 경계는 쓰기 핸들러 본문입니다.</li>
+<li>SQLAdmin <code>ModelView</code>, SQL 의 VIEW, 이 문서의 "View(API 핸들러)" 는 서로 다른 것입니다.</li>
+</ul>
+<hr>
+<h2 id="3">3. 앱 만들기 — 생성기와 표준 레이아웃</h2>
+<pre><code class="language-bash">uv run python -m scripts.new_app &lt;name&gt;                 # 뼈대
+uv run python -m scripts.new_app &lt;name&gt; --with-admin    # admin.py(빈 admin_views) 포함
+uv run python -m scripts.new_app &lt;name&gt; --force         # 이미 있는 앱을 의도적으로 다시 만들 때만
+</code></pre>
+<ul>
+<li>이름은 파이썬 식별자(snake_case)여야 하고 예약어·<code>app/features</code> 밖 경로는 거부됩니다. 대상 앱이
+  이미 있으면 기본적으로 중단합니다. <code>--category</code> 는 동작에 영향 없는 호환용 옵션입니다.</li>
+<li>생성물: <code>api/routers/v1/</code>·<code>models/</code>·<code>schemas/</code>·<code>services/</code>·<code>repositories/</code>·<code>dependencies/</code>·<code>tests/</code>
+  패키지, 빈 <code>&lt;name&gt;_router</code> 가 있는 <code>api/routers/router.py</code>, 예시 주석만 있는
+  <code>dependencies/&lt;name&gt;_dependencies.py</code>, (<code>--with-admin</code>) <code>admin_views: list[type] = []</code> 인 <code>admin.py</code>.</li>
+<li><strong>만들지 않는 것</strong>: <code>models/models.py</code>, <code>apps.py</code>, v1 엔드포인트 파일, 스키마·Repository·Service
+  본문, 테스트, migration. 아래를 직접 작성합니다.</li>
+<li>손으로 만들어도 되지만 라우터 변수명은 반드시 <code>&lt;name&gt;_router</code> 입니다. 그 밖의 등록 규약은
+  <a href="../architecture/index.html">ARCHITECTURE §2</a>가 정합니다. <code>main.py</code>·<code>migrations/env.py</code>·
+  <code>app/features/admin.py</code> 는 <strong>열지 않습니다</strong>.</li>
+</ul>
+<pre><code class="language-text">app/features/&lt;name&gt;/
+├── __init__.py                 # 패키지 선언만 (부수효과·재노출 금지)
+├── apps.py                     # ready() — 부팅 초기화 훅이 필요할 때만
+├── api/routers/
+│   ├── router.py               # &lt;name&gt;_router — v1 서브라우터를 include
+│   └── v1/&lt;name&gt;.py            # 엔드포인트
+├── models/
+│   ├── __init__.py             # 모델 재노출
+│   └── models.py               # ORM 모델
+├── schemas/                    # 요청·응답 DTO
+├── repositories/               # BaseRepository / RawRepositoryBase 상속
+├── services/                   # BaseService 상속
+├── dependencies/&lt;name&gt;_dependencies.py   # get_&lt;name&gt;_service / get_&lt;name&gt;_service_readonly
+├── exceptions.py               # 기능 예외 (선택)
+├── admin.py                    # ModelView + admin_views (모델이 있으면 사실상 필수)
+├── tasks.py                    # Celery 태스크 — 필요할 때만 (워커가 registry 로 발견)
+└── tests/                      # 이 기능의 테스트
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>용도</th>
+<th>쓰는 이름</th>
+<th>쓰지 말 것</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>기능 예외</td>
+<td><code>exceptions.py</code></td>
+<td><code>&lt;name&gt;_exception.py</code></td>
+</tr>
+<tr>
+<td>기능 의존성</td>
+<td><code>dependencies/</code> 패키지 (단일 <code>dependencies.py</code> 도 허용)</td>
+<td><code>dependency.py</code></td>
+</tr>
+<tr>
+<td>SQLAdmin 뷰</td>
+<td><code>admin.py</code></td>
+<td><code>api/&lt;name&gt;_admin.py</code></td>
+</tr>
+<tr>
+<td>Celery 태스크</td>
+<td>기능 폴더의 <code>tasks.py</code> (선택)</td>
+<td><code>app/celery/</code> 에 기능 태스크, 기능별 <code>worker/</code></td>
+</tr>
+<tr>
+<td>초기화</td>
+<td><code>apps.py</code> 의 <code>ready()</code></td>
+<td><code>__init__.py</code> 의 import 부수효과</td>
+</tr>
+</tbody>
+</table>
+<p><strong>최종 URL 은 prefix 의 합</strong>입니다. 디렉터리 이름으로 계산되지 않습니다.</p>
+<pre><code class="language-text">registry 의 &quot;/api&quot;  +  router.py 의 include prefix &quot;/v1/catalog&quot;  +  v1 엔드포인트 &quot;/products&quot;
+= /api/v1/catalog/products
+</code></pre>
+<pre><code class="language-python"># app/features/catalog/api/routers/router.py
+catalog_router = APIRouter()
+catalog_router.include_router(products_v1.router, prefix=&quot;/v1/catalog&quot;, tags=[&quot;Catalog&quot;])
+</code></pre>
+<p>URL 버전은 위 <code>prefix</code> 문자열이 정합니다(버전 설정은 없습니다). <code>tests/test_openapi_contract.py</code> 가 모든 operation 의
+summary·description·유일한 <code>operation_id</code>·tag, 파라미터·스키마 필드의 <code>description</code>, 그리고
+<code>app/core/tags_metadata.py</code> 와 실제 tag 의 양방향 일치를 강제합니다. 새 경로를 추가하면
+<code>tests/test_route_inventory.py</code> 의 목록과 README 의 API 표를 함께 갱신합니다.</p>
+<hr>
+<h2 id="4-orm-raw">4. ORM 이냐 Raw 냐</h2>
+<p><strong>기본값은 ORM 입니다.</strong> Raw SQL 은 ORM 을 우회하는 일반 수단이 아니라, 아래 상황에서 <strong>선택하는</strong>
+도구입니다. 일반 단일 테이블 CRUD 는 예외 없이 ORM 입니다.</p>
+<table>
+<thead>
+<tr>
+<th>Raw 를 고르는 상황</th>
+<th>이유</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>복잡한 집계·윈도 함수·CTE</td>
+<td>ORM 표현이 SQL 보다 길어지고 의도가 흐려진다</td>
+</tr>
+<tr>
+<td>SQL 계약이 더 명확한 리포트</td>
+<td>결과가 엔티티가 아니라 "행" 이다</td>
+</tr>
+<tr>
+<td>실행 계획으로 관리해야 하는 성능 민감 조회</td>
+<td>생성되는 SQL 을 통제해야 한다</td>
+</tr>
+<tr>
+<td>저장 프로시저·DB 전용 기능 연계</td>
+<td>ORM 이 표현하지 못한다</td>
+</tr>
+</tbody>
+</table>
+<p>판단이 애매하면 <strong>돌려주는 것이 엔티티인가 계산 결과인가</strong>를 봅니다. <code>Product</code> 한 건은 식별자와
+수명주기가 있는 엔티티라 ORM, <code>GROUP BY</code> 로 나온 일자별 합계는 계산 결과라 Raw 입니다. reports 가
+집계 전용 ORM 모델을 만들지 <strong>않은</strong> 이유입니다 — 원본 <code>SalesOrder</code> 모델은 테이블 소유권과 Admin
+조회를 위해 있고, 집계는 Raw SQL 이 합니다. Raw 는 "항상 빠르다" 도 "Schema·Service 가 필요 없다"
+도 아닙니다.</p>
+<hr>
+<h2 id="5-orm-catalog">5. ORM 워크플로 — catalog 따라 읽기</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>파일</th>
+<th>catalog 에서 볼 것</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>생성기 실행</td>
+<td><code>uv run python -m scripts.new_app &lt;name&gt; --with-admin</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>models/models.py</code></td>
+<td><code>UUIDPrimaryKeyMixin</code>+<code>CreatedAtMixin</code>+<code>UpdatedAtMixin</code>+<code>Base</code> 조합, 금액은 <code>Numeric(12, 2)</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>models/__init__.py</code></td>
+<td>모델 재노출</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>migrations/versions/*.py</code></td>
+<td><code>alembic revision --autogenerate</code> 후 검토, <strong>downgrade 도 구현</strong> (§10)</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>admin.py</code></td>
+<td><code>admin_views</code> 목록 — 중앙 등록 불필요</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>schemas/*.py</code></td>
+<td>입력/출력 모델 분리, 모든 필드에 <code>description</code>, <code>from_attributes=True</code></td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>repositories/*.py</code></td>
+<td><code>BaseRepository[Model, PK타입]</code> 상속, <code>model = Product</code></td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>services/*.py</code></td>
+<td>업무 규칙. 지금은 얇지만 규칙이 생기면 여기 쌓인다</td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>dependencies/*.py</code></td>
+<td>조회용·변경용 <strong>둘 다</strong></td>
+</tr>
+<tr>
+<td>10</td>
+<td><code>api/routers/v1/*.py</code></td>
+<td><code>operation_id</code> 명시, 쓰기는 DTO 검증 → commit 1회</td>
+</tr>
+<tr>
+<td>11</td>
+<td><code>api/routers/router.py</code></td>
+<td><code>&lt;name&gt;_router</code> — 이 이름이어야 자동 발견된다</td>
+</tr>
+</tbody>
+</table>
+<h3 id="51">5.1 모델과 스키마</h3>
+<ul>
+<li>Mixin 의 UUID·시각 기본값은 <strong>행 INSERT 시</strong> 호출되는 Python 함수입니다. <code>UpdatedAtMixin</code> 의
+  <code>onupdate</code> 는 ORM/Core UPDATE 에만 적용되고 Raw SQL 은 호출하지 않습니다.</li>
+<li>DB 제약(nullable·unique·index)과 Pydantic 검증(<code>min_length</code>, <code>gt=0</code> 등)은 목적이 다릅니다. 입력은
+  스키마로 막고, 동시성 상황의 최종 무결성은 DB 제약으로 지킵니다.</li>
+<li>응답 필드는 스키마로 정합니다. <code>Base.to_dict()</code> 를 그대로 공개하면 해시·내부 컬럼이 샙니다.
+  catalog <code>ProductResponse</code> 는 <code>id/name/price/is_active</code> 만 공개합니다.</li>
+<li>PATCH 의 "보내지 않음" 과 "<code>null</code> 을 보냄" 은 다릅니다. <code>exclude_unset=True</code> 는 앞의 것만 뺍니다.
+  Update 스키마는 <code>app.core.schemas.PatchSchema</code> 를 상속하고, DB 에서 NULL 을 허용하는 필드만
+  <code>nullable_fields</code> 에 적습니다 — 그 밖의 필드에 명시적 <code>null</code> 이 오면 422 입니다
+  (<code>tests/core/test_patch_schema.py</code> 가 모델 nullable 컬럼과의 일치를 검사).</li>
+<li>선언되지 않은 FK·relationship 을 추정해 만들지 않습니다. 기능 사이 참조는 값으로 둡니다.</li>
+</ul>
+<h3 id="52">5.2 생성 요청 한 건의 흐름</h3>
+<pre><code class="language-text">POST /api/v1/catalog/products
+ → get_catalog_service(session=Depends(get_writer_db_session)) → CatalogService(session)
+ → service.create_product(payload) → ProductRepository.create(payload.model_dump())
+ → CRUDBase._add: session.add → await flush → await refresh      (INSERT 전송, 아직 commit 아님)
+ → View: ProductResponse.model_validate(product) → await service.commit() → 201
+</code></pre>
+<pre><code class="language-python">@router.post(&quot;/products&quot;, response_model=ProductResponse, status_code=201,
+             summary=&quot;상품 생성&quot;, operation_id=&quot;createCatalogProduct&quot;)
+async def create_product(
+    payload: ProductCreate,
+    service: CatalogService = Depends(get_catalog_service),
+) -&gt; ProductResponse:
+    product = await service.create_product(payload)
+    response = ProductResponse.model_validate(product)   # 1. DTO 검증 먼저
+    await service.commit()                               # 2. 그다음 commit
+    return response
+</code></pre>
+<p><strong>응답 DTO 검증은 commit 앞에서</strong> 합니다. 세션은 <code>expire_on_commit=False</code> 라 commit 자체로 속성이
+만료되지는 않지만, DTO 검증이나 적재되지 않은 관계 접근이 commit 뒤에 실패하면 <strong>이미 저장된
+데이터에 대해 500</strong> 이 나갑니다. catalog·blog·reply·sns·user 의 생성·수정 핸들러가 모두 이 순서이고,
+<code>tests/test_dto_before_commit.py</code> 가 DTO 검증을 강제로 실패시켜 commit 0회·DB 불변을 확인합니다.</p>
+<h3 id="53-baserepository">5.3 <code>BaseRepository</code> 공개 계약</h3>
+<table>
+<thead>
+<tr>
+<th>메서드</th>
+<th>동작</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>create(data)</code></td>
+<td>flush·refresh 까지, commit 없음. DB 오류는 <code>DBErrorTranslator</code> 가 원인별로 변환한다 — 중복 409 <code>DuplicateException</code>, 필수 값 누락·참조 대상 없음 422 <code>ValidationException</code>, 참조 중 409 <code>ConflictException</code>, 그 밖의 DB 오류 500 <code>DatabaseException</code></td>
+</tr>
+<tr>
+<td><code>get_by_id(pk)</code></td>
+<td>없으면 <code>None</code></td>
+</tr>
+<tr>
+<td><code>get_by_id_or_raise(pk)</code></td>
+<td>없으면 <code>NotFoundException</code></td>
+</tr>
+<tr>
+<td><code>get_all(skip=0, limit=100)</code></td>
+<td>페이지 조회 — 기본 정렬 <strong><code>created_at DESC, PK DESC</code></strong>(모델에 <code>created_at</code> 이 없으면 PK 만). 같은 시각의 행도 순서가 정해져 offset 페이지가 겹치지 않는다</td>
+</tr>
+<tr>
+<td><code>count(**filters)</code> / <code>exists(pk)</code></td>
+<td>총 개수(<code>filter_by</code>) / 존재 여부</td>
+</tr>
+<tr>
+<td><code>update(pk, data)</code></td>
+<td>없으면 <code>None</code>. <strong>빈 dict 는 no-op</strong> 으로 현재 객체 반환. 모델에 없는 필드·PK 변경은 <code>ValidationException</code>, DB 오류는 <code>create</code> 와 같은 규칙. flush·refresh 까지</td>
+</tr>
+<tr>
+<td><code>delete(pk)</code></td>
+<td>삭제 여부(<code>bool</code>), commit 없음</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>다른 순서가 필요하면 기능 Repository 에 <code>order_by</code>(마지막 동률은 PK)를 명시한 메서드를 추가하고,
+  같은 필터로 <code>count</code> 를 계산합니다.</li>
+<li>도메인 조회는 문자열 컬럼명을 받는 범용 필터 대신 모델 속성을 쓰는 명시적 메서드로 추가합니다
+  (예: <code>ProductRepository.list_active()</code>).</li>
+<li><strong>공개 eager-loading 메서드는 없습니다.</strong> 응답이 관계를 읽는다면 기능 Repository 쿼리에
+  <code>selectinload</code>(1:N)·<code>joinedload</code>(N:1, 1:1)를 명시해 DTO 검증 중 암묵 I/O 가 나지 않게 합니다
+  (<code>_apply_eager_loading()</code> 은 호출부가 없는 내부 헬퍼입니다).</li>
+<li>Service 가 <code>None</code> 을 돌려주면 View 가 404 로 바꿉니다(catalog 의 <code>_require()</code>).</li>
+</ul>
+<hr>
+<h2 id="6-raw-reports">6. Raw 워크플로 — reports 따라 읽기</h2>
+<p>계층은 같고 Repository 만 다릅니다.</p>
+<pre><code class="language-python"># app/features/reports/repositories/sales_report_repository.py
+_DAILY_SALES = text(&quot;&quot;&quot;
+    SELECT DATE(CONVERT_TZ(o.created_at, '+00:00', :tz_offset)) AS sales_date, COUNT(*) AS order_count, ...
+    WHERE o.created_at &gt;= :start_at
+      AND o.created_at &lt; :end_at
+    GROUP BY sales_date
+&quot;&quot;&quot;).bindparams(bindparam(&quot;start_at&quot;, type_=UTCDateTime()), bindparam(&quot;end_at&quot;, type_=UTCDateTime()))
+
+class SalesReportRawRepository(RawRepositoryBase):
+    async def daily_sales(self, *, start_at, end_at, tz_offset):
+        rows = await self.fetch_all(
+            _DAILY_SALES,
+            {&quot;start_at&quot;: start_at, &quot;end_at&quot;: end_at, &quot;tz_offset&quot;: tz_offset},
+            query_name=&quot;sales_report.daily_sales&quot;,
+        )
+        return list(rows)
+</code></pre>
+<p>흐름: View(<code>get_daily_sales_report</code>, read-only 세션) → <code>ReportService.get_daily_sales()</code>(시작일이
+종료일보다 뒤거나, 날짜가 1970-01-01~9998-12-31 밖이거나, 기간이 366일을 넘으면 422
+<code>InvalidDateRangeException</code>) → <code>SalesReportRawRepository.daily_sales()</code> →
+<code>RawRepositoryBase.fetch_all()</code> → <code>RowMapping</code> → <code>DailySalesItem</code> DTO. 집계 기준은 <code>created_at</code>(UTC 저장)이고
+날짜는 설정 <code>TIME_ZONE</code> 의 영업일입니다 — Service 가 <code>timezone_settings.local_dates_to_utc()</code> 로 지역 날짜 범위를
+UTC 반열린 구간 <code>[시작일 00:00, 종료일 다음 날 00:00)</code> 으로 바꾸고 <code>utc_offset()</code> 으로 묶을 오프셋을 정합니다
+(종료일 당일 전체 포함). 날짜 상한은 <code>종료일 + 1일</code> 계산이 넘치지 않게 하려는 것입니다.</p>
+<h3 id="61-5">6.1 지켜야 하는 5가지</h3>
+<p><strong>① SQL 은 모듈/클래스 상수입니다.</strong> 요청 값으로 SQL 을 조립하지 않습니다.</p>
+<pre><code class="language-python">text(f&quot;SELECT * FROM t WHERE id = {user_id}&quot;)   # 금지 — 정적 검사가 막는다
+text(&quot;SELECT * FROM t WHERE id = :id&quot;)          # 허용
+</code></pre>
+<p><code>tests/core/test_raw_sql_static_guard.py</code> 가 <code>app/</code>·<code>main.py</code>·<code>scripts/</code>·<code>migrations/</code> 를 AST 로 훑어
+조립된 SQL 을 거부합니다. primitive 도 <code>text()</code> 로 감싼 <code>TextClause</code> 만 받고 multi-statement 를
+거부합니다(<code>RawSQLContractError</code>).</p>
+<p><strong>② 모든 외부 값은 named bind 입니다.</strong> <code>IN</code> 목록은 <code>bindparam(name, expanding=True)</code> 를 씁니다.</p>
+<p><strong>③ 식별자는 allowlist 로.</strong> 정렬 컬럼처럼 bind 할 수 없는 값은 코드가 소유한 목록을
+<code>ensure_identifier(value, allowed)</code> 로 통과한 것만 씁니다. 이스케이프로 막으려 하지 않습니다.</p>
+<p><strong>④ 결과는 <code>RowMapping</code> 이고 DTO 변환은 Service 가 합니다.</strong> View 가 <code>RowMapping</code> 을 그대로
+돌려주면 SQL 컬럼 변경이 곧 공개 API 변경이 됩니다.</p>
+<pre><code class="language-python">return [DailySalesItem.model_validate(dict(row)) for row in rows]
+</code></pre>
+<p>DTO 필드와 SQL alias 가 어긋나면 <strong>그 자리에서 실패</strong>합니다. 의도된 안전망입니다. <code>Decimal</code>·날짜
+타입도 DTO 에서 확인합니다.</p>
+<p><strong>⑤ <code>query_name</code> 은 필수입니다.</strong> Base 는 질의 이름·소요 시간·성공 여부(실패 시 예외 타입)만
+기록하고 <strong>SQL 본문과 파라미터는 남기지 않습니다</strong> — 파라미터에는 사용자 식별자·검색어가 들어
+있습니다. 이름은 <code>sales_report.daily_sales</code> 처럼 안정적인 코드 식별자로 짓습니다.</p>
+<h3 id="62-api">6.2 결과 API 의 의미 (임의로 바꾸지 마세요)</h3>
+<table>
+<thead>
+<tr>
+<th>메서드</th>
+<th>0행</th>
+<th>1행</th>
+<th>복수 행</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>fetch_one</code></td>
+<td><code>None</code></td>
+<td><code>RowMapping</code></td>
+<td><strong>오류</strong> (<code>MultipleResultsFound</code>)</td>
+</tr>
+<tr>
+<td><code>fetch_all</code></td>
+<td><code>[]</code></td>
+<td>1개 목록</td>
+<td>목록</td>
+</tr>
+<tr>
+<td><code>fetch_scalar</code></td>
+<td><code>None</code></td>
+<td>값 (SQL <code>NULL</code> 도 <code>None</code>)</td>
+<td><strong>오류</strong> (<code>MultipleResultsFound</code>)</td>
+</tr>
+<tr>
+<td><code>execute</code></td>
+<td>DML 전용. 영향 행 수(<code>int</code>), 드라이버 미제공 시 <code>None</code>. commit 없음</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p><code>fetch_scalar</code> 는 "0행" 과 "값이 NULL" 을 구분하지 못합니다. 구분이 필요하면 <code>fetch_one</code> 을 씁니다.</p>
+<h3 id="63-db-db">6.3 DB 방언은 실제 DB 에서 검증합니다</h3>
+<p>reports 의 SQL 은 MySQL 문법(<code>CONVERT_TZ(...)</code>)입니다. <strong>SQLite 통과는 MySQL 승인
+근거가 아닙니다.</strong> 기능 테스트는 MySQL 에 의존하는 한 지점만 대체하고, 실제 SQL 은
+<code>tests/integration/test_sales_report_mysql.py</code> 가 MySQL 8.4 에 대고 확인합니다. 운영 SQL 을 테스트
+편의로 문자열 치환하지 않습니다.</p>
+<pre><code class="language-bash">docker compose -f compose.test.yaml up -d --wait
+uv run python -m pytest -m mysql
+docker compose -f compose.test.yaml down -v
+</code></pre>
+<h3 id="64-raw-dml">6.4 Raw 로 쓰기(DML)를 해야 한다면</h3>
+<p>현재 reports 에는 Raw 쓰기 엔드포인트가 없습니다. 추가한다면 writer Dependency → Service → Raw
+Repository(<code>execute()</code> 로 rowcount 반환) 순서를 지키고 <strong>View 가 응답 전 commit 1회</strong> 합니다.</p>
+<ul>
+<li>Raw INSERT/UPDATE 는 ORM Mixin 의 PK·시각 기본값과 <code>onupdate</code> 를 거치지 않습니다. 필요한 컬럼을
+  bind 로 넣거나 DB <code>server_default</code> 를 씁니다.</li>
+<li>read-only 세션에서 Raw DML 을 시도하면 <code>DB_ROUTER_ENABLED</code> 와 <strong>무관하게</strong>
+  <code>ReadOnlyRoutingError</code> 입니다. Raw 쓰기는 항상 writer 세션을 씁니다.</li>
+<li><code>tests/integration/test_sales_report_mysql.py</code> 의 <code>_SalesOrderWriteService</code> 는 테스트용 helper 라
+  endpoint 대신 commit/rollback 을 직접 부릅니다. 운영 Service 규약과 혼동하지 않습니다.</li>
+</ul>
+<hr>
+<h3 id="65-read-only-raw-sql">6.5 read-only 세션의 Raw SQL 판정을 확장·변경할 때</h3>
+<p>판정은 <strong>괄호 깊이 0 의 단어</strong>만 봅니다. CTE 정의는 전부 괄호 안에 있으므로, 깊이 0 에 남는
+단어가 곧 최상위 구문입니다. 그래서 <code>WITH ... SELECT</code> 는 통과하고 <code>WITH ... UPDATE/DELETE</code> 는
+거부됩니다.</p>
+<table>
+<thead>
+<tr>
+<th>단계</th>
+<th>위치</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>집행 지점</td>
+<td><code>app/core/db/router.py</code> — <code>_block_read_only_execute</code>(<code>do_orm_execute</code> 이벤트), <code>_block_read_only_flush</code>(<code>before_flush</code> 이벤트)</td>
+</tr>
+<tr>
+<td>구문 분류</td>
+<td><code>app/core/db/router.py::_statement_is_readable</code> — Core <code>UpdateBase</code> 거부, <code>Select</code> 허용(단 <code>with_for_update()</code> 잠금 조회는 거부), <code>TextClause</code> 는 아래로</td>
+</tr>
+<tr>
+<td>Raw SQL 판정</td>
+<td><code>app/core/db/router.py::_text_is_readable</code> — 주석 제거 → multi-statement 거부 → 잠금 조회 거부 → 깊이 0 스캔</td>
+</tr>
+<tr>
+<td>깊이 0 스캔</td>
+<td><code>app/core/db/router.py::_depth0_words</code> — 따옴표·역따옴표 안을 건너뛰고, 스캔이 무너지면 <code>None</code></td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>하고 싶은 것</th>
+<th>건드릴 곳</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>새 읽기 구문을 허용 (예: <code>TABLE</code>, <code>VALUES</code>)</td>
+<td><code>_READABLE_LEAD</code> — <code>words[0]</code> 의 허용 시작 키워드 집합</td>
+</tr>
+<tr>
+<td>새 쓰기 구문을 차단</td>
+<td><code>_TOP_LEVEL_WRITE</code> 에 소문자 한 단어 추가</td>
+</tr>
+<tr>
+<td>잠금 획득 패턴을 추가</td>
+<td><code>_LOCKING_READ</code> 정규식</td>
+</tr>
+</tbody>
+</table>
+<p><strong>판정 원칙</strong></p>
+<ul>
+<li>default-deny 입니다. 확실히 읽기라고 판단되지 않으면 거부합니다.</li>
+<li>스캔이 무너지면(따옴표 미종료, 괄호 불일치) 거부로 떨어집니다(fail-closed).</li>
+<li>애매하면 막는 쪽이 맞습니다. <strong>잘못 허용하면 DML 이 replica 로 새고, 잘못 막으면 개발자가
+  즉시 알아챕니다.</strong> 비대칭이 한쪽으로만 위험합니다.</li>
+<li>거부 메시지는 읽기를 하려던 개발자를 writer 세션으로 떠밀지 않아야 합니다. 읽기가 막혔다면
+  판정을 고칠 일이지 세션을 바꿀 일이 아닙니다.</li>
+</ul>
+<p><strong>바꿀 때 반드시 할 일</strong></p>
+<ul>
+<li><code>tests/core/test_read_only_guard.py</code> 의 <code>_READABLE</code>/<code>_UNREADABLE</code> 적대적 케이스 표에 새 케이스를
+  추가합니다(문자열 안의 키워드, <code>''</code> 이스케이프, 역따옴표 식별자, 중첩 서브쿼리, 미종료 따옴표,
+  괄호 불일치가 이미 들어 있습니다). ORM 경로(<code>select(...).cte()</code>) 회귀도 같은 파일에 있습니다.</li>
+<li>MySQL 방언 사실은 <code>tests/integration/test_raw_primitives_mysql.py</code>(<code>-m mysql</code>)에 고정합니다.</li>
+<li>근거를 CRP ADR 로 남깁니다 — 그룹은 <code>docs/crp/groups/orm-raw-repository/design-baseline.md</code> §3.</li>
+</ul>
+<p><strong>한계.</strong> 이건 파서가 아닙니다. 방언별 신종 구문은 못 잡을 수 있으니, 실제로 오분류가 관측되면
+그때 파서 도입을 재검토합니다(지금 새 의존성을 들이지 않습니다).</p>
+<hr>
+<h2 id="7">7. 세션 선택과 주입</h2>
+<pre><code class="language-python"># app/features/catalog/dependencies/catalog_dependencies.py
+async def get_catalog_service(
+    session: AsyncSession = Depends(get_writer_db_session),
+) -&gt; CatalogService:
+    return CatalogService(session)
+
+
+async def get_catalog_service_readonly(
+    session: AsyncSession = Depends(get_read_only_db_session),
+) -&gt; CatalogService:
+    return CatalogService(session)
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>유스케이스</th>
+<th>Dependency</th>
+<th>규칙</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>조회 (복제 지연 허용)</td>
+<td><code>get_read_only_db_session</code></td>
+<td>쓰기를 시도하면 <code>ReadOnlyRoutingError</code>. commit 없음. 라우터가 켜져 있으면 replica</td>
+</tr>
+<tr>
+<td>쓰기, 조회 후 쓰기, 잠금</td>
+<td><code>get_writer_db_session</code></td>
+<td>첫 쿼리부터 writer. 응답 전 commit 1회</td>
+</tr>
+<tr>
+<td>복제 지연을 허용할 수 없는 조회</td>
+<td><code>get_writer_db_session</code></td>
+<td>writer 고정 조회, commit 없음</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>GET/POST 라는 이름이 아니라 <strong>유스케이스</strong>로 고릅니다.</li>
+<li>기능의 세션 Dependency 는 이 둘뿐입니다. 쓰기는 전부 <code>get_writer_db_session</code>, 조회는 전부
+  <code>get_read_only_db_session</code> 입니다. 동적 라우팅은 기능 코드에서 쓰지 않습니다
+  (<code>tests/core/test_session_dependency_names.py</code> 가 강제합니다).</li>
+<li>조회에 쓰기 세션을 재사용하지 않습니다. writer 가 자동 commit 하지는 않지만 read-only 보호와
+  replica 선택을 잃습니다. <strong>Raw 라는 이유로 쓰기 세션을 쓰지 않습니다</strong> — Raw 는 접근 방식이지
+  권한이 아닙니다.</li>
+<li>여러 Service 가 한 원자적 쓰기에 참여하면 같은 writer 세션을 주입하고 commit 주체는 하나로
+  둡니다. 한 요청 안에서 같은 Dependency 는 재사용되지만 writer·read-only getter 는 서로 다른
+  세션입니다.</li>
+<li>인증 Dependency(<code>get_current_user</code>)가 read-only 세션으로 읽은 객체를 쓰기 세션에서 수정하지 말고,
+  쓰기 세션으로 다시 조회합니다.</li>
+</ul>
+<p>세션 종류·라우팅 규칙 전체는 <a href="../architecture/index.html">ARCHITECTURE §8</a>에 있습니다.</p>
+<h3 id="71">7.1 라우트 보호 — 인증 · 슈퍼유저 · 소유권</h3>
+<p>권한은 슈퍼유저/일반 2단계입니다(<a href="../architecture/index.html">ARCHITECTURE §10.2</a>). 부품은 전부 core
+<code>app.core.security</code>(<code>access</code>·<code>dependencies</code>)에 있고, 기능은 이것만 import 합니다(다른 기능을 import 하지 않는다).</p>
+<p><strong>모든 뷰는 접근 수준 하나를 선언합니다.</strong> 경로 데코레이터의 <code>dependencies=[...]</code> 에 넣습니다. 선언이 없거나
+모순인 뷰(둘 이상, 쓰기에 <code>Public</code>, 조회에 <code>PublicWrite</code>)가 하나라도 있으면 앱 조립 직후 <code>AccessPolicyGuard</code> 가
+위반 목록 전체를 담은 <code>AppContractError</code> 로 <strong>서버 기동을 멈춥니다</strong>(기본 거부).</p>
+<table>
+<thead>
+<tr>
+<th>원하는 것</th>
+<th>쓰는 것</th>
+<th>실패</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>누구나 조회 (GET·HEAD·OPTIONS)</td>
+<td><code>dependencies=[Public]</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>인증 없는 쓰기 (가입·로그인처럼 의도적으로 열 때만)</td>
+<td><code>dependencies=[PublicWrite]</code> — 쓰기에 <code>Public</code> 을 쓰면 기동 거부</td>
+<td>—</td>
+</tr>
+<tr>
+<td>로그인한 누구나</td>
+<td>핸들러 인자 <code>principal: CurrentPrincipal</code>(주체를 쓸 때) 또는 <code>dependencies=[LoginRequired]</code></td>
+<td>토큰 없음·만료·위조 401</td>
+</tr>
+<tr>
+<td>슈퍼유저만 (주체를 쓰지 않음)</td>
+<td><code>dependencies=[SuperuserRequired]</code>. 라우터 전체 <code>APIRouter(dependencies=[...])</code> 도 판정에 인정되지만 예시는 뷰 단위로 적는다</td>
+<td>401 / 403</td>
+</tr>
+<tr>
+<td>슈퍼유저만 (주체를 씀)</td>
+<td>핸들러 인자 <code>admin: SuperuserPrincipal</code></td>
+<td>401 / 403</td>
+</tr>
+<tr>
+<td>작성자 본인 또는 슈퍼유저</td>
+<td>서비스 생성자에 <code>OwnershipPolicy</code>(provider <code>get_ownership_policy</code>), 메서드가 <code>principal</code> 을 받아 <code>self.policy.ensure_can_modify(entity.author_id, principal)</code></td>
+<td>403</td>
+</tr>
+</tbody>
+</table>
+<pre><code class="language-python">from app.core.security.access import Public, SuperuserRequired
+from app.core.security.dependencies import FORBIDDEN_RESPONSES, CurrentPrincipal
+
+@router.get(&quot;/notes&quot;, dependencies=[Public], ...)                      # 공개 조회
+async def list_notes(...) -&gt; NoteListResponse: ...
+
+@router.delete(&quot;/notes/{note_id}&quot;, dependencies=[SuperuserRequired], ...)  # 주체를 쓰지 않는 관리 경로
+async def purge_note(...) -&gt; None: ...
+
+@router.patch(&quot;/notes/{note_id}&quot;, responses={**_NOT_FOUND, **FORBIDDEN_RESPONSES}, ...)
+async def update_note(
+    payload: NoteUpdate,
+    principal: CurrentPrincipal,                      # 기본값 없는 인자 — 기본값 있는 인자보다 앞
+    note_id: str = Path(...),
+    service: NoteService = Depends(get_note_service),  # provider 가 OwnershipPolicy 를 주입
+) -&gt; NoteResponse:
+    note = await service.update_note(note_id, payload, principal)  # 404 → 소유권 403
+    ...
+</code></pre>
+<p><code>principal: CurrentPrincipal</code> 인자가 곧 <code>LoginRequired</code> 선언이라 같은 수준을 데코레이터에 다시 적지 않습니다
+(<code>SuperuserPrincipal</code> 은 <code>SuperuserRequired</code>). 소유자 판정은 선언이 아니라 서비스가 하므로 수정·삭제 뷰의
+선언은 <code>LoginRequired</code> 입니다.</p>
+<p><strong>왜 <code>@login_required</code> 처럼 함수를 감싸지 않는가.</strong> FastAPI 는 뷰 함수의 시그니처를 읽어 의존성 주입·요청
+검증·OpenAPI 를 만듭니다. 함수를 감싸는 데코레이터는 그 시그니처를 가리거나(<code>functools.wraps</code> 로 겉모습을
+복사해도 주입할 인자와 실제 호출 인자가 어긋난다) OpenAPI 의 <code>security</code> 표시를 잃게 만듭니다. 그래서 접근
+수준은 FastAPI 가 원래 제공하는 경로 데코레이터의 <code>dependencies=[...]</code> 에 선언하고, 데코레이터가 못 하는
+"선언을 잊은 뷰 막기" 는 기동 시 검사(<code>AccessPolicyGuard</code>)가 맡습니다.</p>
+<ul>
+<li>인증 주체는 토큰에서 만들고 <strong>DB 를 조회하지 않습니다</strong>. 사용자 엔티티가 꼭 필요할 때만 auth 의
+  <code>get_current_user</code> 를 씁니다(<code>/me</code>).</li>
+<li>작성자 컬럼은 요청 본문에서 받지 않습니다 — 서비스가 <code>principal.id</code>·<code>principal.username</code> 으로 채우고,
+  Update 스키마에 넣지 않습니다.</li>
+<li>존재 여부 자체가 비밀이면(예: 사용자) 존재 확인 <strong>전에</strong> 판정해 404/403 차이로 떠볼 수 없게 합니다.</li>
+<li>새 operation 은 뷰에 접근 수준을 선언하고(없으면 기동 거부) README 권한 표에 더합니다. 예시 기능의
+  operation 이면 <code>tests/test_authorization.py</code> 의 <code>EXPECTED</code> 표에도 더합니다 — 가드의 판정과 OpenAPI
+  <code>security</code> 표시(로그인 필요 여부)를 함께 대조합니다.</li>
+<li>테스트는 인증 의존성을 override 하지 말고 <code>tests/auth_headers.py</code>(<code>user_headers()</code>·
+  <code>other_user_headers()</code>·<code>superuser_headers()</code>)로 실제 서명된 토큰을 보냅니다.</li>
+</ul>
+<hr>
+<h2 id="8">8. 트랜잭션 경계와 오류</h2>
+<ul>
+<li><code>flush</code> 는 현재 트랜잭션 안에서 SQL 을 보내고, <code>refresh</code> 는 DB 값을 다시 읽고, <code>commit</code> 이 전체를
+  확정합니다. Repository 는 flush 까지만 합니다.</li>
+<li><strong>왜 Dependency 가 아니라 핸들러가 commit 하는가.</strong> 기본 request scope 의 yield Dependency 종료
+  코드는 <strong>응답을 보낸 뒤</strong> 실행되므로, 거기서 commit 이 실패해도 클라이언트는 이미 <code>201</code> 을 받을
+  수 있습니다(<a href="https://fastapi.tiangolo.com/tutorial/dependencies/dependencies-with-yield/#early-exit-and-scope">FastAPI 설명</a>).
+  핸들러에서 commit 하면 실패가 응답 코드에 반영됩니다. 구조 증거: <code>tests/test_read_path_no_commit.py</code>,
+  <code>app/features/blog/tests/test_transaction_boundary.py</code>.</li>
+<li>예외로 빠져나가면 세션 Dependency 의 <code>async with</code> 가 닫히며 활성 트랜잭션을 ROLLBACK 하고, 예외는
+  그대로 올라가 글로벌 핸들러가 <code>ErrorResponse</code> 를 만듭니다. 기능용 세션 Dependency 에는 명시적인
+  <code>except Exception: rollback</code> 이 없습니다 — <code>close()</code> 가 이미 ROLLBACK 을 보내고, <code>except Exception</code>
+  은 <code>CancelledError</code> 를 놓칩니다(<a href="../architecture/index.html">ARCHITECTURE §8.2</a>). 이미 commit 한 뒤의 실패는
+  rollback 이 되돌리지 못합니다.</li>
+<li><code>BaseService.commit()</code> 은 <code>session.commit()</code> 을 그대로 await 합니다. Repository 의 예외 변환은
+  commit 단계 오류까지 포함하지 않으므로, 새 오류 계약은 commit 실패도 테스트합니다. 응답에는 SQL·
+  bind 값·DSN·secret 을 넣지 않습니다.</li>
+<li>DB commit 과 HTTP 전송은 하나의 원자적 동작이 아닙니다. commit 성공 뒤 연결이 끊길 수 있으므로,
+  중요한 생성 업무는 idempotency 키·중복 처리 정책을 요구사항으로 정합니다.</li>
+<li>취소(<code>CancelledError</code>)는 <code>except Exception</code> 에 잡히지 않습니다. 취소·timeout 경로도 테스트합니다.</li>
+</ul>
+<hr>
+<h3 id="81">8.1 로그 남기기 — 아무것도 등록하지 않아도 헤더가 붙는다</h3>
+<p>새 기능의 로그는 설정에 손댈 곳이 없습니다. 헤더 <code>app=&lt;기능명&gt;</code> 은 소스 경로에서, 클래스명은 호출 프레임에서 자동으로 채워집니다.</p>
+<pre><code class="language-python">from app.utils.logs import LoggerMixin, get_logger
+
+logger = get_logger(__name__)                 # 모듈 함수용 — 이름은 아무거나 괜찮다(헤더는 경로가 정한다)
+logger.info(&quot;상품 생성: %s&quot;, product_id)       # → [..] INFO  [app=catalog] [catalog_service:-:create:42] 상품 생성: 7
+
+
+class CatalogService(LoggerMixin):            # 클래스용 — self.log 가 클래스명을 넣는다(프레임 탐색 없음)
+    def create(self) -&gt; None:
+        self.log.warning(&quot;재고 부족&quot;)          # → [..] WARNING [app=catalog] [catalog_service:CatalogService:create:51] 재고 부족
+</code></pre>
+<ul>
+<li>값은 <code>%s</code> 인자로 넘깁니다(f-string 금지 — 버려질 레코드도 문자열을 만들고, 마스킹이 인자 단위로 가린다).</li>
+<li>예외는 <code>logger.exception("저장 실패")</code> — traceback 의 비밀값도 가려집니다. 비밀 설정을 새로 만들면 <code>config.LOG_SECRET_SETTINGS</code> 에 넣습니다.</li>
+<li>이 기능만 자세히 보려면 <code>.env</code> 에 <code>LOG_APP_LEVELS=catalog=DEBUG</code> (콘솔 하한 <code>LOG_CONSOLE_LEVEL</code> 도 DEBUG 여야 콘솔에 보인다).</li>
+<li>형식·파일·회전·보관은 README <a href="../../../README.md#로깅">로깅</a>.</li>
+</ul>
+<h2 id="9-backgroundcelery">9. 요청 밖 작업 — background·Celery</h2>
+<pre><code class="language-python">async with background_db_session() as session:     # 별도 풀, 예외 시 rollback, 끝나면 close
+    service = SomeService(session)
+    await service.do_write()
+    await session.commit()                          # 요청 밖에서는 호출자가 commit
+</code></pre>
+<ul>
+<li><code>Depends</code> 는 요청 밖에서 자동 해석되지 않습니다. 위처럼 컨텍스트를 열고 Service 를 직접 조립합니다.</li>
+<li>요청의 세션·Service·<code>Request</code> 를 background 나 Celery payload 로 넘기지 않습니다. JSON 직렬화
+  가능한 id·값만 넘기고, 작업이 자기 세션을 엽니다.</li>
+<li>Celery 태스크는 기능 폴더의 <code>tasks.py</code> 에 두고(워커가 registry 로 발견) 코루틴은 <code>run_async()</code> 로
+  실행합니다. 서비스는 그 기능의 provider 함수(세션을 받는 일반 함수 — 요청용 <code>Depends</code> provider 도
+  이 함수를 부른다)로 조립합니다 (<a href="../architecture/index.html">ARCHITECTURE §11</a>). 재시도·중복·"commit 과 enqueue 사이 실패" 를 테스트합니다.</li>
+<li>주기 작업은 같은 <code>tasks.py</code> 에서 beat 스케줄에 직접 등록합니다(중앙 파일을 고치지 않는다). 예:
+  <code>app/features/home/tasks.py</code> 의 접속 로그 보존 정리.</li>
+</ul>
+<p><code>python
+  celery_app.conf.beat_schedule["home.purge_expired_access_logs"] = {
+      "task": "home.purge_expired_access_logs",
+      "schedule": crontab(hour=3, minute=30),  # Celery timezone = TIME_ZONE 지역 시각
+  }</code></p>
+<p>로컬 실행: <code>uv run celery -A app.celery.app:celery_app worker --loglevel=INFO</code> 와
+  <code>uv run celery -A app.celery.app:celery_app beat --loglevel=INFO</code>(beat 는 배포 전체에서 하나만).
+  테스트는 스케줄 항목이 등록됐는지와 태스크가 provider 로 조립되는지를 봅니다
+  (<code>app/features/home/tests/test_access_log_retention.py</code>). 오래 걸리는 삭제는 배치로 나눠 배치마다
+  커밋합니다(<code>AccessLogRetentionService</code>).
+- 접속 로그용 <code>access_log_tasks</code> 러너는 넘치면 버리는 비핵심 경로입니다. 결제·발송 같은 중요한
+  작업을 넣지 않습니다.
+- <code>async def</code> 안에서 <code>time.sleep</code>·동기 HTTP·큰 파일 처리·무거운 CPU 루프를 돌리면 이벤트 루프가
+  멈춥니다. blocking I/O 는 <code>asyncio.to_thread</code>, 무겁거나 내구성이 필요한 작업은 Celery 로 보냅니다.
+- 같은 <code>AsyncSession</code> 으로 <code>asyncio.gather</code> 를 돌리지 않습니다. 한 트랜잭션의 SQL 은 순차 await,
+  독립 병렬 작업은 작업마다 세션을 엽니다.
+- 공유 Redis 가 필요하면 core provider <code>get_redis</code>(<code>app/core/redis.py</code>)를 <code>Depends</code> 로 받습니다.
+  지원 Redis 는 <strong>7.0 이상</strong>입니다(<code>REDIS_MIN_VERSION</code>, 기동 시 확인). 새 Redis 명령을 쓰면 그 명령의
+  도입 버전을 <code>app/core/redis.py</code> 의 표와 상수에 반영합니다 — <code>tests/core/test_redis_version.py</code> 가
+  <code>expire(..., nx=True)</code>·<code>getdel(</code> 사용과 상수를 대조합니다.
+  client 가 없으면 503 이고, 테스트는 <code>app.dependency_overrides[get_redis]</code> 로 가짜를 넣습니다. Redis
+  <strong>연결·시간 초과</strong> 오류는 잡지 말고 올립니다 — 전역 핸들러가 503 <code>SERVICE_UNAVAILABLE</code> 로 끝냅니다(fail-closed,
+  ARCHITECTURE 의 Redis 절). 그 밖의 명령 실패(<code>ResponseError</code> 등)의 오류 계약은 쓰는 기능이 정합니다.
+- auth 경로(가입·로그인·재발급·로그아웃)는 refresh 저장소와 rate limit 때문에 Redis 를 씁니다.
+  이 경로를 부르는 엔드포인트 테스트는 <code>fakeredis.FakeAsyncRedis()</code> 하나를 만들어
+  <code>app.dependency_overrides[get_redis] = lambda: fake</code> 로 넣습니다(예:
+  <code>app/features/auth/tests/test_endpoint.py</code>). Redis 를 쓰는 core 클래스는 생성자에 fakeredis 를 넣어
+  실물 그대로 시험합니다(<code>tests/core/test_refresh_store.py</code>·<code>test_rate_limiter.py</code>).
+- 사용자를 비활성화·강등·삭제하는 서비스는 <code>/admin</code> 관리 세션도 끊는다 — <code>get_user_service</code> 가
+  <code>get_admin_session_store</code>(같은 <code>get_redis</code> 사용, <code>ADMIN_DISABLED=true</code> 면 <code>None</code>)를 주입한다. 세션을 끊어야
+  하는 새 서비스(예: 비밀번호 변경)는 같은 provider 를 받아 <code>revoke_user(user_id)</code> 를 부른다.
+  <code>/admin</code> 흐름 테스트는 <code>tests/test_admin_login.py</code> 의 <code>build_admin_app</code>(SQLite 파일 DB + fakeredis
+  <code>AdminSessionStore</code>)을 쓰고, 상태 변경 요청은 <code>page_token()</code> 으로 꺼낸 CSRF 토큰을 싣는다.</p>
+<hr>
+<h2 id="10-migration">10. 스키마 변경 — migration 절차</h2>
+<pre><code class="language-bash">uv run alembic revision --autogenerate -m &quot;add &lt;name&gt; table&quot;
+# 생성된 파일의 upgrade/downgrade·drop·nullable·인덱스·FK·default·데이터 이동을 사람이 검토
+uv run alembic upgrade head
+uv run alembic current
+uv run alembic heads          # head 는 하나여야 한다
+</code></pre>
+<ol>
+<li>모델·제약·소유권을 정하고 <code>models/</code> 에 둡니다(등록은 registry 가 합니다).</li>
+<li>autogenerate 결과는 후보일 뿐입니다. 이름 변경(rename)은 자동 감지되지 않고 drop+add 로 나올 수
+   있습니다(<a href="https://alembic.sqlalchemy.org/en/latest/autogenerate.html">Alembic 문서</a>).</li>
+<li>빈 DB·기존 DB·MySQL 방언에서 확인합니다. <code>tests/core/test_migration_chain.py</code> 가 빈 DB
+   <code>upgrade head</code> 결과와 ORM metadata 를 대조합니다.</li>
+<li>운영은 앱 배포 전에 writer 에 <code>upgrade head</code> 를 적용합니다. 컬럼 제거처럼 호환이 깨지는 변경은
+   "확장 → 코드 전환 → 구 컬럼 제거" 로 나눕니다.</li>
+</ol>
+<ul>
+<li>실데이터가 있는 DB 에서 drop/recreate 나 검증 없는 <code>alembic stamp head</code> 를 하지 않습니다. stamp 는
+  테이블을 만들지 않고 이력만 맞춰 스키마 차이를 숨깁니다.</li>
+<li>개발 초기의 <code>DEBUG=true</code> 자동 생성과 Alembic 사이의 전환은 README 의 "스키마 관리" 절을 따릅니다.</li>
+<li>DB 의 SQL VIEW 가 실제로 필요하면 방언에 맞는 <code>CREATE VIEW</code>/<code>DROP VIEW</code> 를 migration 에 직접 쓰고,
+  Repository 는 읽기 SQL 과 DTO 계약만 소유합니다. Alembic 은 VIEW 정의 변경을 자동 추적하지
+  않습니다. (현재 reports 는 VIEW 를 만들지 않는 SELECT 집계입니다.)</li>
+</ul>
+<hr>
+<h2 id="11">11. 테스트</h2>
+<table>
+<thead>
+<tr>
+<th>범위</th>
+<th>확인할 시나리오</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Schema</td>
+<td>필수값·길이·금액·음수·<code>null</code> 과 미전달의 차이·공개 응답 필드</td>
+</tr>
+<tr>
+<td>Service</td>
+<td>업무 분기·부재·범위·상태 전환</td>
+</tr>
+<tr>
+<td>Repository</td>
+<td>flush 까지·commit 없음, bind·필터·정렬·count·오류 변환</td>
+</tr>
+<tr>
+<td>Endpoint</td>
+<td>201/200/204, 404/409/422/500, <code>operation_id</code>, 권한, 응답 DTO</td>
+</tr>
+<tr>
+<td>트랜잭션</td>
+<td>commit 실패 시 2xx 없음, 중간 실패 rollback, DTO 검증 실패, 멱등성</td>
+</tr>
+<tr>
+<td>등록</td>
+<td>라우터·모델·Admin 결선, 잘못된 export, 경로 인벤토리</td>
+</tr>
+<tr>
+<td>비동기·수명</td>
+<td>요청 세션을 background 에 넘기지 않음, 취소·timeout</td>
+</tr>
+<tr>
+<td>실제 DB</td>
+<td>MySQL 의 Decimal·날짜·제약·잠금·Raw 방언·migration (<code>mysql</code> 마커)</td>
+</tr>
+<tr>
+<td>전수 통합</td>
+<td>실제 uvicorn·Celery·Chromium·복제·장애 주입 (<code>e2e</code> 마커, README "전수 통합(E2E)")</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>기능 테스트는 <code>app/features/&lt;name&gt;/tests/</code>, 횡단 테스트는 <code>tests/</code> 에 <code>test_*.py</code> 로 둡니다.</li>
+<li>엔드포인트 단위 테스트는 <code>app.dependency_overrides</code> 로 세션·Service 를 바꾸고, 테스트가 끝나면
+  복원합니다. 세션 Dependency 는 직접 yield 하지 말고
+  <code>app.dependency_overrides.update(session_overrides(maker))</code>(<code>tests/session_overrides.py</code>)로
+  바꿉니다 — read-only override 에 <code>mark_read_only()</code>, writer override 에 <code>using_writer()</code> 가 걸려
+  조회 핸들러의 몰래 쓰기가 테스트에서도 실패합니다. commit 집계처럼 세션을 감쌀 때는 <code>on_open=</code>
+  훅을 씁니다. 다른 곳의 직접 override 는 <code>tests/core/test_session_overrides.py</code> 가 막습니다.</li>
+<li>lifespan 을 검증할 때는 <code>TestClient</code> 컨텍스트나 <code>app.router.lifespan_context</code> 로 실제로 진입합니다.
+  <code>ASGITransport</code> 요청만으로 startup 이 실행됐다고 보지 않습니다.</li>
+<li>모델을 정의하는 테스트는 공유 <code>Base.metadata</code> 를 오염시키지 않도록 테스트 전용 <code>DeclarativeBase</code>
+  를 씁니다(<code>tests/core/test_pk_generic.py</code>).</li>
+<li>skip 된 MySQL 테스트는 성공이 아닙니다. CI MySQL job 과 <code>tests</code> 게이트는 skip 0 을 요구합니다.</li>
+<li><strong>커버리지 하한.</strong> CI 와 <code>tests</code> 게이트는 커버리지를 측정·출력만 하고, 하한은 <code>pyproject.toml</code> 의
+  <code>[tool.coverage.report] fail_under</code> 하나가 정합니다. 기본값은 <strong>0</strong>(하한 없음)입니다 — 처음에는 기능이
+  제대로 동작하는지 확인하는 것이 우선입니다. 올릴 때는 <code>uv run python -m pytest -m "not mysql" --cov=app
+  --cov-config=pyproject.toml --cov-report=term-missing</code> 으로 현재 수치를 재고, 그보다 조금 낮게 정해 점차 올립니다. 명령줄에
+  <code>--cov-fail-under</code> 를 두지 않습니다(값이 두 곳으로 갈라진다 — <code>tests/test_coverage_policy.py</code>).</li>
+<li><code>DeprecationWarning</code>·<code>PendingDeprecationWarning</code> 은 <code>pyproject.toml</code> 의 <code>filterwarnings</code> 가
+  <strong>에러로 올립니다</strong>(예외 목록은 비어 있습니다). 폐기 예고가 뜨면 억제하지 말고 원인을 고치고,
+  그래도 <code>ignore</code> 를 남겨야 하면 이유를 주석으로 함께 적습니다. <code>UserWarning</code> 은 올리지 않습니다 —
+  starlette 의 <code>StarletteDeprecationWarning</code> 이 이를 상속해, 켜면 서드파티 경고 하나가 빌드
+  전체를 막습니다.</li>
+</ul>
+<pre><code class="language-bash">uv run python -m pytest app/features/&lt;name&gt;/tests
+uv run python -m pytest -m &quot;not mysql&quot; -q
+uv run python -m scripts.review_gate --group static structure docs
+</code></pre>
+<hr>
+<h2 id="12">12. 완료 체크리스트</h2>
+<ul>
+<li>[ ] <code>uv run python -m scripts.new_app &lt;name&gt;</code> (또는 규약대로 수동 생성)</li>
+<li>[ ] <code>models/models.py</code> + <code>models/__init__.py</code> 재노출, Alembic revision 생성·검토 (<code>env.py</code> 는 그대로)</li>
+<li>[ ] <code>schemas/</code> — 입력/출력 분리, <code>description</code>, 공개 필드 확정</li>
+<li>[ ] <code>repositories/</code> — ORM 이면 <code>BaseRepository</code>, Raw 면 <code>RawRepositoryBase</code> (+ <code>query_name</code>, named bind)</li>
+<li>[ ] <code>services/</code> — 업무 규칙, Raw 결과는 여기서 DTO 로</li>
+<li>[ ] <code>dependencies/</code> — 쓰기용·조회용 getter 둘 다</li>
+<li>[ ] <code>api/routers/v1/</code> — <code>operation_id</code>, DTO 검증 → commit 1회 / <code>router.py</code> 의 <code>&lt;name&gt;_router</code></li>
+<li>[ ] 권한 — 뷰마다 접근 수준(<code>Public</code>·<code>PublicWrite</code>·<code>LoginRequired</code>·<code>SuperuserRequired</code>, §7.1)을 선언
+  (<strong>선언하지 않은 뷰가 있으면 서버가 기동하지 않는다</strong>), 소유권은 서비스의 <code>OwnershipPolicy</code>, README 권한 표·
+  <code>tests/test_authorization.py</code> 의 <code>EXPECTED</code> 갱신</li>
+<li>[ ] 필요하면 <code>admin.py</code> 의 <code>admin_views</code> (민감 필드 제외 확인 — <code>/admin</code> 은 슈퍼유저 로그인·Redis 세션·
+  CSRF 미들웨어 뒤에 있고 <code>ADMIN_DISABLED=true</code> 면 import 되지 않으므로 뷰에 인증·CSRF 를 따로 넣지 않는다.
+  <code>created_at</code> 이 있으면 <code>column_filters</code> 에 <code>LocalDateFilter(Model.created_at)</code>(같은 날·이후·이전·기간).
+  상태를 바꾸는 작업을 sqladmin <code>@action</code>(GET)으로 만들지 않는다 — CSRF 검사 대상이 아니다), <code>apps.py</code> 의 <code>ready()</code></li>
+<li>[ ] 태그 설명(<code>app/core/tags_metadata.py</code>), <code>tests/test_route_inventory.py</code>, README API 표 갱신</li>
+<li>[ ] 새 operation 은 <code>tests/e2e/test_api_matrix.py</code> 의 <code>OPS</code> 에 한 줄(정상·422·소유권·404 요청) — 없으면
+  <code>-m e2e</code> 의 인벤토리 대조가 실패한다</li>
+<li>[ ] 테스트 작성, <code>mysql</code> 마커 대상 SQL 확인, 게이트 실행</li>
+<li>[ ] Celery 태스크가 필요하면 기능 폴더의 <code>tasks.py</code> 에 추가 (중앙 파일 수정 없음)</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>바꾼 것</th>
+<th>함께 확인할 곳</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>공개 경로·메서드</td>
+<td>라우터, <code>operation_id</code>, <code>tests/test_route_inventory.py</code>, README API 표</td>
+</tr>
+<tr>
+<td>모델 필드</td>
+<td>스키마 3종(create/update/response), Repository, <code>admin.py</code> 노출, Alembic revision</td>
+</tr>
+<tr>
+<td>트랜잭션</td>
+<td>핸들러의 commit 위치, 기능별 트랜잭션 경계 테스트(예: <code>app/features/auth/tests/test_transaction_boundary.py</code>)</td>
+</tr>
+<tr>
+<td>인증 정책</td>
+<td>뷰의 접근 수준 선언(§7.1), 401/403 응답 문서(<code>UNAUTHORIZED_RESPONSES</code>·<code>FORBIDDEN_RESPONSES</code>), <code>tests/test_authorization.py</code> 의 <code>EXPECTED</code>, README 권한 표</td>
+</tr>
+<tr>
+<td>접속 로그 필드</td>
+<td>미들웨어, sink, 모델·스키마, 개인정보 보존 정책</td>
+</tr>
+<tr>
+<td>설정 추가</td>
+<td><code>config.py</code>, <code>.env.example</code>(테스트가 양방향 일치 강제), 필요하면 배포 게이트</td>
+</tr>
+<tr>
+<td>함수명·세션 이름·경로</td>
+<td>이 문서, ARCHITECTURE, README (게이트 <code>docs</code> 그룹이 경로를 검사)</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="13">13. 더 깊이</h2>
+<table>
+<thead>
+<tr>
+<th>문서</th>
+<th>내용</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../architecture/index.html"><code>ARCHITECTURE.md</code></a></td>
+<td>조립·설정·세션·라우팅·보안 경계</td>
+</tr>
+<tr>
+<td><a href="../workflows/feature-development.html"><code>feature-development-guide.html</code></a></td>
+<td>이 문서의 흐름을 catalog·reports 요청 도식으로 따라가는 안내서</td>
+</tr>
+<tr>
+<td><a href="../workflows/server-lifecycle.html"><code>server-lifecycle-guide.html</code></a></td>
+<td>설정 → 기동 → 요청 → 종료 추적 안내서</td>
+</tr>
+<tr>
+<td><a href="../../specs/orm-raw-repository"><code>../specs/orm-raw-repository/</code></a></td>
+<td>ORM/Raw 요구명세·개발계획·지침 원본 (착수 기준선, 코드 주석의 <code>workflow-guide §N</code> 출처)</td>
+</tr>
+<tr>
+<td><a href="../../crp/groups/orm-raw-repository/design-baseline.md"><code>../crp/groups/orm-raw-repository/design-baseline.md</code></a></td>
+<td>설계 결정과 선택 근거</td>
+</tr>
+<tr>
+<td><a href="../../specs/django-style-app-automation.md"><code>../specs/django-style-app-automation.md</code></a></td>
+<td>앱 자동 등록 요구사항·설계 근거</td>
+</tr>
+</tbody>
+</table>
+<p>규칙이 실제로 지켜지는지는 테스트와 게이트가 강제합니다. 문서를 읽지 않아도 틀린 코드는 통과하지
+못하게 되어 있고, 이 문서는 "왜 그런 규칙인가" 를 설명합니다.</p></section></main></div><footer>코드와 문서가 다르면 코드가 기준입니다. 변경 시 관련 소스·테스트·이 문서를 함께 갱신하세요.</footer><script type="module" src="../assets/site.js"></script></body></html>

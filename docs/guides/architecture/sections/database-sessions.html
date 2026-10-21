@@ -1,0 +1,131 @@
+<!-- generated-by: gsd-doc-writer -->
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>8. DB 엔진·세션·라우팅 (`app/core/db/`)</title><link rel="stylesheet" href="../../assets/site.css"></head><body>
+<nav class="topbar"><strong><a href="../../index.html">프로젝트 가이드</a></strong><a href="../../index.html">전체 메뉴</a><a href="../../architecture/index.html">아키텍처</a><a href="../../development/index.html">개발</a><a href="../../reference/api.html">API</a><a href="../../workflows/sequence-diagrams.html">시퀀스</a></nav>
+<header class="hero"><div class="eyebrow">코드 기준 HTML 매뉴얼 · 2026-10-21</div><h1>8. DB 엔진·세션·라우팅 (`app/core/db/`)</h1><p>아키텍처의 세부 주제입니다. 목적·책임·운영 및 확장 시 지켜야 할 계약을 설명합니다.</p></header>
+<div class="layout"><main class="content"><section><h2 id="8-db-appcoredb">8. DB 엔진·세션·라우팅 (<code>app/core/db/</code>)</h2>
+<h3 id="81">8.1 엔진과 세션 팩토리</h3>
+<table>
+<thead>
+<tr>
+<th>객체</th>
+<th>용도</th>
+<th>풀</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>engine</code> (= <code>writer_engine</code>)</td>
+<td>요청 writer, DDL, <code>/ready</code>, SQLAdmin</td>
+<td>20 + overflow 20, timeout 30s</td>
+</tr>
+<tr>
+<td><code>read_engines</code></td>
+<td>replica SELECT (복제 활성 시)</td>
+<td>replica 마다 20 + 20</td>
+</tr>
+<tr>
+<td><code>background_engine</code></td>
+<td>접속 로그·Celery 등 요청 밖 쓰기</td>
+<td>10 + 10, timeout 60s</td>
+</tr>
+</tbody>
+</table>
+<p>공통: <code>pool_recycle=280</code>, <code>pool_pre_ping=True</code>, 드라이버 <code>connect_timeout=10</code>, 그리고 정본 옵션
+<code>ENGINE_SAFETY_OPTIONS</code>(<code>hide_parameters=True</code>) — DB 예외의 <code>str()</code>·SQLAlchemy 로그에 SQL 문은 남기되
+바인드 값(이메일·해시·토큰)은 <code>[SQL parameters hidden due to hide_parameters=True]</code> 로 바꿉니다. 값은
+키워드 꼴이 아니라 로그 마스킹(§5)으로는 지울 수 없어서 엔진에서 막습니다. Alembic(<code>migrations/env.py</code>)도
+같은 옵션을 펼치고, 새 엔진 생성 지점이 빠뜨리면 <code>tests/core/test_hide_parameters.py</code> 가 실패합니다. 세션 팩토리
+(<code>AsyncSessionLocal</code>, <code>BackgroundSessionLocal</code>)는 <code>expire_on_commit=False</code>, <code>autoflush=False</code> 입니다.
+최대 연결 수는 <strong>(풀 + overflow) × 엔진 수(writer + replica) × API worker 수 + background 풀 ×
+프로세스 수</strong> 로 계산해 DB 연결 한도와 맞춥니다. 기동 시 <code>describe_routing()</code> 이 라우팅 구성을
+비밀번호를 가린 채 한 줄 로그로 남깁니다.</p>
+<p><code>AsyncSession</code> 은 요청(또는 한 독립 작업) 하나의 트랜잭션 상태입니다. 전역으로 공유하지 않고,
+같은 세션으로 <code>asyncio.gather</code> 를 돌리지 않습니다.</p>
+<h3 id="82-dependency">8.2 세션 Dependency</h3>
+<table>
+<thead>
+<tr>
+<th>정식 이름</th>
+<th>형태</th>
+<th>용도</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>get_writer_db_session</code></td>
+<td>async generator</td>
+<td>쓰기. 첫 쿼리부터 writer 고정</td>
+</tr>
+<tr>
+<td><code>get_read_only_db_session</code></td>
+<td>async generator</td>
+<td>조회. read-only 표시, 쓰기 시도는 <code>ReadOnlyRoutingError</code></td>
+</tr>
+<tr>
+<td><code>get_routed_db_session</code></td>
+<td>async generator</td>
+<td>동적 라우팅(SELECT→reader, 쓰기 후 writer). 승인된 특수 경로 전용 — 기능 코드에서는 쓰지 않음</td>
+</tr>
+<tr>
+<td><code>get_background_db_session</code></td>
+<td>async generator</td>
+<td>background 풀 (요청 밖, generator 형태)</td>
+</tr>
+<tr>
+<td><code>background_db_session()</code></td>
+<td>async context manager</td>
+<td>요청 밖 트랜잭션의 권장 형태</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>모든 generator 는 <code>async with</code> 로 세션을 열고 끝나면 닫습니다. 예외로 빠져나가도 <code>close()</code> 가
+  활성 트랜잭션을 ROLLBACK 한 뒤 예외가 그대로 올라갑니다 — 명시적으로 예외를 잡는 것은 로그를
+  남기는 <code>get_routed_db_session</code>·<code>get_background_db_session</code> 둘뿐입니다.
+  <strong>성공 시 자동 commit 하지 않습니다.</strong></li>
+<li>FastAPI <code>Depends</code> 는 요청 안에서만 해석됩니다. 요청 밖에서는 <code>async with background_db_session()
+  as session:</code> 으로 열고 Service 를 직접 조립합니다. Repository 는 세션이 어디서 왔는지 모릅니다.</li>
+<li><code>session.py</code> 끝의 옛 별칭은 같은 객체를 가리키는 호환용입니다. 문서와 신규 코드는 정식 이름만
+  씁니다(대응표: <code>scripts/review_gate.py</code> 의 <code>DEPRECATED_SESSION_ALIASES</code>, 게이트가 문서에서 옛
+  이름을 거부합니다).</li>
+<li>같은 요청에서 같은 Dependency 는 FastAPI 캐시로 재사용되지만, writer/read-only getter 는 서로 다른
+  callable 이라 같은 세션이 아닙니다.</li>
+</ul>
+<h3 id="83-db_router_enabled">8.3 읽기/쓰기 라우팅 (<code>DB_ROUTER_ENABLED</code>)</h3>
+<p>기본값 <code>false</code> — 모든 세션이 writer 엔진 하나에 붙습니다. <code>DB_ROUTER_ENABLED=true</code> 이고
+<code>DB_REPLICATION_ENABLED=true</code> + <code>MYSQL_REPLICA_HOSTS</code> 가 있으면 라우팅 세션이 다음을 따릅니다.</p>
+<ol>
+<li>ORM flush·Core DML·ORM 잠금 조회(<code>select(...).with_for_update()</code>) → writer</li>
+<li>그 밖의 SELECT → reader (라운드로빈). 한 세션이 고른 reader 는 세션 끝까지 유지(pin)</li>
+<li><code>DB_READ_STICKY_AFTER_WRITE=true</code>(기본) 면 쓰기 뒤 같은 세션의 SELECT → writer</li>
+<li>reader 가 없으면 writer</li>
+<li><code>text()</code> Raw SQL 은 <strong>1~3 규칙만</strong> 따릅니다 — 라우터는 문자열을 해석하지 않으므로
+   <code>text("SELECT ... FOR UPDATE")</code> 는 reader 로 나갈 수 있습니다. Raw SQL 로 잠금이 필요하면
+   <code>get_writer_db_session</code> 을 쓰거나 <code>using_writer(session)</code> 으로 직접 고정합니다(§8.2, 개발 가이드 §7)</li>
+</ol>
+<p>복제 지연을 허용할 수 없는 읽기는 writer 세션을 쓰거나 <code>using_writer(session)</code> 으로 고정합니다.
+sticky 는 세션 내부 정책이라 다음 요청의 read-only 세션까지 지연을 없애지 않습니다.</p>
+<p><strong>replica 장애 대체(integration-e2e F-005).</strong> read-only 세션(<code>get_read_only_db_session</code>)의 읽기가 replica 에서
+연결 계열 오류(접속 불가 2002·2003·2005, 끊김 2006·2013·2055, 서버 종료·오프라인 1053·3032, 연결 수 초과 1040,
+또는 SQLAlchemy 의 <code>connection_invalidated</code>)로 실패하면, 그 세션을 롤백하고 writer 에 고정한 뒤 <strong>같은 구문을 한 번</strong>
+primary 로 다시 실행하고 WARNING(<code>replica 연결 오류(...) — 이 읽기를 primary 로 한 번 다시 실행합니다</code>, 비밀값 없음)을
+남깁니다. 실행 지점은 <code>RoutingSession._execute_internal</code>(<code>execute</code>·<code>scalars</code>·<code>get</code> 이 모두 지난다)입니다.
+쓰기·routed 세션, 이미 writer 에 고정된 세션, 문법·제약·잠금 오류, 복제 지연(오류가 아니다), 라우터가 꺼진 구성은
+바뀌지 않습니다. <code>/ready</code> 는 replica 를 보지 않습니다(writer·Redis 만).</p>
+<p><strong>read-only 집행</strong>은 라우터가 꺼져 있어도 적용됩니다. 세션 클래스 이벤트(<code>before_flush</code>,
+<code>do_orm_execute</code>)가 read-only 세션에서 ORM flush 와, 읽기로 판별되지 않는 구문을 거부합니다.
+판별은 괄호 깊이 0 의 단어만 훑습니다 — 읽기 전용 CTE(<code>WITH ... SELECT</code>)는 통과하고, 최상위에
+쓰기 키워드가 있는 문장(<code>WITH ... UPDATE</code>·<code>DELETE</code> 포함)·잠금 조회·multi-statement·따옴표나
+괄호가 맞지 않아 판별할 수 없는 문장은 거부합니다. <code>session.info</code> 표시는 보안 경계가 아니므로 운영에서는
+read-only DB 계정·권한을 최종 방어선으로 둡니다. 회귀 가드: <code>tests/core/test_read_only_guard.py</code>,
+<code>tests/core/test_db_router.py</code>.</p>
+<h3 id="84-utc">8.4 시각 저장 — UTC·마이크로초</h3>
+<p>DB 의 시각은 <strong>UTC</strong> 로 저장합니다. <code>Base.type_annotation_map</code> 이 <code>Mapped[datetime]</code> 을
+<code>app/core/models/types.py</code> 의 <code>UTCDateTime</code> 으로 바꿉니다 — aware 값은 UTC 로 변환해 저장하고, naive 값은
+<code>ValueError</code>(flush 시 <code>StatementError</code>)로 거부하며, 읽을 때 UTC tzinfo 를 붙입니다. MySQL 컬럼은
+<code>DATETIME(6)</code>(마이크로초)입니다. 모델 기본값은 <code>timezone_settings.utc_now()</code> 하나에서 나오고, 응답 JSON 은
+<code>...Z</code> 오프셋을 가집니다. <code>TIME_ZONE</code> 은 저장값의 의미를 바꾸지 않습니다 — 로그 표시·리포트 영업일·Celery
+beat 표시에만 쓰입니다. 리포트는 지역 날짜 범위를 UTC 반열린 구간으로 바꿔 조회하고
+<code>DATE(CONVERT_TZ(created_at, '+00:00', &lt;오프셋&gt;))</code> 로 묶습니다(쿼리당 고정 오프셋 — DST 지역은 행별 변환이
+필요합니다). 회귀 가드: <code>tests/core/test_utc_datetime.py</code>, MySQL 은 <code>tests/integration/test_mysql_utc_datetime.py</code>.</p>
+<hr><nav class="pager"><a href="request-processing.html">← 이전</a><a href="../index.html">전체 아키텍처</a><a href="health-ready.html">다음 →</a></nav></section></main></div><footer>코드와 문서가 다르면 코드가 기준입니다. 변경 시 관련 소스·테스트·이 문서를 함께 갱신하세요.</footer><script type="module" src="../../assets/site.js"></script></body></html>

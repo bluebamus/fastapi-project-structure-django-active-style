@@ -1,0 +1,65 @@
+<!-- generated-by: gsd-doc-writer -->
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>12. 완료 체크리스트</title><link rel="stylesheet" href="../../assets/site.css"></head><body>
+<nav class="topbar"><strong><a href="../../index.html">프로젝트 가이드</a></strong><a href="../../index.html">전체 메뉴</a><a href="../../architecture/index.html">아키텍처</a><a href="../../development/index.html">개발</a><a href="../../reference/api.html">API</a><a href="../../workflows/sequence-diagrams.html">시퀀스</a></nav>
+<header class="hero"><div class="eyebrow">코드 기준 HTML 매뉴얼 · 2026-10-21</div><h1>12. 완료 체크리스트</h1><p>개발·확장의 세부 주제입니다. 목적·책임·운영 및 확장 시 지켜야 할 계약을 설명합니다.</p></header>
+<div class="layout"><main class="content"><section><h2 id="12">12. 완료 체크리스트</h2>
+<ul>
+<li>[ ] <code>uv run python -m scripts.new_app &lt;name&gt;</code> (또는 규약대로 수동 생성)</li>
+<li>[ ] <code>models/models.py</code> + <code>models/__init__.py</code> 재노출, Alembic revision 생성·검토 (<code>env.py</code> 는 그대로)</li>
+<li>[ ] <code>schemas/</code> — 입력/출력 분리, <code>description</code>, 공개 필드 확정</li>
+<li>[ ] <code>repositories/</code> — ORM 이면 <code>BaseRepository</code>, Raw 면 <code>RawRepositoryBase</code> (+ <code>query_name</code>, named bind)</li>
+<li>[ ] <code>services/</code> — 업무 규칙, Raw 결과는 여기서 DTO 로</li>
+<li>[ ] <code>dependencies/</code> — 쓰기용·조회용 getter 둘 다</li>
+<li>[ ] <code>api/routers/v1/</code> — <code>operation_id</code>, DTO 검증 → commit 1회 / <code>router.py</code> 의 <code>&lt;name&gt;_router</code></li>
+<li>[ ] 권한 — 뷰마다 접근 수준(<code>Public</code>·<code>PublicWrite</code>·<code>LoginRequired</code>·<code>SuperuserRequired</code>, §7.1)을 선언
+  (<strong>선언하지 않은 뷰가 있으면 서버가 기동하지 않는다</strong>), 소유권은 서비스의 <code>OwnershipPolicy</code>, README 권한 표·
+  <code>tests/test_authorization.py</code> 의 <code>EXPECTED</code> 갱신</li>
+<li>[ ] 필요하면 <code>admin.py</code> 의 <code>admin_views</code> (민감 필드 제외 확인 — <code>/admin</code> 은 슈퍼유저 로그인·Redis 세션·
+  CSRF 미들웨어 뒤에 있고 <code>ADMIN_DISABLED=true</code> 면 import 되지 않으므로 뷰에 인증·CSRF 를 따로 넣지 않는다.
+  <code>created_at</code> 이 있으면 <code>column_filters</code> 에 <code>LocalDateFilter(Model.created_at)</code>(같은 날·이후·이전·기간).
+  상태를 바꾸는 작업을 sqladmin <code>@action</code>(GET)으로 만들지 않는다 — CSRF 검사 대상이 아니다), <code>apps.py</code> 의 <code>ready()</code></li>
+<li>[ ] 태그 설명(<code>app/core/tags_metadata.py</code>), <code>tests/test_route_inventory.py</code>, README API 표 갱신</li>
+<li>[ ] 새 operation 은 <code>tests/e2e/test_api_matrix.py</code> 의 <code>OPS</code> 에 한 줄(정상·422·소유권·404 요청) — 없으면
+  <code>-m e2e</code> 의 인벤토리 대조가 실패한다</li>
+<li>[ ] 테스트 작성, <code>mysql</code> 마커 대상 SQL 확인, 게이트 실행</li>
+<li>[ ] Celery 태스크가 필요하면 기능 폴더의 <code>tasks.py</code> 에 추가 (중앙 파일 수정 없음)</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>바꾼 것</th>
+<th>함께 확인할 곳</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>공개 경로·메서드</td>
+<td>라우터, <code>operation_id</code>, <code>tests/test_route_inventory.py</code>, README API 표</td>
+</tr>
+<tr>
+<td>모델 필드</td>
+<td>스키마 3종(create/update/response), Repository, <code>admin.py</code> 노출, Alembic revision</td>
+</tr>
+<tr>
+<td>트랜잭션</td>
+<td>핸들러의 commit 위치, 기능별 트랜잭션 경계 테스트(예: <code>app/features/auth/tests/test_transaction_boundary.py</code>)</td>
+</tr>
+<tr>
+<td>인증 정책</td>
+<td>뷰의 접근 수준 선언(§7.1), 401/403 응답 문서(<code>UNAUTHORIZED_RESPONSES</code>·<code>FORBIDDEN_RESPONSES</code>), <code>tests/test_authorization.py</code> 의 <code>EXPECTED</code>, README 권한 표</td>
+</tr>
+<tr>
+<td>접속 로그 필드</td>
+<td>미들웨어, sink, 모델·스키마, 개인정보 보존 정책</td>
+</tr>
+<tr>
+<td>설정 추가</td>
+<td><code>config.py</code>, <code>.env.example</code>(테스트가 양방향 일치 강제), 필요하면 배포 게이트</td>
+</tr>
+<tr>
+<td>함수명·세션 이름·경로</td>
+<td>이 문서, ARCHITECTURE, README (게이트 <code>docs</code> 그룹이 경로를 검사)</td>
+</tr>
+</tbody>
+</table>
+<hr><nav class="pager"><a href="testing.html">← 이전</a><a href="../index.html">전체 개발·확장</a><a href="further-reading.html">다음 →</a></nav></section></main></div><footer>코드와 문서가 다르면 코드가 기준입니다. 변경 시 관련 소스·테스트·이 문서를 함께 갱신하세요.</footer><script type="module" src="../../assets/site.js"></script></body></html>

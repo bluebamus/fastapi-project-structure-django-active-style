@@ -5,7 +5,7 @@
 
 - 설치·실행·API 목록은 [README](../../README.md), 새 기능을 만드는 절차는
   [기능 개발 가이드](./DEVELOPMENT.md)를 봅니다.
-- §3~§9 의 흐름을 도식으로 따라가려면 [서버 수명주기 안내서](./server-lifecycle-guide.html)를 엽니다.
+- §3~§9 의 흐름을 도식으로 따라가려면 [서버 수명주기 안내서](./workflows/server-lifecycle.html)를 엽니다.
   표·목록의 원문은 이 문서입니다.
 - 코드와 이 문서가 다르면 **코드가 정답**입니다. 차이를 발견하면 이 문서를 고칩니다.
 
@@ -761,7 +761,7 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
   (`tests/test_admin_disabled.py`). 관리 화면을 쓰지 않는 배포는 끕니다.
 - `User.hashed_password` 는 목록·상세·폼·내보내기 어디에도 나오지 않고, `User` 는 Admin 에서
   생성할 수 없습니다(비밀번호 없는 계정 방지). 구조 증거: `tests/core/test_admin_views.py`.
-- 설계·흐름도·위협 모델·운영 절차 전체: [admin 인증 안내서](admin-auth-guide.html).
+- 설계·흐름도·위협 모델·운영 절차 전체: [admin 인증 안내서](workflows/admin-authentication.html).
 
 ### 10.4 현재 한계 — 외부 공개 전에 결정할 것
 

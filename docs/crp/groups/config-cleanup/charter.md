@@ -10,7 +10,7 @@
 | 설정 | `config.py` | 소스 | `SMTPSettings`·`UploadSettings` 클래스·팩토리·싱글턴 삭제, `SessionSettings.SESSION_EXPIRE_SECONDS` 삭제, `validate_deployment_safety` 의 `SMTP_PASSWORD` 항목 삭제 |
 | 예시 설정 | `.env.example` | 설정 | SMTP 절·업로드 절·`SESSION_EXPIRE_SECONDS` 줄 삭제 |
 | 테스트 | `tests/core/test_settings_contract.py`(계약 2건 추가), `tests/core/test_deployment_safety.py`(SMTP 항목 삭제) | 테스트 | |
-| 문서 | `README.md`(빠른 시작 표·환경 설정·세션·토큰 만료 표·업그레이드 노트·운영 배포·인증 흐름·CRP 목록), `docs/guides/ARCHITECTURE.md`(§4.2·§4.3·배포 게이트·§10 설정 표·§14), `docs/guides/server-lifecycle-guide.html`, `docs/guides/admin-auth-guide.html` | 문서 | |
+| 문서 | `README.md`(빠른 시작 표·환경 설정·세션·토큰 만료 표·업그레이드 노트·운영 배포·인증 흐름·CRP 목록), `docs/guides/ARCHITECTURE.md`(§4.2·§4.3·배포 게이트·§10 설정 표·§14), `docs/guides/workflows/server-lifecycle.html`, `docs/guides/workflows/admin-authentication.html` | 문서 | |
 
 - 기준선: base `ad59b1f`(main) · alembic head `a7c3e9f1b2d4`(변경 없음).
 
@@ -22,7 +22,7 @@
 | 로깅 | `app/utils/logs/config.py`·`setup.py`·`formatters.py`, `app/celery/worker_lifecycle.py` | 소스 | 형식·날짜·콘솔 on/off 연결, `console_enabled()` 단일 판단, `adopt_external_handlers()`, 전부 꺼짐 경고 |
 | 예시 설정 | `.env.example` | 설정 | API 절 삭제, 로그 키 주석을 실제 동작대로 |
 | 테스트 | `tests/utils/test_log_settings_wiring.py`(신규), `tests/utils/test_log_redaction.py`(사용자 형식 마스킹 1건), `tests/core/test_settings_contract.py`(예외 목록 삭제·`API_VERSION` 무시) | 테스트 | |
-| 문서 | `README.md`, `docs/guides/ARCHITECTURE.md`(§4.2·§5·§14), `docs/guides/DEVELOPMENT.md`, `docs/guides/feature-development-guide.html`, `docs/guides/server-lifecycle-guide.html` | 문서 | |
+| 문서 | `README.md`, `docs/guides/ARCHITECTURE.md`(§4.2·§5·§14), `docs/guides/DEVELOPMENT.md`, `docs/guides/workflows/feature-development.html`, `docs/guides/workflows/server-lifecycle.html` | 문서 | |
 
 ## 2. 계약 (Contract)
 
