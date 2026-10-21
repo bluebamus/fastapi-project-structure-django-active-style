@@ -52,3 +52,23 @@
 - `-m e2e`: Windows 237 passed(skip·xfail 0), Linux WSL 네이티브 `.env` 없는 클론 237 passed. 인벤토리 실행 칸 325·N/A 76·빈 칸 0.
 - `-m "not mysql"`: Windows·Linux 통과(skip 0). `-m mysql`: 44 passed(e2e primary 의 전용 DB, skip 0).
 - 열린 항목은 Policy 3건(P-001~P-003)뿐 — 사용자 결정 대기.
+
+### Round 3 — 2026-10-21 REQ-003 (base `1f93f47`, 브랜치 `fix/e2e-policy-2`)
+- 결정별 확인(코드·테스트 먼저):
+  - 1 해당(확인 시 33 operation 이 `HTTPValidationError` 광고) → 고침 `7df4a54`. 2 해당 → 한때 보류(사용자 설명 요청) 뒤 ① 로 확정 → 고침 `626e506`.
+  - 3 이미 충족 → 계약 `02018e4`. 4 해당 → 고침 `c8758ed`·`cc34570`. 5 해당(`/me` 가 replica) → 고침 `bea5b38`.
+  - 6 이미 충족 → 계약 `af46062`. 7 이 저장소에도 같은 무제한 버퍼링이 있어 적용 → 고침 `341f584`.
+- 감독자 커밋 `69fae9a`·`93f7860`(docs/guides 구조 개편 — 안내서 3개를 `workflows/` 로, `index.html`) 위에서 마무리.
+- fail-on-revert(수정 전 파일을 작업 폴더 밖에 복사해 두고 HEAD 판으로 바꿔 실행한 뒤 복원):
+  결정 1 계약 1건 실패, 결정 2 단위 3건 실패·e2e 연결 리셋(`ReadError 10054`), 결정 4 새 테스트 2건 실패(폐기 호출만 지운 변이),
+  결정 5 2건 실패, 결정 7 4건 실패, 의존성 선언 계약 1건 실패.
+  이미 충족 2건은 변이로 확인 — 결정 3 `UnauthorizedException` 기본 헤더 제거 시 실패, 결정 6 응답 시작 표시를 저장 앞으로 옮기면 실패.
+- 검사(최종 HEAD): `-m e2e` 238 passed(skip·xfail 0), `-m "not mysql"` 1444 passed(skip 0), `-m mysql` 44 passed(e2e primary 안
+  전용 DB `fastapi_active_test`, utf8mb4_unicode_ci), ruff·format·mypy(207 파일) 통과, review_gate static·structure·supply·docs·deps
+  (pip-audit 포함) 통과. 결정 2 를 넣기 전 HEAD(`92de346`)에서도 `-m "not mysql"`·`-m e2e` 를 돌렸다(e2e 2건은 TTL 시점 경쟁 → `ae33f8a`).
+  6379 접속 0(실행 동안 1초마다 `netstat` 표본).
+- 측정(결정 7, e2e, Windows): 413(Content-Length 11 MiB) 1회 + 413(chunked 10 MiB 초과) 5회 + 400(필드 2 MiB) 1회 — uvicorn RSS
+  118.6 MB → 122.4 MB(+3.7 MiB, 본문 10 MiB 초과 요청 6회 뒤)(산출물 `measure-csrf-body-limit-rss.txt`).
+- 찾은 결함(이번 변경 안): mypy `no-any-return`(`Redis.from_url` 이 Any) → `cc34570`. RSS 측정이 Windows venv 런처(자식으로 실제
+  인터프리터를 띄움)를 재고 있었다(4 MiB 고정) → `92de346`. 레이트 리밋 e2e 의 TTL 검사가 느린 실행에서 창 끝(0)을 읽어 실패 →
+  `ae33f8a`(테스트의 시점 경쟁, 앱 동작과 무관).
