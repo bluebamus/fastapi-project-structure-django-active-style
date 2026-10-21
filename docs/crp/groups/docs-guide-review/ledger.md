@@ -44,3 +44,9 @@
 | R-03 | LOW | OUTDATED | Fix | **Fixed** | `4655a3a` | README 권한 표 아래 "서명 세션 쿠키" → Redis 서버 세션 (F-01) |
 | R-04 | LOW | WRONG | Fix | **Fixed** | `4655a3a` | README 로깅 `filters` 행을 핸들러별로 (A-10) |
 | R-05 | LOW | WRONG | Fix | **Fixed** | `4655a3a` | README 문제 해결 — 식별자 아닌 디렉터리는 마운트 누락이 아니라 `AppContractError` (A-09) |
+
+## 후속 (2026-10-21, 사용자 "고쳐줘")
+
+| ID | 구분 | 위치 | 내용 | 상태 |
+|---|---|---|---|---|
+| R-1302 | README | 문서 안내 `docs/crp/groups/` 행 | 빠진 그룹 `access-policy`·`integration-e2e`·`docs-guide-review` 추가 | Fixed |
