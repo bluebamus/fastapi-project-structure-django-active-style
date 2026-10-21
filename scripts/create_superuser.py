@@ -9,6 +9,8 @@ API 에는 "첫 슈퍼유저" 를 만드는 경로가 없다(가입은 항상 �
 
 - 사용자명이 없으면 새 슈퍼유저를 만든다 — 이메일·비밀번호가 필요하다.
 - 이미 있으면 슈퍼유저로 **승격**한다. 비밀번호는 ``--set-password`` 를 줄 때만 바꾼다.
+  바꾸면 API 의 비밀번호 변경과 같게 그 사용자의 refresh 토큰과 ``/admin`` 관리 세션을 커밋 전에 폐기한다.
+  Redis 에 닿지 못하면 종료 코드 2 로 끝나고 비밀번호도 바꾸지 않는다(fail-closed).
 
 비밀번호는 인자로 받지 않는다(셸 기록·프로세스 목록에 남는다). 대화형이면 ``getpass``
 로 두 번 묻고, 자동화는 ``--password-stdin`` 으로 표준 입력 한 줄을 읽는다
@@ -38,17 +40,27 @@ from collections.abc import Callable, Sequence
 from contextlib import AbstractAsyncContextManager
 from typing import TextIO
 
+from redis.asyncio import Redis
+from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.session import background_db_session
-from app.core.security.dependencies import get_password_hasher
+from app.core.resources import REDIS_TIMEOUT_SECONDS
+from app.core.security.dependencies import (
+    get_admin_session_store,
+    get_password_hasher,
+    get_refresh_token_store,
+    get_token_service,
+)
 from app.core.security.password_hasher import (
     PASSWORD_MAX_LENGTH,
     PASSWORD_MIN_LENGTH,
     PasswordHasher,
 )
 from app.features.user.repositories.user_repository import UserRepository
+from app.features.user.services.user_service import Revocation, revoke_user_access
 from app.utils.validators import EMAIL_PATTERN
+from config import redis_settings
 
 SessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
 
@@ -122,20 +134,49 @@ async def create_or_promote(
     return False
 
 
+def _redis_from_settings() -> Redis:
+    return Redis.from_url(
+        redis_settings.REDIS_URL,
+        socket_connect_timeout=REDIS_TIMEOUT_SECONDS,
+        socket_timeout=REDIS_TIMEOUT_SECONDS,
+    )
+
+
+async def _revoke_sessions(redis_factory: Callable[[], Redis], user_id: str) -> None:
+    """API 의 비밀번호 변경과 같은 폐기 — 그 사용자의 refresh family 와 관리 세션(e2e-policy-2 결정 4)."""
+    redis = redis_factory()
+    try:
+        await revoke_user_access(
+            get_refresh_token_store(redis, get_token_service()),
+            get_admin_session_store(redis),
+            user_id,
+            Revocation(admin_sessions=True, refresh=True),
+        )
+    finally:
+        await redis.aclose()
+
+
 async def _run(
     args: argparse.Namespace,
     session_factory: SessionFactory,
     hasher: PasswordHasher,
     stdin: TextIO,
+    redis_factory: Callable[[], Redis],
 ) -> str:
     async with session_factory() as session:
-        exists = await UserRepository(session).get_by_username(args.username) is not None
+        user = await UserRepository(session).get_by_username(args.username)
         password = (
-            _read_password(args.password_stdin, stdin) if not exists or args.set_password else None
+            _read_password(args.password_stdin, stdin)
+            if user is None or args.set_password
+            else None
         )
         created = await create_or_promote(
             session, hasher, username=args.username, email=args.email, password=password
         )
+        if user is not None and password is not None:
+            # 커밋 **전에** 끊는다 — Redis 에 닿지 못하면 예외로 커밋을 건너뛴다(fail-closed, 비밀번호 그대로).
+            # 폐기 뒤 커밋이 실패하면 세션만 끊기고 비밀번호는 그대로다(안전한 쪽).
+            await _revoke_sessions(redis_factory, user.id)
         await session.commit()
     if created:
         return f"슈퍼유저 '{args.username}' 를 만들었습니다."
@@ -149,8 +190,9 @@ def main(
     session_factory: SessionFactory = background_db_session,
     hasher: PasswordHasher | None = None,
     stdin: TextIO | None = None,
+    redis_factory: Callable[[], Redis] = _redis_from_settings,
 ) -> int:
-    """CLI 진입점. 테스트는 세션 팩토리·해시기·표준 입력을 바꿔 넣는다."""
+    """CLI 진입점. 테스트는 세션 팩토리·해시기·표준 입력·Redis 를 바꿔 넣는다."""
     args = _parse_args(argv)
     if not 1 <= len(args.username) <= 100:
         print("사용자명은 1~100자여야 합니다.", file=sys.stderr)
@@ -160,11 +202,24 @@ def main(
         return 1
     try:
         message = asyncio.run(
-            _run(args, session_factory, hasher or get_password_hasher(), stdin or sys.stdin)
+            _run(
+                args,
+                session_factory,
+                hasher or get_password_hasher(),
+                stdin or sys.stdin,
+                redis_factory,
+            )
         )
     except CommandError as exc:
         print(str(exc), file=sys.stderr)
         return 1
+    except RedisError as exc:
+        print(
+            f"Redis 에 닿지 못해 세션을 폐기하지 못했습니다 — 비밀번호를 바꾸지 않았습니다"
+            f"({type(exc).__name__}).",
+            file=sys.stderr,
+        )
+        return 2
     print(message)
     return 0
 

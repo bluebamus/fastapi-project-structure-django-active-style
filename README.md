@@ -605,7 +605,9 @@ uv run python -m scripts.create_superuser --username alice
 ```
 
 스크립트는 API 와 같은 부품(`background_db_session`, core `get_password_hasher` 의 Argon2,
-`UserRepository`)으로 조립하고 한 번 커밋합니다. 만든 계정으로 `/admin` 에도 로그인합니다
+`UserRepository`)으로 조립하고 한 번 커밋합니다. `--set-password` 로 기존 사용자의 비밀번호를 바꾸면
+API 의 비밀번호 변경과 같게 그 사용자의 refresh 토큰과 `/admin` 관리 세션을 커밋 전에 폐기합니다 —
+Redis 에 닿지 못하면 종료 코드 2 로 끝나고 비밀번호도 바꾸지 않습니다(fail-closed). 만든 계정으로 `/admin` 에도 로그인합니다
 (`ADMIN_DISABLED=false` 일 때). 그 뒤의 관리자는 관리자가 `POST /api/v1/user/users`
 (`"is_superuser": true`) 또는 `PATCH /api/v1/user/users/{user_id}` 로 만듭니다.
 

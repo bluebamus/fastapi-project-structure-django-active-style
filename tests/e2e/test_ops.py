@@ -17,7 +17,17 @@ from typing import Any
 
 import pytest
 
-from tests.e2e.conftest import DATABASE, DB_USER, HOST, REPO, Proc, app_env, run, wait_until
+from tests.e2e.conftest import (
+    DATABASE,
+    DB_USER,
+    HOST,
+    REPO,
+    AdminClient,
+    Proc,
+    app_env,
+    run,
+    wait_until,
+)
 
 V1 = "/api/v1"
 
@@ -103,6 +113,9 @@ def test_create_superuser_promotes_and_sets_password(api, stack, cover):
     with stack.mysql() as conn, conn.cursor() as cur:
         cur.execute("SELECT is_superuser FROM users WHERE id=%s", (user.id,))
         assert cur.fetchone() == (1,)
+    admin = AdminClient(stack)
+    assert admin.login(user.username, user.password).status_code == 302
+    assert admin.request("GET", "/admin/").status_code == 200
     new_password = "Pw-" + secrets.token_urlsafe(12)
     changed = run(
         stack,
@@ -118,12 +131,11 @@ def test_create_superuser_promotes_and_sets_password(api, stack, cover):
     assert new_password not in changed.stdout + changed.stderr
     assert api.login(user.username, user.password).status_code == 401
     assert api.login(user.username, new_password).status_code == 200
-    # 측정(P-002): 스크립트의 비밀번호 변경이 기존 refresh 를 끊는가 — 정책 결정 대기라 값만 남긴다.
-    survived = api.request("POST", f"{V1}/auth/refresh", json={"refresh_token": user.refresh})
-    (stack.artifacts / "measure-set-password-refresh.txt").write_text(
-        f"create_superuser --set-password 뒤 기존 refresh: {survived.status_code}\n",
-        encoding="utf-8",
-    )
+    # e2e-policy-2 결정 4(P-002): API 의 비밀번호 변경과 같게 기존 refresh 와 관리 세션이 끊긴다.
+    revoked = api.request("POST", f"{V1}/auth/refresh", json={"refresh_token": user.refresh})
+    assert revoked.status_code == 401, revoked.text
+    assert admin.request("GET", "/admin/").status_code == 302  # 로그인 화면으로
+    admin.close()
     cover("L6", "2 create_superuser 생성·승격·비밀번호")
 
 
