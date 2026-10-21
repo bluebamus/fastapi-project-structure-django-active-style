@@ -13,7 +13,9 @@ dependencies = [
     "alembic (>=1.15.1,<2.0.0)",
     "pydantic (>=2.10.6,<3.0.0)",
     "pydantic-settings (>=2.8.1,<3.0.0)",
-    "aiomysql (>=0.3.0,<0.4.0)",
+    # aiomysql[rsa] = PyMySQL[rsa] = cryptography: MySQL 8.4 caching_sha2_password 전체 인증(TLS 아닌 연결)의
+    # RSA 암호화. 서버 인증 캐시가 빈 순간(재기동·replica)에 필요하다 — 없으면 모든 DB 요청이 500 (integration-e2e F-001).
+    "aiomysql[rsa] (>=0.3.0,<0.4.0)",
     "uvicorn[standard] (>=0.54.0,<0.55.0)",
     "user-agents (>=2.2.0,<3.0.0)",
     "scalar-fastapi (>=1.0.0,<2.0.0)",
@@ -27,9 +29,7 @@ dependencies = [
     "python-dotenv (>=1.0.0,<2.0.0)",
     "tzdata>=2026.2",
     "celery[redis]>=5.4,<6.0",
-    # [rsa] = cryptography. aiomysql 은 TLS 없이 붙으므로, 서버 인증 캐시가 빈 순간(재기동·replica)의
-    # caching_sha2_password 전체 인증은 RSA 암호화가 필요하다 — 없으면 모든 DB 요청이 500 (integration-e2e F-001).
-    "pymysql[rsa]>=1.2.0",
+    "pymysql>=1.2.0",
     "pyjwt>=2.13.0",
     "python-multipart>=0.0.32",
     "bcrypt>=5.0.0",
