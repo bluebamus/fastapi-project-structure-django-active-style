@@ -11,6 +11,7 @@ lifespan·Admin 활성화 분기).
 """
 
 import asyncio
+import inspect
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
@@ -419,8 +420,9 @@ async def answer_unhandled_exception(
     except Exception as exc:
         if app_settings.DEBUG:
             raise
-        response: Response = await app.exception_handlers[Exception](request, exc)
-        return response
+        # 처리기 표의 타입은 동기·비동기 합집합이다(이 앱의 처리기는 비동기).
+        result = app.exception_handlers[Exception](request, exc)
+        return await result if inspect.isawaitable(result) else result
 
 
 # 라우터 취합 — 발견된 앱의 `<name>_router` 를 registry 가 /api 에 마운트한다.
