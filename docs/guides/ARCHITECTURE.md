@@ -743,7 +743,9 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
   리밋·자격 확인 **전에** `csrf_valid`(bytes `hmac.compare_digest`)로 비교합니다. 로그인 이후의 모든
   POST·PUT·PATCH·DELETE(생성·수정·삭제·일괄 삭제·가져오기·로그아웃)는 하위 앱의 `AdminCsrfMiddleware` 가
   헤더 `X-CSRF-Token` 또는 폼 필드 `csrf_token`(본문 버퍼링 후 receive 재생)을 같은 함수로 비교해 403 으로
-  막습니다(로그인 POST 는 건너뜀 — 검사는 한 번). 토큰은 `app/templates/admin/sqladmin/base.html`(원본
+  막습니다(로그인 POST 는 건너뜀 — 검사는 한 번). 버퍼링하는 폼 본문은 10 MiB 까지입니다 — `Content-Length` 로
+  먼저, 없거나 거짓이면 읽는 도중 누적 크기로 판정해 넘으면 413, 1 MiB 를 넘는 필드(starlette 폼 파서 기본 상한)나
+  깨진 폼은 400 입니다(e2e-policy-2 결정 7, 상한은 `admin_auth.py` 의 상수). 토큰은 `app/templates/admin/sqladmin/base.html`(원본
   `sqladmin_original/base.html` 상속, `head_tail` 블록만 추가)의 meta 와 인라인 스크립트가 폼 제출·XHR·fetch
   에 붙입니다. 로그아웃은 `_make_logout_post_only` 가 POST 전용으로 바꾸고(GET 405) 스크립트가 링크를
   POST 폼으로 바꿉니다. sqladmin 원본이 어긋나면 `test_packaged_templates_still_fit_the_base_override` 가 실패합니다.

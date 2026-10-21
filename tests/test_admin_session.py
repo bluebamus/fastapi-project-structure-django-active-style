@@ -789,3 +789,88 @@ async def test_save_does_not_resurrect_a_revoked_session():
     assert await redis.keys("admin:*") == []
     await store.save("sid", {"user_id": "u1"}, store.now(), create=True)  # 새 세션은 만든다
     assert await redis.exists(store.key("sid"))
+
+
+# =============================================================================
+# CSRF 본문 버퍼링 상한 (e2e-policy-2 결정 7) — 본문 10 MiB 초과 413, 필드 1 MiB 초과 400
+# =============================================================================
+_MiB = 1024 * 1024
+
+
+async def _post_form(client, body: bytes, *, chunked: bool = False, multipart: str | None = None):
+    content_type = (
+        f"multipart/form-data; boundary={multipart}"
+        if multipart
+        else "application/x-www-form-urlencoded"
+    )
+
+    async def chunks():
+        for i in range(0, len(body), _MiB):
+            yield body[i : i + _MiB]
+
+    return await client.post(
+        "/admin/product/create",
+        content=chunks() if chunked else body,
+        headers={"Content-Type": content_type},
+    )
+
+
+@pytest.mark.parametrize("chunked", [False, True], ids=["content-length", "chunked"])
+async def test_form_body_over_10_mib_is_413(env, chunked):
+    client, maker, *_ = env
+    await _logged_in(env)
+    token = await page_token(client)
+    body = f"csrf_token={token}&name=x&pad=".encode() + b"a" * (10 * _MiB)
+
+    response = await _post_form(client, body, chunked=chunked)
+
+    assert response.status_code == 413, response.text[:200]
+    assert await _count_products(maker) == 0
+    assert (await client.get("/admin/")).status_code == 200
+
+
+async def test_urlencoded_field_over_1_mib_is_400(env):
+    client, maker, *_ = env
+    await _logged_in(env)
+    token = await page_token(client)
+    body = f"csrf_token={token}&name=x&price=1&pad=".encode() + b"a" * (_MiB + 1)
+
+    response = await _post_form(client, body)
+
+    assert response.status_code == 400, response.text[:200]
+    assert await _count_products(maker) == 0
+
+
+async def test_multipart_field_over_1_mib_is_400(env):
+    client, maker, *_ = env
+    await _logged_in(env)
+    token = await page_token(client)
+    boundary = "b0undary"
+    parts = [("csrf_token", token.encode()), ("name", b"x"), ("pad", b"a" * (_MiB + 1))]
+    body = (
+        b"".join(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n'.encode()
+            + value
+            + b"\r\n"
+            for name, value in parts
+        )
+        + f"--{boundary}--\r\n".encode()
+    )
+
+    response = await _post_form(client, body, multipart=boundary)
+
+    assert response.status_code == 400, response.text[:200]
+    assert await _count_products(maker) == 0
+
+
+async def test_form_at_the_limits_still_reaches_the_view(env):
+    """상한 아래의 큰 폼(필드 1 MiB 이하, 본문 10 MiB 이하)은 그대로 통과한다 — 토큰이 맞으면 저장."""
+    client, maker, *_ = env
+    await _logged_in(env)
+    token = await page_token(client)
+    body = f"csrf_token={token}&name=big&price=1&save=Save&pad=".encode() + b"a" * (_MiB - 4)
+
+    response = await _post_form(client, body)
+
+    assert response.status_code == 302, response.text[:200]
+    assert await _count_products(maker) == 1

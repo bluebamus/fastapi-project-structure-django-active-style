@@ -77,6 +77,11 @@ _UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _FORM_TYPES = ("application/x-www-form-urlencoded", "multipart/form-data")
 # 로그에 싣는 사용자명 길이 상한 — 폼 값은 클라이언트 입력이라 길이를 믿지 않는다.
 _LOG_USERNAME_MAX = 64
+# CSRF 검사를 위해 버퍼링하는 폼 본문의 상한(e2e-policy-2 결정 7). 넘으면 413. 필드 하나의 상한(1 MiB)은
+# starlette 폼 파서의 기본값(``max_part_size``)이 집행한다 — 넘으면 400.
+MAX_FORM_BODY_BYTES = 10 * 1024 * 1024
+BODY_TOO_LARGE_MESSAGE = "요청 본문이 너무 큽니다."
+FORM_INVALID_MESSAGE = "폼을 읽을 수 없습니다(필드가 너무 크거나 형식이 잘못됐습니다)."
 
 
 class AdminAuthBackend(AuthenticationBackend):
@@ -209,8 +214,10 @@ class AdminCsrfMiddleware:
 
     토큰은 헤더 ``X-CSRF-Token`` 을 먼저 보고, 없으면 폼 본문의 ``csrf_token`` 을 본다. 폼을 읽을
     때는 본문 전체를 버퍼링한 뒤 같은 바이트를 다운스트림에 다시 흘려보낸다(receive 재생) —
-    sqladmin 이 폼을 한 번 더 읽어야 하기 때문이다. 큰 업로드(CSV 가져오기)는 스크립트가 헤더로
-    보내므로 버퍼링하지 않는다. 실패는 403 텍스트 응답(로그인 화면이 아니다 — 삭제 모달의 AJAX
+    sqladmin 이 폼을 한 번 더 읽어야 하기 때문이다. 버퍼링하는 본문은 10 MiB 까지다 — 넘으면 413
+    (``Content-Length`` 로 먼저, 없거나 거짓이면 읽는 도중 누적 크기로). 1 MiB 를 넘는 필드나 깨진 폼은
+    400 이다(e2e-policy-2 결정 7). 큰 업로드(CSV 가져오기)는 스크립트가 헤더로
+    보내므로 버퍼링하지 않는다. 토큰 실패는 403 텍스트 응답(로그인 화면이 아니다 — 삭제 모달의 AJAX
     오류 처리도 텍스트를 그대로 띄운다). 로그인 POST 는 ``AdminAuthBackend.login`` 이 같은
     ``csrf_valid`` 로 직접 검사하므로 건너뛴다(한 요청에 한 번).
     """
@@ -229,9 +236,22 @@ class AdminCsrfMiddleware:
         headers = Headers(scope=scope)
         submitted: object = headers.get(CSRF_HEADER)
         if submitted is None and headers.get("content-type", "").startswith(_FORM_TYPES):
-            body = await _read_body(receive)
+            # 먼저 Content-Length 로, 없거나 거짓이면 읽는 도중의 누적 크기로 판정한다.
+            length = headers.get("content-length", "")
+            body = (
+                None
+                if length.isdigit() and int(length) > MAX_FORM_BODY_BYTES
+                else await _read_body(receive, MAX_FORM_BODY_BYTES)
+            )
+            if body is None:
+                await _reject(scope, receive, send, 413, BODY_TOO_LARGE_MESSAGE)
+                return
             receive = _replay(body, receive)
-            submitted = await _form_token(scope, body)
+            try:
+                submitted = await _form_token(scope, body)
+            except (HTTPException, MultiPartException):
+                await _reject(scope, receive, send, 400, FORM_INVALID_MESSAGE)
+                return
         if not csrf_valid(scope.get("session") or {}, submitted):
             logger.warning(
                 "[AdminCsrf] CSRF 토큰 없음·불일치 — 403",
@@ -249,16 +269,31 @@ def _route_path(scope: Scope) -> str:
     return path[len(root) :] if root and path.startswith(root) else path
 
 
-async def _read_body(receive: Receive) -> bytes:
+async def _read_body(receive: Receive, limit: int) -> bytes | None:
+    """본문을 끝까지 읽는다. 누적 크기가 ``limit`` 을 넘으면 그 자리에서 멈추고 None."""
     chunks = []
+    size = 0
     while True:
         message = await receive()
         if message["type"] != "http.request":
             break
-        chunks.append(message.get("body", b""))
+        chunk = message.get("body", b"")
+        size += len(chunk)
+        if size > limit:
+            return None
+        chunks.append(chunk)
         if not message.get("more_body", False):
             break
     return b"".join(chunks)
+
+
+async def _reject(scope: Scope, receive: Receive, send: Send, status: int, message: str) -> None:
+    logger.warning(
+        "[AdminCsrf] 폼 본문 거부 — %d",
+        status,
+        extra={"method": scope["method"], "path": scope["path"]},
+    )
+    await PlainTextResponse(message, status_code=status)(scope, receive, send)
 
 
 def _replay(body: bytes, receive: Receive) -> Receive:
@@ -281,10 +316,8 @@ async def _no_more() -> Message:
 
 async def _form_token(scope: Scope, body: bytes) -> object:
     request = Request(scope, _replay(body, _no_more))
-    try:
-        form = await request.form()
-    except (HTTPException, MultiPartException):
-        return None  # 깨진 폼 — 토큰 없음으로 다룬다(403)
+    # 1 MiB 를 넘는 필드·깨진 폼은 파서가 예외를 올린다 — 호출자가 400 으로 끝낸다.
+    form = await request.form()
     try:
         return form.get(CSRF_FIELD)
     finally:
