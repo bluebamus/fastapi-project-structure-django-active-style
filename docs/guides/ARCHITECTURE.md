@@ -732,7 +732,7 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
   해시 변경일 때만, 변경 전후 비교)·`on_model_delete` 가 `UserService` 와 같은 판정 `revocation_for`·폐기
   `revoke_user_access` 를 부릅니다(규칙 한 곳 — 관리 화면 경로 = API 경로). 비활성화·슈퍼유저 해제·비밀번호 해시
   변경·삭제면 관리 세션과 refresh 를 모두 끊습니다. Redis 폐기가 실패하면 예외로 커밋이 막혀 DB 변경이 남지 않습니다(fail-closed).
-  자기 강등은 지금 세션도 끊습니다. 매 요청 DB 확인도 유지합니다(이중 방어). Redis 오류는 503 입니다(fail-closed).
+  자기 강등은 지금 세션도 끊습니다. 매 요청 DB 확인도 유지합니다(이중 방어). Redis 오류는 503 입니다(fail-closed) — 쿠키 없는 첫 요청처럼 응답 직전에 새 세션을 저장하다 실패해도 같습니다.
 - **세션은 관리 화면 전용입니다.** 메인 앱에는 세션 미들웨어가 없고, API 보호 경로는 Bearer
   토큰만 봅니다 — 관리 세션 쿠키로 API 를 호출해도 401 입니다. 회귀 가드: `tests/test_admin_login.py`
   의 세션 범위 테스트.

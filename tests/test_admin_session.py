@@ -267,6 +267,26 @@ async def test_redis_failure_fails_closed_with_503(tmp_path, failure):
     assert response.status_code == 503  # 통과(200)도 500 도 아니다
 
 
+class _WriteBrokenRedis(FakeAsyncRedis):
+    async def set(self, *args, **kwargs):
+        raise RedisConnectionError("down")
+
+
+async def test_session_save_failure_on_cookieless_first_request_is_503(tmp_path):
+    """쿠키 없는 첫 요청(로그인 화면)은 응답 직전에 새 세션을 저장한다 — 그 저장이 실패해도 500 이 아니라
+    503 이다 (e2e-policy-2 결정 6)."""
+    engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'a.db').as_posix()}")
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    broken = _WriteBrokenRedis()
+    app = build_admin_app(engine, maker, broken, lambda: session_store(broken))
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/admin/login")
+    await engine.dispose()
+
+    assert response.status_code == 503
+    assert "set-cookie" not in response.headers
+
+
 @pytest.mark.parametrize(
     ("values", "message"),
     [

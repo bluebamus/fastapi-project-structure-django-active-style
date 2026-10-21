@@ -97,6 +97,10 @@ def test_redis_outage_fails_closed_with_503_and_recovers(app, api, stack, superu
             assert call("GET", f"{V1}/blog/posts").status_code == 200  # Redis 를 안 쓰는 읽기
             # 관리 화면: fail-closed 503, 사용자 변경은 저장되지 않는다
             assert admin_client.request("GET", "/admin/").status_code == 503
+            # 쿠키 없는 첫 요청 — 응답 직전의 새 세션 저장이 실패해도 503(e2e-policy-2 결정 6)
+            first = call("GET", "/admin/login")
+            assert first.status_code == 503, first.text
+            no_leak(stack, first)
             changed = admin_client.request(
                 "POST", f"/admin/user/edit/{target.id}", data={"is_active": ""}
             )
