@@ -72,10 +72,13 @@ uv run python -m scripts.new_app <name> --force         # 이미 있는 앱을 �
 - 이름은 파이썬 식별자(snake_case)여야 하고 예약어·`app/features` 밖 경로는 거부됩니다. 대상 앱이
   이미 있으면 기본적으로 중단합니다. `--category` 는 동작에 영향 없는 호환용 옵션입니다.
 - 생성물: `api/routers/v1/`·`models/`·`schemas/`·`services/`·`repositories/`·`dependencies/`·`tests/`
-  패키지, 빈 `<name>_router` 가 있는 `api/routers/router.py`, 예시 주석만 있는
-  `dependencies/<name>_dependencies.py`, (`--with-admin`) `admin_views: list[type] = []` 인 `admin.py`.
-- **만들지 않는 것**: `models/models.py`, `apps.py`, v1 엔드포인트 파일, 스키마·Repository·Service
-  본문, 테스트, migration. 아래를 직접 작성합니다.
+  패키지, 빈 `<name>_router` 가 있는 `api/routers/router.py`, 예시 뷰 `GET /ping`(`dependencies=[Public]`)
+  하나가 든 `api/routers/v1/<name>.py`, 예시 주석만 있는 `dependencies/<name>_dependencies.py`,
+  (`--with-admin`) `admin_views: list[type] = []` 인 `admin.py`.
+- 예시 뷰는 `router.py` 가 v1 서브라우터를 include 하기 전까지 **서빙되지 않습니다**. include 할 때
+  `tags_metadata` 와 `tests/test_route_inventory.py` 도 함께 갱신합니다(`router.py` 주석에 예시가 있습니다).
+- **만들지 않는 것**: `models/models.py`, `apps.py`, 스키마·Repository·Service 본문, 테스트, migration.
+  아래를 직접 작성합니다.
 - 손으로 만들어도 되지만 라우터 변수명은 반드시 `<name>_router` 입니다. 그 밖의 등록 규약은
   [ARCHITECTURE §2](./ARCHITECTURE.md)가 정합니다. `main.py`·`migrations/env.py`·
   `app/features/admin.py` 는 **열지 않습니다**.
@@ -640,6 +643,18 @@ uv run python -m pytest -m "not mysql" -q
 uv run python -m scripts.review_gate --group static structure docs
 ```
 
+전수 통합(`e2e` 마커, `tests/e2e/`)은 `-m e2e` 를 줄 때만 수집됩니다. `compose.e2e.yaml`(MySQL primary·replica,
+Redis)을 띄우고, 실행마다 새 `E2E_MYSQL_PASSWORD` 를 주며, Redis 대상 `REDIS_HOST`·`REDIS_PORT` 를 둘 다
+명시합니다. 포트·대상 안전 검사·산출물은 README "전수 통합(E2E)" 이 정본입니다.
+
+```bash
+uv run python -m playwright install chromium            # 한 번
+export E2E_MYSQL_PASSWORD="$(python -c 'import secrets; print(secrets.token_hex(16))')"
+docker compose -p itest-active -f compose.e2e.yaml up -d --wait
+REDIS_HOST=127.0.0.1 REDIS_PORT=16392 uv run python -m pytest -m e2e
+docker compose -p itest-active -f compose.e2e.yaml down
+```
+
 ---
 
 ## 12. 완료 체크리스트
@@ -681,8 +696,8 @@ uv run python -m scripts.review_gate --group static structure docs
 | 문서 | 내용 |
 |---|---|
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) | 조립·설정·세션·라우팅·보안 경계 |
-| [`feature-development-guide.html`](./workflows/feature-development.html) | 이 문서의 흐름을 catalog·reports 요청 도식으로 따라가는 안내서 |
-| [`server-lifecycle-guide.html`](./workflows/server-lifecycle.html) | 설정 → 기동 → 요청 → 종료 추적 안내서 |
+| [`workflows/feature-development.html`](./workflows/feature-development.html) | 이 문서의 흐름을 catalog·reports 요청 도식으로 따라가는 안내서 |
+| [`workflows/server-lifecycle.html`](./workflows/server-lifecycle.html) | 설정 → 기동 → 요청 → 종료 추적 안내서 |
 | [`../specs/orm-raw-repository/`](../specs/orm-raw-repository/) | ORM/Raw 요구명세·개발계획·지침 원본 (착수 기준선, 코드 주석의 `workflow-guide §N` 출처) |
 | [`../crp/groups/orm-raw-repository/design-baseline.md`](../crp/groups/orm-raw-repository/design-baseline.md) | 설계 결정과 선택 근거 |
 | [`../specs/django-style-app-automation.md`](../specs/django-style-app-automation.md) | 앱 자동 등록 요구사항·설계 근거 |

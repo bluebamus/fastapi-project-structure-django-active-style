@@ -16,12 +16,13 @@
 ```text
 fastapi-project-structure-django-active-style/
 ├── main.py                 # 조립: AppRegistry 발견·결선 + 미들웨어·예외·문서·lifespan·Admin
-├── config.py               # Pydantic Settings 12종 + validate_deployment_safety()
+├── config.py               # Pydantic Settings 9종 + 설정 검사 3종(validate_env_source·validate_renamed_settings·validate_deployment_safety)
 ├── pyproject.toml          # 의존성·도구 설정 ([tool.uv] package = false, pytest env 주입)
 ├── .python-version         # 3.14 (requires-python 은 >=3.13 — TypeVar default 사용)
 ├── .env.example            # 설정 전체 목록 (config.py 와 양방향 일치를 테스트가 강제)
 ├── alembic.ini             # script_location = migrations
 ├── compose.test.yaml       # 테스트 전용 컨테이너: MySQL 8.4 (호스트 3310) · Redis 7.4 (호스트 6381)
+├── compose.e2e.yaml        # 전수 통합(e2e) 컨테이너: MySQL primary + GTID replica · Redis (§13)
 ├── app/
 │   ├── features/           # 기능 앱 — 디렉터리 존재 = 등록 선언
 │   │   ├── admin.py        # SQLAdmin 조립 진입점 register_admin() (앱이 아닌 파일)
@@ -35,13 +36,13 @@ fastapi-project-structure-django-active-style/
 │   │   ├── models/models_base.py         # Base + UUIDPrimaryKeyMixin · CreatedAtMixin · UpdatedAtMixin
 │   │   ├── repositories/   # repository_base.py·crud_base.py (ORM) / raw_repository_base.py·raw_crud_base.py (Raw)
 │   │   ├── services/services_base.py     # BaseService (commit/rollback 헬퍼)
-│   │   ├── security/       # tokens.py(TokenService) · refresh_store.py(RefreshTokenStore) · rate_limiter.py(RateLimiter)
+│   │   ├── security/       # tokens.py(TokenService) · refresh_store.py(RefreshTokenStore) · rate_limiter.py(RateLimiter) · access.py(접근 수준) · admin_session.py(관리 세션)
 │   │   └── middlewares/    # cors · user_info(접속 로그 수집) · background_tasks · access_log_sink
 │   ├── celery/             # Celery 앱: app.py(registry 로 include) · task.py(run_async) · worker_lifecycle.py
 │   └── utils/              # 순수 유틸: logs · pagination · validators
 ├── migrations/             # env.py 가 런타임과 같은 AppRegistry 로 모델 수집 / versions/
-├── scripts/                # new_app.py(앱 생성기) · review_gate.py(로컬·CI 공용 게이트)
-├── tests/                  # 횡단 테스트: core/ · integration/(MySQL) · scripts/ · utils/ · test_*.py
+├── scripts/                # new_app.py(앱 생성기) · review_gate.py(로컬·CI 공용 게이트) · create_superuser.py(첫 관리자)
+├── tests/                  # 횡단 테스트: core/ · integration/(MySQL) · e2e/(전수 통합) · scripts/ · utils/ · test_*.py
 ├── docs/                   # guides/(현행) · specs/(고정 기준선) · crp/(검수 이력)
 └── logs/ media/ static/ poc/   # 런타임·예약 디렉터리 (추적하지 않음, logs/ 는 기동 시 자동 생성)
 ```
@@ -107,8 +108,9 @@ AppRegistry.discover()            "어떤 앱이 있는가" — 부작용 0
   (`__pycache__`, 작업 중인 `_scratch` 등).
 - 순서는 **앱 이름 알파벳순**으로 고정입니다. 파일시스템 순서와 무관하게 라우트 등록 순서가
   같습니다. 앱 사이에 로딩 순서 의존을 만들지 않습니다.
-- 앱 이름은 파이썬 식별자여야 합니다. `order-items` 같은 디렉터리는 import 할 수 없어 앱이 되지
-  못합니다.
+- 앱 이름은 파이썬 식별자여야 합니다. `order-items` 같은 디렉터리도 발견·import 는 되지만(모델도
+  등록된다) `<name>_router` 를 변수로 선언할 수 없어, `router.py` 가 있으면 `AppContractError` 로 기동이
+  멈춥니다. 생성기(`scripts/new_app.py`)는 식별자가 아닌 이름을 거부합니다.
 - 폴더가 있으면 다음 부팅에 켜집니다. 실험용 코드는 `_` 로 시작하는 이름을 쓰거나
   `app/features` 밖에 둡니다.
 
@@ -216,11 +218,14 @@ main:app import
   ├─ app/core/db/session.py   엔진·세션 팩토리 생성 (아직 접속하지 않음)
   ├─ AppRegistry              discover → install_hooks → import_models
   ├─ FastAPI(...)             문서 URL(openapi_url 은 DEBUG 일 때만), lifespan
+  ├─ app.openapi = _openapi_with_actual_422     문서의 422 를 ErrorResponse 로 바꾸는 후처리(§9)
   ├─ CustomCORSMiddleware(app).configure_cors() → setup_user_info_middleware(app)
-  ├─ _register_exception_handlers(app)          4개 글로벌 핸들러
+  ├─ _register_exception_handlers(app)          5종 글로벌 핸들러(§9)
+  ├─ @app.middleware answer_unhandled_exception 가장 바깥 사용자 미들웨어 — 처리기 없는 예외를 500 으로(§9)
   ├─ registry.install_routers(app)              <name>_router → /api
   ├─ _add_health_and_docs(app)                  /health · /ready · (DEBUG) Scalar /docs
-  └─ ADMIN_DISABLED=false → register_admin(app, engine, registry)   (true 면 import·마운트 없음)
+  ├─ ADMIN_DISABLED=false → register_admin(app, engine, registry)   (true 면 import·마운트 없음)
+  └─ AccessPolicyGuard().verify(app)            모든 뷰의 접근 수준 선언 검사, 위반이면 AppContractError(§10.2)
 ASGI lifespan 진입
   └─ manage_application_resources(app)          Redis ping·버전(≥7.0) → (DEBUG) create_db_tables → yield
 ```
@@ -275,11 +280,14 @@ ASGI lifespan 진입
 |---|---|
 | `DatabaseSettings._validate_routing()` | 복제 활성인데 라우터가 꺼짐 / replica 목록이 빔 / 잘못된 replica host 표기 |
 | `CORSSettings._reject_wildcard_with_credentials()` | 와일드카드 Origin + credentials |
+| `LogSettings._format_renders()` / `_app_levels_parse()` / `_date_format_not_blank()` | 렌더할 수 없거나 필수 자리표시자가 빠진 `LOG_CONSOLE_FORMAT`·`LOG_FILE_FORMAT` / 해석할 수 없는 `LOG_APP_LEVELS` / 빈 `LOG_DATE_FORMAT` |
+| `SessionSettings._idle_within_max_age()` | `ADMIN_SESSION_IDLE_SECONDS` 가 `ADMIN_SESSION_MAX_AGE_SECONDS` 보다 김 |
 | `validate_env_source()` | `.env` 가 없으면 필수 값이 환경 변수로 와야 함(아래) |
+| `validate_renamed_settings()` | 이름이 바뀐 옛 설정(`ADMIN`)이 남아 있음(아래) |
 | `validate_deployment_safety()` | 아래 배포 게이트 |
 
-**설정 검사.** `config.py` import 마지막에 두 검사가 차례로 실행되고, 위반은 `RuntimeError` 로 기동을
-막습니다(메시지에는 설정 이름만, 값은 담지 않습니다). `ENV=test` 는 둘 다 건너뜁니다(pytest 가 지정).
+**설정 검사.** `config.py` import 마지막에 세 검사가 차례로 실행되고, 위반은 `RuntimeError` 로 기동을
+막습니다(메시지에는 설정 이름만, 값은 담지 않습니다). `ENV=test` 는 셋 다 건너뜁니다(pytest 가 지정).
 
 1. `validate_env_source()` — **출처.** `.env` 가 없으면 `REQUIRED_WITHOUT_ENV_FILE`(`ENV`·비밀 키 3종·
    `MYSQL_HOST/USER/PASSWORD/DATABASE`)이 환경 변수로 모두 있어야 합니다. 컨테이너 주입은 통과합니다.
@@ -334,8 +342,10 @@ staging/production 만:
 - **헤더(`app=`).** 판별은 `filters._app_from_path(pathname, name)` 한 함수입니다. 우리 코드는 소스 경로(기능명·`core`·`celery`·
   `utils`·`migrations`·`app`), 설치된 라이브러리는 로거 이름 표(`celery`/`kombu`→`celery`, `uvicorn`, `sqlalchemy`, `alembic`, 그 밖 `ext`).
   새 기능은 등록 없이 기능명 헤더가 붙습니다.
-- **필터 순서**(모든 핸들러): `ContextFilter`(헤더·클래스명) → `AppLevelFilter`(`LOG_APP_LEVELS`, 지정 없는 헤더는 `LOG_LEVEL`) →
-  `RedactingFilter` → `SQLNoiseFilter`. root 레벨은 `LOG_LEVEL` 과 헤더별 레벨 중 최솟값으로 내려 레코드가 필터까지 옵니다.
+- **필터 순서.** 콘솔·Celery `--logfile` 핸들러: `ContextFilter`(헤더·클래스명) → `AppLevelFilter`(`LOG_APP_LEVELS`, 지정 없는
+  헤더는 `LOG_LEVEL`) → `RedactingFilter` → `SQLNoiseFilter`. 파일 경로는 둘로 나뉩니다 — 큐 핸들러가 `ContextFilter` →
+  `AppLevelFilter` → `SQLNoiseFilter` 로 큐 앞에서 거르고, listener 뒤의 두 파일 핸들러가 `ContextFilter` → `RedactingFilter` 로
+  가립니다. 마스킹은 모든 출력처에 걸리지만 파일 쪽은 큐 뒤에서 합니다. root 레벨은 `LOG_LEVEL` 과 헤더별 레벨 중 최솟값으로 내려 레코드가 필터까지 옵니다.
   콘솔·파일 핸들러 레벨(`LOG_CONSOLE_LEVEL`·`LOG_FILE_LEVEL`)은 출력처 하한으로 그대로 적용됩니다.
 - **파일.** staging/production + `LOG_FILE_ENABLED=true` 에서만. 이름은 프로세스 종류가 정합니다(`LOG_FILES`: 웹 `app.log`·`error.log`,
   Celery `celery.log`·`celery-error.log`). 종류는 import 때 진입점(argv — `celery` CLI·`python -m celery` 면 celery)으로 정하고
@@ -433,14 +443,15 @@ queue)으로 정리합니다.
 ## 7. 요청 처리
 
 ```text
-요청 → UserInfoMiddleware → CORS → 라우터
+요청 → answer_unhandled_exception → UserInfoMiddleware → CORS → 라우터
      → Depends: 세션 generator → get_<name>_service(_readonly) → Service(session) → Repository
      → 쓰기 핸들러 본문이 await service.commit() → 응답 DTO
      → (예외면) 세션 generator 가 rollback 후 재전파 → 글로벌 예외 핸들러
      → UserInfoMiddleware 가 상태·소요시간을 붙여 접속 로그 저장 태스크 제출
 ```
 
-미들웨어는 CORS → UserInfo 순서로 등록되며, Starlette 는 나중에 등록한 것을 바깥에 둡니다.
+미들웨어는 CORS → UserInfo → `answer_unhandled_exception` 순서로 등록되며, Starlette 는 나중에 등록한 것을
+바깥에 둡니다.
 계층별 책임과 트랜잭션 경계(커밋은 쓰기 핸들러 본문이 응답 전에 한 번)는
 [기능 개발 가이드 §2·§8](./DEVELOPMENT.md)이 소유합니다.
 
@@ -456,7 +467,7 @@ core 의 `UserInfoMiddleware` 가 수집하고, home 앱의 `HomeAccessLogSink` 
    `.css .js .ico .png .jpg .jpeg .gif .svg`.
 2. `call_next()` 가 응답을 돌려주면 상태 코드와 `response_time_ms` 를 붙여
    `access_log_tasks.spawn()` 으로 저장을 제출합니다. 응답은 기다리지 않습니다.
-   처리되지 않은 예외는 **500 으로 기록한 뒤** 그대로 다시 던집니다(바깥의 500 핸들러가 응답).
+   처리되지 않은 예외는 **500 으로 기록한 뒤** 그대로 다시 던집니다(바깥의 `answer_unhandled_exception` 이 500 으로 응답, §9).
 3. `BackgroundTaskRunner` 는 동시 256개 상한을 넘으면 새 로그를 **버리고** `dropped` 를 셉니다.
    종료 시에는 수락 중단 → 5초 대기 → 남은 태스크 cancel → 취소 완료까지 await 순서로 drain 합니다.
 4. sink 는 `background_db_session()`(별도 풀)으로 `UserAccessLogService` 를 조립해 저장하고 명시
@@ -534,7 +545,8 @@ DELETE" 두 단계로 두 DB 에서 같은 쿼리를 씁니다. 실행은 Celery
 
 - 모든 generator 는 `async with` 로 세션을 열고 끝나면 닫습니다. 예외로 빠져나가도 `close()` 가
   활성 트랜잭션을 ROLLBACK 한 뒤 예외가 그대로 올라갑니다 — 명시적으로 예외를 잡는 것은 로그를
-  남기는 `get_routed_db_session`·`get_background_db_session` 둘뿐입니다.
+  남기는 `get_routed_db_session`·`get_background_db_session` 둘뿐입니다. context manager
+  `background_db_session()` 도 `except` 에서 rollback 한 뒤 다시 던집니다(로그 없음).
   **성공 시 자동 commit 하지 않습니다.**
 - FastAPI `Depends` 는 요청 안에서만 해석됩니다. 요청 밖에서는 `async with background_db_session()
   as session:` 으로 열고 Service 를 직접 조립합니다. Repository 는 세션이 어디서 왔는지 모릅니다.
@@ -591,13 +603,14 @@ beat 표시에만 쓰입니다. 리포트는 지역 날짜 범위를 UTC 반열�
 
 ## 9. 오류 응답과 health / ready
 
-글로벌 핸들러 4종이 모든 오류를 `ErrorResponse{error_code, message, detail}` 로 바꿉니다.
+글로벌 핸들러 5종이 모든 오류를 `ErrorResponse{error_code, message, detail}` 로 바꿉니다.
 
 | 예외 | 응답 |
 |---|---|
-| `AppException` 계열 (`NotFoundException`, `DuplicateException`, `ValidationException`, `DatabaseException`, 기능 예외) | 예외가 정한 상태 코드·`error_code`·`detail` |
+| `AppException` 계열 (`NotFoundException`, `DuplicateException`, `ValidationException`, `DatabaseException`, 기능 예외) | 예외가 정한 상태 코드·`error_code`·`detail`. 예외의 `headers` 를 싣는다(401 `WWW-Authenticate: Bearer`·429 `Retry-After`) |
 | `RequestValidationError` | 422, `detail` 에 `field`·`message`·`type` 목록. OpenAPI 도 모든 operation 의 422 를 이 형식(`ErrorResponse`)으로 광고한다 — FastAPI 기본 `HTTPValidationError` 는 `main.py` 의 문서 후처리가 바꾼다 |
 | Starlette `HTTPException` | 해당 상태, `error_code=HTTP_<status>`. 예외의 `headers` 를 그대로 싣는다(405 `Allow`·401 `WWW-Authenticate` 등) |
+| `redis.exceptions.ConnectionError`·`TimeoutError` | 503 `SERVICE_UNAVAILABLE`(fail-closed). traceback 은 `[RedisUnavailable]` 한 번, keep-alive 유지(§6) |
 | 그 밖의 `Exception` | 500 `INTERNAL_SERVER_ERROR`, 고정 메시지, `detail=null` — **DEBUG 여부와 무관**. 가장 바깥 사용자 미들웨어 `answer_unhandled_exception`(`main.py`, 가장 나중에 등록)이 이 처리기로 응답을 끝내 traceback 은 `[UnhandledException]` 한 번, keep-alive 연결은 유지된다(Starlette `ServerErrorMiddleware` 까지 가면 응답 뒤 예외를 다시 던져 uvicorn 이 한 번 더 남기고 연결을 닫는다). `DEBUG=true` 면 지금처럼 다시 던진다. 관리 화면(sqladmin 하위 앱)은 자기 `ServerErrorMiddleware` 가 먼저 응답하므로 해당하지 않는다 |
 
 500 의 예외 타입·route template·스택은 로그에만 남습니다(경로에 박힌 식별자 대신 template).
@@ -732,6 +745,8 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
   해시 변경일 때만, 변경 전후 비교)·`on_model_delete` 가 `UserService` 와 같은 판정 `revocation_for`·폐기
   `revoke_user_access` 를 부릅니다(규칙 한 곳 — 관리 화면 경로 = API 경로). 비활성화·슈퍼유저 해제·비밀번호 해시
   변경·삭제면 관리 세션과 refresh 를 모두 끊습니다. Redis 폐기가 실패하면 예외로 커밋이 막혀 DB 변경이 남지 않습니다(fail-closed).
+  `scripts/create_superuser.py --set-password` 로 기존 사용자의 비밀번호를 바꿀 때도 커밋 전에 같은
+  `revoke_user_access` 로 관리 세션과 refresh 를 끊습니다 — Redis 에 닿지 못하면 종료 코드 2, 비밀번호는 그대로입니다.
   자기 강등은 지금 세션도 끊습니다. 매 요청 DB 확인도 유지합니다(이중 방어). Redis 오류는 503 입니다(fail-closed) — 쿠키 없는 첫 요청처럼 응답 직전에 새 세션을 저장하다 실패해도 같습니다.
 - **세션은 관리 화면 전용입니다.** 메인 앱에는 세션 미들웨어가 없고, API 보호 경로는 Bearer
   토큰만 봅니다 — 관리 세션 쿠키로 API 를 호출해도 401 입니다. 회귀 가드: `tests/test_admin_login.py`
@@ -857,6 +872,7 @@ config.set_main_option(
 | `uv sync` | 의존성 설치 (`[tool.uv] package = false` — 루트 패키지 빌드 없음) |
 | `uv run python -m pytest` | 전체 테스트. pytest-env 가 `DEBUG=true`·`ENV=test` 를 주입, SQLite·가짜 Redis 사용 |
 | `uv run python -m pytest -m mysql` | MySQL 8.4 통합(`tests/integration/`). `127.0.0.1:3310` 에 없으면 skip (`MYSQL_TEST_PORT` 로 변경) |
+| `uv run python -m pytest -m e2e` | 전수 통합(`tests/e2e/`). `compose.e2e.yaml` 을 먼저 띄운다 — 실행법은 README "전수 통합(E2E)" |
 | `uv run ruff check .` / `uv run ruff format --check .` / `uv run mypy .` | 정적 분석 |
 | `uv run python -m scripts.review_gate [--group ...]` | CI 와 같은 판정. `--list` 로 그룹 확인 |
 
@@ -872,9 +888,16 @@ mypy 는 캐시 없이 돈 결과만 인정합니다.
 | `docs` | README·`docs/guides`·`docs/crp`·워크플로 주석이 가리키는 경로·환경변수 실재, 가르치는 문서의 옛 세션 별칭 금지 |
 | `deps` | pip-audit (네트워크 필요) |
 
-CI(`.github/workflows/ci.yml`)는 두 job 입니다: gate job 이 `static structure supply docs deps` 와
-`pytest -m "not mysql"`(skip·xfail 0 확인)을, MySQL job 이 `compose.test.yaml` 을 띄워
-`pytest -m mysql` 과 `tests` 그룹을 돌립니다. 커버리지는 gate job 의 pytest 와 `tests` 그룹이
+CI(`.github/workflows/ci.yml`)는 세 job 입니다: `gate` job 이 `static structure supply docs deps` 와
+`pytest -m "not mysql"`(skip·xfail 0 확인)을, `mysql` job 이 `compose.test.yaml` 을 띄워
+`pytest -m mysql` 과 `tests` 그룹을, `e2e` job 이 `compose.e2e.yaml` 을 띄워 `pytest -m e2e`(skip·xfail 이 있거나
+0건이면 실패, 실패 시 산출물 업로드)를 돌립니다.
+
+**전수 통합(`e2e` 마커).** `tests/e2e/` 는 `-m` 표현식에 `e2e` 가 있고 `not e2e` 가 아닐 때만 수집됩니다
+(`tests/e2e/conftest.py` 의 `pytest_ignore_collect`) — 다른 실행에는 skip·deselect 를 남기지 않습니다. 하네스는
+`compose.e2e.yaml`(MySQL primary + GTID replica, Redis) 위에서 Alembic upgrade → 슈퍼유저 생성 → uvicorn·Celery worker 를
+실제로 띄우고, 접속 대상이 `127.0.0.1` 의 고정 포트가 아니면 시작하지 않습니다. 새 API 는
+`tests/e2e/test_api_matrix.py` 의 `OPS` 에 한 줄을 더해야 `test_inventory.py` 의 대조를 통과합니다. 커버리지는 gate job 의 pytest 와 `tests` 그룹이
 `--cov=app --cov-config=pyproject.toml --cov-report=term-missing` 으로 측정·출력하고, 하한은 `pyproject.toml` 의
 `[tool.coverage.report] fail_under` 하나(기본 0 = 하한 없음 — 사용자 결정)가 정합니다.
 
