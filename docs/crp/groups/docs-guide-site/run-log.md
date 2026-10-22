@@ -15,3 +15,12 @@
 - **검사:** `.env` 없는 클론에서 `pytest -m "not mysql"` 1448 passed · 44 deselected · skip 0 · `tests/test_doc*.py` 통과 ·
   ruff check·format 통과 · 링크 검사 broken 0 · `review_gate --group docs` 통과 · 새 HTML 태그 짝 오류 0·끝 개행.
 - **수렴 판정:** `CONVERGED` (Open Fix 0)
+
+### Round 2 — 2026-10-22 (base SHA: `a2181cd`) — 2차 재검수 수정
+- **트리거:** 사용자 "2번으로 진행해줘" — round2-report 남은 결함 중 active 분(A-N1~A-N7, X-2).
+- **재확인:** 8건 모두 코드로 다시 열어 맞음(`sales_reports.py`, `user_service.revocation_for`, `tests/e2e/test_faults.py`,
+  `config.validate_deployment_safety`, `user_info_middleware._should_skip`, integration-e2e ADR-014, 두 문서 테스트의 링크 검사).
+- **정정:** Round 1 의 `CONVERGED (Open Fix 0)` 은 FT-01·FT-03·부수-1 이 일부만 고쳐진 상태였다(ledger Round 2 정정 행).
+- **Fix:** `eda2049`(테스트) · `7be79b3`(문서·docstring) · 이 기록 커밋.
+- **보강 테스트:** 저장소 밖 복사본 변이 3종 — 기존 테스트 28 passed(못 잡음), 새 테스트 3 failed → 원본에서 29 passed.
+- **수렴 판정:** `CONVERGED` (Open Fix 0, 재검수 대기)

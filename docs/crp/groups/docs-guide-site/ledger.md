@@ -51,3 +51,19 @@
 | 부수-1 | LOW | Fix | **Fixed** | `487375f` | "e2e-policy-2 결정 N" 15개 파일 → integration-e2e ADR-009/013/010/011/012·V-003/V-006 (CRP 기록은 그대로) |
 | 부수-2 | LOW | Fix | **Fixed** | `487375f` | `user_access_log_service` docstring — commit 은 쓰기 핸들러·access_log_sink |
 | X-01 | LOW | Fix(지적 밖) | **Fixed** | `487375f` | `.env.example` 의 없는 `admin-auth-guide.html` → `workflows/admin-authentication.html` |
+
+## Round 2 — 2차 재검수 남은 결함 (2026-10-22, round2-report)
+
+| ID | 심각도 | 처리 | 상태 | 커밋 | 근거·비고 |
+|---|---|---|---|---|---|
+| FT-01 정정 | MED | 정정 기록 | **1차 Fixed 는 일부만** | — | reports 도식(렌더·원문)에 commit 간선이 남았다 → A-N1 |
+| FT-03 정정 | MED | 정정 기록 | **1차 Fixed 는 일부만** | — | "권한 바뀌면 폐기" 표현이 남았다(활성화·승격은 유지) → A-N2 |
+| 부수-1 정정 | LOW | 정정 기록 | **1차 Fixed 는 일부만** | — | `tests/core/test_mysql_auth_dependency.py` 인용이 남았다 → A-N6. 1차 Round 1 의 "전부 Fixed · CONVERGED" 는 이 세 건만큼 사실과 달랐다 |
+| A-N1 | MED | Fix | **Fixed** | `7be79b3` | `features/reports.html` 도식의 commit 간선 삭제 — `sales_reports.py` GET 하나, read-only 세션 |
+| A-N2 | MED | Fix | **Fixed** | `7be79b3` | 세션 폐기는 비활성화·강등·비밀번호 변경·삭제만(`user_service.revocation_for`) — user·features 허브 |
+| A-N3 | LOW | Fix | **Fixed** | `7be79b3` | Redis 장애 503 대상 한정(`tests/e2e/test_faults.py` outcomes·blog 목록 200) |
+| A-N4 | LOW | Fix | **Fixed** | `7be79b3` | deployment "모든 ENV" → test 외(`config.validate_deployment_safety`) |
+| A-N5 | MED | Fix(테스트) | **Fixed** | `eda2049` | `test_feature_api_tables_match_openapi_and_access_policy` — 복사본 변이 PublicWrite→Public 에서 실패 |
+| A-N6 | LOW | Fix | **Fixed** | `7be79b3` | docstring 인용 → integration-e2e ADR-014 |
+| A-N7 | LOW | Fix | **Fixed** | `7be79b3` | 접속 로그는 `ACCESS_LOG_ENABLED` + 제외 경로·확장자 아닌 요청(`user_info_middleware._should_skip`) — home·features 허브 |
+| X-2 | LOW | Fix(테스트) | **Fixed** | `eda2049` | 링크 `#fragment` 실재 검사(HTML id·name, MD 제목 slug) — 복사본 변이 HTML·MD 앵커에서 실패 |

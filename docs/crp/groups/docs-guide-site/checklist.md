@@ -14,3 +14,7 @@
 - [x] 계약 테스트 — `86a066a`
 - [x] docs-guide-review residual-risk 원복 + 해결 기록 추가
 - [x] 검사: 계약 테스트 통과, `.env` 없는 클론 `pytest -m "not mysql"`, ruff, 링크 검사, `review_gate --group docs`, 태그 짝 0
+- [x] Round 2: A-N1~A-N7·X-2 근거 재확인(8건 맞음)
+- [x] Round 2: 보강 테스트(기능별 API 표·링크 fragment) 복사본 변이에서 실패 → 통과 — `eda2049`
+- [x] Round 2: 문서·docstring 정정 — `7be79b3`
+- [x] Round 2: 1차 CONVERGED 선언 정정 행(ledger)
