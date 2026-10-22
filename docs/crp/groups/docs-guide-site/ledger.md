@@ -1,0 +1,53 @@
+# Ledger — docs-guide-site (지적 원장)
+
+> 지적 ID 는 2차 검수 지적표(active)의 것을 그대로 쓴다. 커밋: `362eafe`(생성물 원본) · `a275ad1`(트랜잭션·흐름·인증·기능) ·
+> `043d1c3`(시작·설정·API·테스트·배포) · `ad25277`(허브·README) · `487375f`(docstring·`.env.example`·ARCHITECTURE) · `86a066a`(계약 테스트).
+
+| ID | Severity | 결정 | Status | 커밋 | 고친 것 |
+|---|---|---|---|---|---|
+| FT-01 | HIGH | Fix | **Fixed** | `a275ad1` | 기능 8편: 쓰기 View 가 응답 DTO 검증 뒤 `await service.commit()` 1회, 서비스·저장소는 commit 안 함 |
+| AR-01 | HIGH | Fix | **Fixed** | `a275ad1` | architecture: 트랜잭션 경계는 쓰기 View, 계층 책임 표 |
+| SD-01 | HIGH | Fix | **Fixed** | `a275ad1` | sequence-diagrams 쓰기 도식(렌더·원문): DI 가 writer 세션, View 가 DTO 검증 → commit, 예외는 close 의 ROLLBACK |
+| SD-02 | MED | Fix | **Fixed** | `a275ad1` | 인가 도식: 토큰 없음·무효 401, su 아님 403 |
+| SD-03 | LOW | Fix | **Fixed** | `a275ad1` | lifespan = Redis PING·버전, background 정리 등록, DEBUG create_all, worker 는 별도 프로세스 |
+| GS-01 | MED | Fix | **Fixed** | `043d1c3` | 설정 검사는 config import 시점 |
+| GS-02 | MED | Fix | **Fixed** | `043d1c3` | 부팅 도식: lifespan 은 Redis·DEBUG create_all, /ready 는 요청마다 SELECT 1·PING |
+| GS-03 | MED | Fix(지적 일부 정정 — 감독 정정) | **Fixed** | `043d1c3` | Redis 필수(기동 거부). 요청 중 장애 503 은 Redis 를 쓰는 경로만 — `tests/e2e/test_faults.py` 가 Redis 정지 중 blog 목록 200 을 확인 |
+| GS-04 | MED | Fix | **Fixed** | `043d1c3` | 비밀 키 3종(32자+, access≠refresh)·`MYSQL_PASSWORD` 교체, Redis 기본값은 그대로 |
+| GS-05 | MED | Fix | **Fixed** | `043d1c3` | DEBUG=true 면 MySQL 필요, `scripts.create_superuser` |
+| AR-02 | MED | Fix | **Fixed** | `a275ad1` | 규약 6개 표, `AppContractError`, `AccessPolicyGuard` 기동 거부 |
+| AR-03 | LOW | Fix | **Fixed** | `a275ad1` | 조립 순서: ready 훅·모델 import·Celery tasks |
+| API-01 | MED | Fix | **Fixed** | `043d1c3` | `/docs`·`/openapi.json` 은 DEBUG=true 만 |
+| API-02 | LOW | Fix | **Fixed** | `043d1c3` | rate limit 은 register·login 만, 접근 수준은 Guard 이름, 소유권은 "추가 규칙" 열 |
+| CFG-01 | MED | Fix | **Fixed** | `043d1c3` | 설명을 Field description 에서 — 오배치 제거 |
+| CFG-02 | HIGH | Fix | **Fixed** | `043d1c3` | 설정 검사 표(출처·비밀 키·비밀번호·배포 조합·옛 ADMIN) |
+| CFG-03 | MED | Fix | **Fixed** | `043d1c3` | Settings 전 필드(75개), 주석 처리 설정 표시 |
+| CFG-04 | LOW | Fix | **Fixed** | `043d1c3` | 새 비밀 설정은 `LOG_SECRET_SETTINGS` 등록 |
+| CFG-05 | LOW | Fix | **Fixed** | `043d1c3` | 값 잘림 없음(CORS_ALLOW_METHODS 전체) |
+| RP-01 | MED | Fix | **Fixed** | `a275ad1` | request id 삭제 → client IP·UA·경로·상태·처리 시간 |
+| RP-02 | MED | Fix | **Fixed** | `a275ad1` | 미들웨어 순서, 오류 변환 표(Redis 503) |
+| RP-03 | LOW | Fix | **Fixed** | `a275ad1` | DEBUG=true 면 다시 던짐 |
+| RP-04 | LOW | Fix(사실 정정) | **Fixed** | `a275ad1` | routed 세션은 승인된 특수 경로 전용 — 지적의 "이 저장소는 일부 사용"과 달리 기능 코드 사용 0(`tests/core/test_session_dependency_names.py`) |
+| AU-01 | MED | Fix | **Fixed** | `a275ad1` | access 15분 전 회수 불가, /me 외는 클레임만 |
+| AU-02 | LOW | Fix | **Fixed** | `a275ad1` | 재사용 → family 폐기 401, 비활성·삭제 사용자 refresh 거부 |
+| FT-02 | MED | Fix | **Fixed** | `a275ad1` | AuthService → RefreshTokenStore 직접 |
+| FT-03 | MED | Fix | **Fixed** | `a275ad1` | 본인 수정 is_active·is_superuser 403, 변경·삭제 시 refresh·관리 세션 폐기 |
+| FT-04 | LOW | Fix | **Fixed** | `a275ad1` | 보존 삭제(beat 03:30, 5,000행), sink 등록(apps.ready), tasks.py 소스 |
+| DV-01 | MED | Fix | **Fixed** | `a275ad1` | 생성기 명령·규약 파일·변수 이름 |
+| DV-02 | LOW | Fix | **Fixed** | `a275ad1` | `test_api_matrix.py` 의 `OPS`·`test_inventory.py` 대조 |
+| DV-03 | LOW | Fix | **Fixed** | `a275ad1` | 도식 노드 "Service: 업무 규칙", View 가 commit |
+| TS-01 | MED | Fix(명령 정정) | **Fixed** | `043d1c3` | `python -m pytest -m "not mysql"` — 지적의 `and not browser` 는 이 저장소에 없는 마커(pyproject markers·ci.yml gate) |
+| TS-02 | MED | Fix | **Fixed** | `043d1c3` | mysql·compose.test.yaml, e2e 는 `-m e2e` 일 때만, CI 세 job·skip 0 |
+| TS-03 | LOW | Fix | **Fixed** | `043d1c3` | 인증·rate limit 은 fakeredis 단위 테스트 |
+| OP-01 | MED | Fix | **Fixed** | `043d1c3` | request id 삭제 → route template·시각·user_id |
+| OP-02 | MED | Fix(지적 일부 정정 — 감독 정정) | **Fixed** | `043d1c3` | Redis 장애: 기동 차단, 실행 중은 Redis 경로 503·/ready 503, 나머지 조회는 응답(GS-03 과 같은 근거) |
+| OP-03 | MED | Fix | **Fixed** | `043d1c3` | ENV 게이트, Secure 쿠키 → HTTPS, TRUSTED_PROXY_HOPS, beat, 첫 슈퍼유저 |
+| OP-04 | LOW | Fix | **Fixed** | `043d1c3` | URL → MYSQL_*/REDIS_* 개별 키(URL 은 ALEMBIC_DATABASE_URL 만) |
+| HUB-01 | LOW | Fix | **Fixed** | `ad25277` | README 링크 복원 |
+| HUB-02 | LOW | Fix | **Fixed** | `ad25277` | sequence-diagrams 를 새 문서 카드로 |
+| HUB-03 | LOW | Fix | **Fixed** | `ad25277` | 줄 단위 서식·끝 개행 |
+| RR-01 | LOW | Fix | **Fixed** | (이 기록 커밋) | docs-guide-review residual-risk 를 main 내용으로 되돌리고 해결 기록만 덧붙임 |
+| CM-01 | LOW | Fix | **Fixed** | `a275ad1`·`043d1c3`·`ad25277` | mermaid@11.12.0 고정 + CDN 실패 안내, 라벨 정정(ADR-002) |
+| 부수-1 | LOW | Fix | **Fixed** | `487375f` | "e2e-policy-2 결정 N" 15개 파일 → integration-e2e ADR-009/013/010/011/012·V-003/V-006 (CRP 기록은 그대로) |
+| 부수-2 | LOW | Fix | **Fixed** | `487375f` | `user_access_log_service` docstring — commit 은 쓰기 핸들러·access_log_sink |
+| X-01 | LOW | Fix(지적 밖) | **Fixed** | `487375f` | `.env.example` 의 없는 `admin-auth-guide.html` → `workflows/admin-authentication.html` |
