@@ -4,7 +4,9 @@
 들어왔다. 여기서는 코드에서 뽑은 집합과 문서의 집합을 직접 대조한다.
 """
 
+import ast
 import json
+import re
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -183,3 +185,33 @@ def test_hub_links_every_guide_and_stylesheets_exist():
             ), f"허브가 {page.relative_to(GUIDES)} 를 링크하지 않습니다."
         for href in _parse(page).stylesheets:
             assert (page.parent / href).is_file(), f"{page.name}: 스타일시트 {href} 가 없습니다."
+
+
+ROOT = GUIDES.parent.parent
+SOURCE_PATH = re.compile(r"\b(?:app|scripts)/[\w/]+\.py\b")
+
+
+def _revoke_callers() -> set[str]:
+    """app/·scripts/ 에서 ``revoke_user_access(...)`` 를 호출하는 모듈(정의만 있는 곳은 빠진다)."""
+    found = set()
+    for top in ("app", "scripts"):
+        for path in (ROOT / top).rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+                    if name == "revoke_user_access":
+                        found.add(path.relative_to(ROOT).as_posix())
+    return found
+
+
+def test_revocation_section_lists_exactly_the_revoke_callers():
+    """폐기 정본 절(features/user.html#revocation)의 소스 경로 == 폐기를 실제로 실행하는 모듈.
+
+    진입점을 사람이 떠올려 나열하면 새 경로(관리 화면·CLI)가 생길 때마다 표가 틀어졌다 — 코드에서 닫는다.
+    """
+    html = (GUIDES / "features" / "user.html").read_text(encoding="utf-8")
+    start = html.index('<h2 id="revocation">')
+    section = html[start : html.index("</section>", start)]
+    assert set(SOURCE_PATH.findall(section)) == _revoke_callers()
+

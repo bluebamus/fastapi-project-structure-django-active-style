@@ -79,21 +79,35 @@ Svc --&gt;|&quot;비활성화, 강등(PATCH), 삭제(DELETE)&quot;| Revoke[&quot
 </section>
 <section>
 <h2 id="revocation">세션 폐기 규칙</h2>
-<p>규칙은 <code>revocation_for</code>(<code>app/features/user/services/user_service.py</code>) 한 곳이고, HTTP·관리 화면·CLI 가 같은 폐기 함수 <code>revoke_user_access</code> 를 커밋 <strong>전</strong>에 부릅니다. 이 가이드에서 폐기 규칙의 정본은 이 표입니다.</p>
+<p>무엇을 끊을지는 판정 함수 <code>revocation_for</code> 하나가, 끊는 일은 폐기 함수 <code>revoke_user_access</code> 하나가 맡습니다(둘 다 <code>app/features/user/services/user_service.py</code>). 이 가이드에서 폐기 규칙의 정본은 이 절의 두 표입니다.</p>
 <div class="table-wrap">
 <table>
 <thead>
-<tr><th>변경</th><th>refresh family</th><th>관리 세션</th><th>어디서 일어나나</th></tr>
+<tr><th>변경</th><th>refresh family</th><th>관리 세션</th></tr>
 </thead>
 <tbody>
-<tr><td>비활성화(<code>is_active</code> 참→거짓)</td><td>폐기</td><td>폐기</td><td>HTTP <code>PATCH /api/v1/user/users/{user_id}</code>(슈퍼유저), 관리 화면 수정</td></tr>
-<tr><td>강등(<code>is_superuser</code> 참→거짓)</td><td>폐기</td><td>폐기</td><td>HTTP <code>PATCH /api/v1/user/users/{user_id}</code>(슈퍼유저), 관리 화면 수정</td></tr>
-<tr><td>비밀번호 해시 변경</td><td>폐기</td><td>폐기</td><td>CLI <code>scripts/create_superuser.py --set-password</code> 만. HTTP PATCH 의 <code>UserUpdate</code> 는 <code>email</code>·<code>is_active</code>·<code>is_superuser</code> 뿐이고, 관리 화면 폼은 비밀번호 해시를 노출하지 않습니다.</td></tr>
-<tr><td>삭제</td><td>폐기</td><td>폐기</td><td>HTTP <code>DELETE /api/v1/user/users/{user_id}</code>(슈퍼유저), 관리 화면 삭제</td></tr>
-<tr><td>그 밖(이메일, 활성화·승격)</td><td>유지</td><td>유지</td><td>HTTP <code>PATCH</code>, 관리 화면 수정</td></tr>
+<tr><td>비활성화(<code>is_active</code> 참→거짓)</td><td>폐기</td><td>폐기</td></tr>
+<tr><td>강등(<code>is_superuser</code> 참→거짓)</td><td>폐기</td><td>폐기</td></tr>
+<tr><td>비밀번호 해시 변경</td><td>폐기</td><td>폐기</td></tr>
+<tr><td>삭제</td><td>폐기</td><td>폐기</td></tr>
+<tr><td>그 밖(이메일, 활성화·승격)</td><td>유지</td><td>유지</td></tr>
 </tbody>
 </table>
 </div>
+<p>폐기를 실제로 실행하는 곳은 <code>revoke_user_access</code> 를 부르는 모듈이고, 정확히 아래 세 곳입니다. 세 곳 모두 DB 커밋 <strong>전</strong>에 부릅니다. 이 목록은 <code>tests/test_docs_guide_site.py</code> 가 코드의 호출부(AST)와 대조하므로, 폐기 경로가 새로 생기면 이 표도 함께 바꿔야 테스트가 통과합니다.</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>모듈</th><th>진입점</th><th>판정</th></tr>
+</thead>
+<tbody>
+<tr><td><code>app/features/user/services/user_service.py</code></td><td><code>UserService</code> — HTTP <code>PATCH</code>·<code>DELETE /api/v1/user/users/{user_id}</code>(슈퍼유저)</td><td>PATCH 는 <code>revocation_for</code>, DELETE 는 <code>DELETED</code>(둘 다 폐기)</td></tr>
+<tr><td><code>app/features/user/admin.py</code></td><td><code>UserAdmin</code> 관리 화면 수정·삭제 훅(<code>on_model_change</code>·<code>on_model_delete</code>)</td><td>수정은 <code>revocation_for</code>, 삭제는 <code>DELETED</code></td></tr>
+<tr><td><code>scripts/create_superuser.py</code></td><td>CLI <code>--set-password</code>(기존 사용자의 비밀번호 교체)</td><td>refresh family·관리 세션 둘 다 폐기</td></tr>
+</tbody>
+</table>
+</div>
+<p>명시적 비밀번호 교체는 CLI <code>--set-password</code> 뿐입니다. HTTP PATCH 의 <code>UserUpdate</code> 는 <code>email</code>·<code>is_active</code>·<code>is_superuser</code> 뿐이고, 관리 화면 폼은 비밀번호 해시를 노출하지 않습니다. 이 세 곳 밖에서 일어나는 해시 변경 — 로그인 시 bcrypt→Argon2 자동 재해시(<code>auth_service</code> 의 <code>verify_and_update</code>) — 은 비밀번호가 그대로라 폐기하지 않습니다.</p>
 <p>Redis 에 닿지 못하면 폐기가 실패하고 변경은 커밋되지 않습니다 — HTTP 는 503 <code>SERVICE_UNAVAILABLE</code>, CLI 는 종료 코드 2(비밀번호 그대로), 관리 화면은 저장하지 않고 오류를 표시합니다(<a href="../workflows/admin-authentication.html#lifecycle">관리 화면 인증 안내서</a>). 이미 발급된 access token 은 만료(기본 15분)까지 남습니다.</p>
 </section>
 <section>
