@@ -786,7 +786,7 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
 | 작성자 | 작성자 컬럼 도입 전의 글(`author_id` NULL)은 슈퍼유저만 수정한다. `author` 표시 이름은 작성 시점의 username 이라 이름을 바꿔도 따라가지 않는다 |
 | 참조 무결성 | `Reply.post_id` 는 FK 없는 문자열 — 게시글 존재 검증·삭제 전파 정책 없음 |
 | 로그인 보호 | 고정 창 rate limit(창 경계에서 최대 2배 통과, API·`/admin` 공통). 계정 잠금은 없다 |
-| 관리 세션 | Redis 서버 세션 — 로그아웃·강등·비활성화·삭제(API·관리 화면 모두)는 서버에서 즉시 폐기된다. Redis 장애 중에는 관리 화면이 503 이다. sqladmin 의 사용자 정의 `@action` 은 GET 이라 CSRF 검사 대상이 아니다(이 저장소에는 없다). 관리 화면에서 직접 편집한 강등은 다음 요청의 DB 확인으로 끊긴다 |
+| 관리 세션 | Redis 서버 세션 — 로그아웃은 그 세션 하나를, 강등·비활성화·삭제(API·관리 화면 모두)는 그 사용자의 관리 세션 전부를 서버에서 즉시 폐기한다. Redis 장애 중에는 관리 화면이 503 이다. sqladmin 의 사용자 정의 `@action` 은 GET 이라 CSRF 검사 대상이 아니다(이 저장소에는 없다). 관리 화면에서 직접 편집한 강등은 다음 요청의 DB 확인으로 끊긴다 |
 | 토큰 폐기 | refresh 는 family 단위로 폐기된다(재사용 탐지·로그아웃). access 토큰은 만료(기본 15분)까지 유효하다 |
 | 접속 로그 개인정보 | `query_string` 은 민감 키 값만 가리고 나머지와 `referer`·`session_id` 쿠키는 원문 저장한다 — **사용자 결정으로 유지**(log-redaction-fixes ADR-003). 보존 기간은 `ACCESS_LOG_RETENTION_DAYS`(기본 365일, beat 가 매일 삭제 — §7.1). 조회 API 는 슈퍼유저 전용 |
 | CORS | 기본 `CORS_ALLOW_ORIGINS=["*"]`, credentials false (staging/production 은 게이트가 `*` 를 거부) |
