@@ -6,7 +6,6 @@
 
 import ast
 import json
-import re
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -124,16 +123,21 @@ def _render_default(value) -> str:
     return NAMED_DEFAULTS.get(value, str(value))
 
 
-def _settings_rows(page: Path) -> list[list[str]]:
-    """설정 표(머리행이 SETTINGS_HEADER 인 표)의 데이터 행."""
+def _table_rows(page: Path, header: list[str]) -> list[list[str]]:
+    """머리행이 ``header`` 인 표의 데이터 행 — 표를 위치·순서가 아니라 머리 셀로 찾는다."""
     parsed = _parse(page)
     rows, inside = [], False
     for i, row in enumerate(parsed.rows):
         if i in parsed.header_rows:
-            inside = row == SETTINGS_HEADER
+            inside = row == header
         elif inside:
             rows.append(row)
     return rows
+
+
+def _settings_rows(page: Path) -> list[list[str]]:
+    """설정 표(머리행이 SETTINGS_HEADER 인 표)의 데이터 행."""
+    return _table_rows(page, SETTINGS_HEADER)
 
 
 def test_configuration_table_matches_settings_fields():
@@ -188,7 +192,7 @@ def test_hub_links_every_guide_and_stylesheets_exist():
 
 
 ROOT = GUIDES.parent.parent
-SOURCE_PATH = re.compile(r"\b(?:app|scripts)/[\w/]+\.py\b")
+REVOKE_TABLE_HEADER = ["모듈", "진입점", "판정"]
 
 
 def _revoke_callers() -> set[str]:
@@ -206,11 +210,17 @@ def _revoke_callers() -> set[str]:
 
 
 def test_revocation_section_lists_exactly_the_revoke_callers():
-    """폐기 정본 절(features/user.html#revocation)의 소스 경로 == 폐기를 실제로 실행하는 모듈.
+    """폐기 정본 실행 위치 표(features/user.html#revocation)의 모듈 열 == 폐기를 실제로 실행하는 모듈.
 
     진입점을 사람이 떠올려 나열하면 새 경로(관리 화면·CLI)가 생길 때마다 표가 틀어졌다 — 코드에서 닫는다.
+    절 전체의 경로를 모으면 도입 문장의 경로가 빠진 행을 가리고 set 이 중복 행을 숨긴다 — 표의 모듈
+    열만(머리 ``모듈``·``진입점``·``판정``으로 찾는다), 중복 없이 본다.
     """
-    html = (GUIDES / "features" / "user.html").read_text(encoding="utf-8")
-    start = html.index('<h2 id="revocation">')
-    section = html[start : html.index("</section>", start)]
-    assert set(SOURCE_PATH.findall(section)) == _revoke_callers()
+    rows = _table_rows(GUIDES / "features" / "user.html", REVOKE_TABLE_HEADER)
+    modules = [row[0] for row in rows]
+    duplicated = sorted({m for m in modules if modules.count(m) > 1})
+    assert not duplicated, f"user.html 폐기 표에 두 번 나온 모듈: {duplicated}"
+    assert set(modules) == _revoke_callers(), (
+        f"표에만: {sorted(set(modules) - _revoke_callers())}\n"
+        f"코드에만: {sorted(_revoke_callers() - set(modules))}"
+    )
