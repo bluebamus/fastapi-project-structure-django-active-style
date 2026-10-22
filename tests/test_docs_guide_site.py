@@ -214,4 +214,3 @@ def test_revocation_section_lists_exactly_the_revoke_callers():
     start = html.index('<h2 id="revocation">')
     section = html[start : html.index("</section>", start)]
     assert set(SOURCE_PATH.findall(section)) == _revoke_callers()
-
