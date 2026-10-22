@@ -3,90 +3,166 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>핵심 시퀀스 다이어그램</title>
+  <title>핵심 시퀀스 모음</title>
   <link rel="stylesheet" href="../assets/style.css">
 </head>
 <body>
-<header class="hero"><p class="eyebrow">CODE-VERIFIED GUIDE</p><h1>핵심 시퀀스 다이어그램</h1><p>부팅, 쓰기 트랜잭션, 인증·인가의 상호작용을 모아 봅니다.</p></header>
+<header class="hero">
+  <p class="eyebrow">PROJECT GUIDE</p>
+  <h1>핵심 시퀀스 모음</h1>
+  <p>기동·종료, 쓰기 유스케이스, 인증·인가를 도식으로 모았습니다.</p>
+</header>
 <nav class="topnav" aria-label="가이드 메뉴">
-  <a href="../index.html">허브</a><a href="../getting-started/index.html">부팅</a><a href="../architecture/index.html">설계</a>
-  <a href="../reference/api.html">API</a><a href="../workflows/request-processing.html">요청</a><a href="../workflows/authentication.html">인증</a>
-  <a href="../features/index.html">기능</a><a href="../development/index.html">개발</a><a href="../operations/deployment.html">운영</a>
+  <a href="../index.html">허브</a>
+  <a href="../getting-started/index.html">부팅</a>
+  <a href="../architecture/index.html">설계</a>
+  <a href="../reference/api.html">API</a>
+  <a href="../reference/configuration.html">설정</a>
+  <a href="../workflows/request-processing.html">요청</a>
+  <a href="../workflows/authentication.html">인증</a>
+  <a href="../features/index.html">기능</a>
+  <a href="../development/index.html">개발</a>
+  <a href="../development/testing.html">테스트</a>
+  <a href="../operations/deployment.html">운영</a>
 </nav>
 <main>
-<section><h2>서버 시작·종료</h2><div class="mermaid">sequenceDiagram
-participant P as Process
-participant F as FastAPI lifespan
-participant I as Infrastructure
-P-&gt;&gt;F: startup
-F-&gt;&gt;I: DB/Redis/worker resources 준비
-I--&gt;&gt;F: ready
-F--&gt;&gt;P: 요청 수락
-P-&gt;&gt;F: shutdown signal
-F-&gt;&gt;I: drain·close
-I--&gt;&gt;F: closed</div><details><summary>Mermaid 원문</summary><pre><code>sequenceDiagram
-participant P as Process
-participant F as FastAPI lifespan
-participant I as Infrastructure
-P-&gt;&gt;F: startup
-F-&gt;&gt;I: DB/Redis/worker resources 준비
-I--&gt;&gt;F: ready
-F--&gt;&gt;P: 요청 수락
-P-&gt;&gt;F: shutdown signal
-F-&gt;&gt;I: drain·close
-I--&gt;&gt;F: closed</code></pre></details></section>
-<section><h2>쓰기 유스케이스</h2><div class="mermaid">sequenceDiagram
-participant R as Router
+<aside class="callout"><p id="diagram-status" role="status">도식은 고정 버전 Mermaid CDN을 사용합니다. 인터넷이 없어도 본문·표·도식 원문을 읽을 수 있습니다.</p><noscript>JavaScript가 꺼져 있어 도식 원문과 본문으로 설명을 제공합니다.</noscript></aside>
+<section>
+<h2>서버 시작·종료</h2>
+<div class="mermaid">
+sequenceDiagram
+participant P as ASGI 서버
+participant L as lifespan
+participant R as Redis
+participant D as MySQL
+P-&gt;&gt;L: startup
+L-&gt;&gt;R: PING, 버전 7.0 이상 확인
+L-&gt;&gt;L: background 작업 정리 등록
+L-&gt;&gt;D: DEBUG=true 면 create_all
+L--&gt;&gt;P: 요청 수락
+P-&gt;&gt;L: shutdown
+L-&gt;&gt;L: 등록 역순 정리: background 작업, Redis, DB 엔진, 로그 큐
+</div>
+<details>
+<summary>Mermaid 원문</summary>
+<pre><code>sequenceDiagram
+participant P as ASGI 서버
+participant L as lifespan
+participant R as Redis
+participant D as MySQL
+P-&gt;&gt;L: startup
+L-&gt;&gt;R: PING, 버전 7.0 이상 확인
+L-&gt;&gt;L: background 작업 정리 등록
+L-&gt;&gt;D: DEBUG=true 면 create_all
+L--&gt;&gt;P: 요청 수락
+P-&gt;&gt;L: shutdown
+L-&gt;&gt;L: 등록 역순 정리: background 작업, Redis, DB 엔진, 로그 큐</code></pre>
+</details>
+<p>Celery worker·beat 는 별도 프로세스이며 이 lifespan 이 준비하지 않습니다. 설정 검사는 이보다 앞선 config import 시점입니다.</p>
+</section>
+<section>
+<h2>쓰기 유스케이스</h2>
+<div class="mermaid">
+sequenceDiagram
+participant DI as Depends
+participant W as writer 세션
+participant V as 쓰기 View
 participant S as Service
-participant W as writer session
-participant D as Repository
-R-&gt;&gt;S: validated command
-S-&gt;&gt;W: begin writer context
-S-&gt;&gt;D: mutate
-D--&gt;&gt;S: entity
-S-&gt;&gt;W: commit
-W--&gt;&gt;S: committed
-S--&gt;&gt;R: response model
-Note over S,W: 예외 시 rollback 후 공통 오류 변환</div><details><summary>Mermaid 원문</summary><pre><code>sequenceDiagram
-participant R as Router
+participant R as Repository
+DI-&gt;&gt;W: get_writer_db_session (primary 고정)
+DI-&gt;&gt;S: get_name_service(session)
+V-&gt;&gt;S: 생성, 수정 요청
+S-&gt;&gt;R: add, flush
+R--&gt;&gt;S: 엔티티
+S--&gt;&gt;V: 엔티티
+V-&gt;&gt;V: 응답 DTO 검증
+V-&gt;&gt;S: await service.commit()
+S-&gt;&gt;W: COMMIT
+Note over DI,W: 예외면 세션 close 가 ROLLBACK, 전역 처리기가 ErrorResponse
+</div>
+<details>
+<summary>Mermaid 원문</summary>
+<pre><code>sequenceDiagram
+participant DI as Depends
+participant W as writer 세션
+participant V as 쓰기 View
 participant S as Service
-participant W as writer session
-participant D as Repository
-R-&gt;&gt;S: validated command
-S-&gt;&gt;W: begin writer context
-S-&gt;&gt;D: mutate
-D--&gt;&gt;S: entity
-S-&gt;&gt;W: commit
-W--&gt;&gt;S: committed
-S--&gt;&gt;R: response model
-Note over S,W: 예외 시 rollback 후 공통 오류 변환</code></pre></details></section>
-<section><h2>인증·인가</h2><div class="mermaid">flowchart TD
+participant R as Repository
+DI-&gt;&gt;W: get_writer_db_session (primary 고정)
+DI-&gt;&gt;S: get_name_service(session)
+V-&gt;&gt;S: 생성, 수정 요청
+S-&gt;&gt;R: add, flush
+R--&gt;&gt;S: 엔티티
+S--&gt;&gt;V: 엔티티
+V-&gt;&gt;V: 응답 DTO 검증
+V-&gt;&gt;S: await service.commit()
+S-&gt;&gt;W: COMMIT
+Note over DI,W: 예외면 세션 close 가 ROLLBACK, 전역 처리기가 ErrorResponse</code></pre>
+</details>
+<p>트랜잭션 경계는 <strong>쓰기 View</strong>입니다. 쓰기 핸들러가 응답 DTO 를 먼저 검증한 뒤 <code>await service.commit()</code> 을 한 번 호출합니다. 서비스는 업무 규칙만, 저장소는 flush 까지만 하고 둘 다 commit 하지 않습니다. 세션은 의존성(<code>get_writer_db_session</code>·<code>get_read_only_db_session</code>)이 열고, 예외로 빠져나가면 세션 close 가 ROLLBACK 합니다. 순서는 <code>tests/test_dto_before_commit.py</code> 가 고정합니다.</p>
+</section>
+<section>
+<h2>인증·인가</h2>
+<div class="mermaid">
+flowchart TD
 Req[요청] --&gt; Level{접근 수준}
-Level --&gt;|public| Route[라우트]
-Level --&gt;|login| Token[JWT 검증]
-Level --&gt;|superuser| Admin[JWT + superuser]
-Token --&gt; Owner{소유권 필요?}
-Owner --&gt;|아니오| Route
-Owner --&gt;|예| Policy[owner 또는 superuser]
-Policy --&gt; Route
-Token --&gt;|실패| E401[401]
-Admin --&gt;|실패| E403[403]
-Policy --&gt;|실패| E403</div><details><summary>Mermaid 원문</summary><pre><code>flowchart TD
+Level --&gt;|&quot;Public, PublicWrite&quot;| View[View]
+Level --&gt;|LoginRequired| Token[Bearer access 검증]
+Level --&gt;|SuperuserRequired| Token2[Bearer access 검증]
+Token --&gt;|&quot;토큰 없음, 무효&quot;| E401[401]
+Token2 --&gt;|&quot;토큰 없음, 무효&quot;| E401
+Token2 --&gt;|&quot;su 클레임 거짓&quot;| E403[403]
+Token2 --&gt;|슈퍼유저| View
+Token --&gt; Owner{&quot;서비스의 소유권 규칙&quot;}
+Owner --&gt;|없음| View
+Owner --&gt;|&quot;작성자, 본인 또는 슈퍼유저&quot;| View
+Owner --&gt;|아님| E403
+</div>
+<details>
+<summary>Mermaid 원문</summary>
+<pre><code>flowchart TD
 Req[요청] --&gt; Level{접근 수준}
-Level --&gt;|public| Route[라우트]
-Level --&gt;|login| Token[JWT 검증]
-Level --&gt;|superuser| Admin[JWT + superuser]
-Token --&gt; Owner{소유권 필요?}
-Owner --&gt;|아니오| Route
-Owner --&gt;|예| Policy[owner 또는 superuser]
-Policy --&gt; Route
-Token --&gt;|실패| E401[401]
-Admin --&gt;|실패| E403[403]
-Policy --&gt;|실패| E403</code></pre></details></section>
-<section><h2>조립 방식</h2><p>레지스트리가 기능 패키지를 능동적으로 탐색해 라우터와 관리자 구성을 수집합니다. 새 앱의 반복 등록을 줄이는 대신 탐색 규칙과 등록 계약을 지켜야 합니다.</p><p>실제 진입점은 <a data-source="main.py" href="../../../main.py"><code>main.py</code></a>와 <a data-source="app/core/registry.py" href="../../../app/core/registry.py"><code>app/core/registry.py</code></a>입니다.</p></section>
-<section><h2>관련 문서</h2><ul><li><a href="server-lifecycle.html">서버 수명주기</a></li><li><a href="request-processing.html">요청 처리</a></li><li><a href="authentication.html">JWT 인증</a></li></ul></section>
+Level --&gt;|&quot;Public, PublicWrite&quot;| View[View]
+Level --&gt;|LoginRequired| Token[Bearer access 검증]
+Level --&gt;|SuperuserRequired| Token2[Bearer access 검증]
+Token --&gt;|&quot;토큰 없음, 무효&quot;| E401[401]
+Token2 --&gt;|&quot;토큰 없음, 무효&quot;| E401
+Token2 --&gt;|&quot;su 클레임 거짓&quot;| E403[403]
+Token2 --&gt;|슈퍼유저| View
+Token --&gt; Owner{&quot;서비스의 소유권 규칙&quot;}
+Owner --&gt;|없음| View
+Owner --&gt;|&quot;작성자, 본인 또는 슈퍼유저&quot;| View
+Owner --&gt;|아님| E403</code></pre>
+</details>
+</section>
+<section>
+<h2>조립 방식</h2>
+<p><code>AppRegistry</code> 가 <code>app/features/*</code> 를 발견해 라우터·모델·<code>admin_views</code>·Celery 태스크를 붙이고, 조립 끝에 <code>AccessPolicyGuard</code> 가 접근 수준 선언을 검사합니다. 규약은 <a href="../architecture/index.html">아키텍처</a>를 봅니다.</p>
+<p>실제 진입점은 <a data-source="main.py" href="../../../main.py"><code>main.py</code></a> 와 <a data-source="app/core/registry.py" href="../../../app/core/registry.py"><code>app/core/registry.py</code></a> 입니다.</p>
+</section>
+<section>
+<h2>관련 문서</h2>
+<ul>
+  <li><a href="../workflows/server-lifecycle.html">서버 수명주기</a></li>
+  <li><a href="../workflows/request-processing.html">요청 처리</a></li>
+  <li><a href="../workflows/authentication.html">JWT 인증</a></li>
+</ul>
+</section>
 </main>
-<footer>문서보다 코드가 우선입니다. 변경 시 연결된 소스와 테스트를 함께 확인하세요.</footer>
-<script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs'; mermaid.initialize({startOnLoad:true,securityLevel:'strict'});</script>
+<footer>main 6f00cf6(2026-10-22) 코드와 대조해 작성했습니다. 문서와 코드가 다르면 코드가 정답입니다.</footer>
+<script type="module">
+const status = document.getElementById("diagram-status");
+try {
+  const { default: mermaid } = await import("https://cdn.jsdelivr.net/npm/mermaid@11.12.0/dist/mermaid.esm.min.mjs");
+  mermaid.initialize({startOnLoad:false,securityLevel:"strict",theme:"neutral",fontFamily:'system-ui, "Malgun Gothic", sans-serif',flowchart:{htmlLabels:false},suppressErrorRendering:true});
+  for (const node of document.querySelectorAll(".mermaid")) {
+    try { await mermaid.run({nodes:[node]}); }
+    catch { node.textContent = "도식을 렌더링하지 못했습니다. 아래 Mermaid 원문과 본문 설명을 확인하세요."; node.classList.add("warning"); }
+  }
+  status.textContent = "Mermaid 도식 표시 완료. 원문은 각 도식 아래에서 확인할 수 있습니다.";
+} catch {
+  status.textContent = "오프라인 또는 CDN 접근 제한: 도식 대신 아래 원문과 본문을 확인하세요. 문서 본문은 인터넷 없이 읽을 수 있습니다.";
+}
+</script>
 </body>
 </html>
