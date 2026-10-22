@@ -658,7 +658,7 @@ Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워
 
 ## 문서 안내
 
-이 저장소의 문서 목록은 여기 하나뿐입니다. 위에서부터 읽는 순서입니다.
+이 저장소의 문서 목록은 여기 하나뿐입니다(HTML 허브는 가이드 HTML 을 주제별로 잇는 탐색 페이지이고 목록의 정본은 이 표입니다). 위에서부터 읽는 순서입니다.
 
 | 문서 | 역할 | 언제 보나 |
 |---|---|---|
@@ -673,7 +673,7 @@ Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워
 | [docs/specs/orm-raw-repository/development-plan.md](docs/specs/orm-raw-repository/development-plan.md) | 고정 기준선 — ORM/Raw 개발 계획 | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/orm-raw-repository/workflow-guide.md](docs/specs/orm-raw-repository/workflow-guide.md) | 고정 기준선 — ORM/Raw 지침 원본 (코드 주석의 `workflow-guide §N` 출처) | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/django-style-app-automation.md](docs/specs/django-style-app-automation.md) | 고정 기준선 — 앱 자동 등록 요구사항(`FR-*`·`NFR-*`·`SEC-*` 등, 코드 주석이 인용)과 설계 근거 | 자동 등록 규칙의 원래 의도를 볼 때 |
-| [docs/crp/groups/](docs/crp/groups/) | 검수 이력(append-only) — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계), `service-hardening`(인증·인가·rate limit·UTC), `admin-login`(관리 화면 로그인·`ADMIN_DISABLED`), `log-redaction-fixes`(traceback 마스킹·예외 헤더·Redis 최소 버전·커버리지 하한), `security-ops-hardening`(DB 바인드 값 숨김·접속 로그 보존·관리 로그인 CSRF·날짜 필터), `admin-session-hardening`(관리 세션 Redis 이전·로그인 이후 CSRF·기간 필터), `config-cleanup`(쓰지 않는 SMTP·업로드·세션 만료 설정 삭제·설정 사용 계약 테스트, 2차: `API_VERSION` 삭제·로그 형식/콘솔 설정 연결), `logging-overhaul`(모든 경로 같은 로그 형식·헤더별 레벨·프로세스별 파일·날짜+크기 회전·보관 일수·설정 비밀값 마스킹), `access-policy`(뷰마다 접근 수준 `Public`·`PublicWrite`·`LoginRequired`·`SuperuserRequired` 선언과 기동 시 `AccessPolicyGuard` 검사), `integration-e2e`(전수 통합 e2e 스위트·`compose.e2e.yaml`·CI e2e job, Redis 장애 503·replica 재시도·422 문서·처리기 없는 예외·401 헤더·CSRF 본문 상한 등 정책 결정), `docs-guide-review`(가이드 문서를 코드와 대조한 검수·정정) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
+| [docs/crp/groups/](docs/crp/groups/) | 검수 이력(append-only) — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계), `service-hardening`(인증·인가·rate limit·UTC), `admin-login`(관리 화면 로그인·`ADMIN_DISABLED`), `log-redaction-fixes`(traceback 마스킹·예외 헤더·Redis 최소 버전·커버리지 하한), `security-ops-hardening`(DB 바인드 값 숨김·접속 로그 보존·관리 로그인 CSRF·날짜 필터), `admin-session-hardening`(관리 세션 Redis 이전·로그인 이후 CSRF·기간 필터), `config-cleanup`(쓰지 않는 SMTP·업로드·세션 만료 설정 삭제·설정 사용 계약 테스트, 2차: `API_VERSION` 삭제·로그 형식/콘솔 설정 연결), `logging-overhaul`(모든 경로 같은 로그 형식·헤더별 레벨·프로세스별 파일·날짜+크기 회전·보관 일수·설정 비밀값 마스킹), `access-policy`(뷰마다 접근 수준 `Public`·`PublicWrite`·`LoginRequired`·`SuperuserRequired` 선언과 기동 시 `AccessPolicyGuard` 검사), `integration-e2e`(전수 통합 e2e 스위트·`compose.e2e.yaml`·CI e2e job, Redis 장애 503·replica 재시도·422 문서·처리기 없는 예외·401 헤더·CSRF 본문 상한 등 정책 결정), `docs-guide-review`(가이드 문서를 코드와 대조한 검수·정정), `docs-guide-site`(HTML 가이드 사이트 추가와 코드 대조 정정·내용 계약 테스트) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
 
 `docs/guides/` 는 **현행 문서**라 코드 기준으로 유지하고, `review_gate` docs 그룹이 Markdown 의 백틱
 경로와 HTML 의 `<code>` 경로·환경변수를 검사합니다. HTML 안내서는 흐름을 요약하고 표·목록의 원문은
