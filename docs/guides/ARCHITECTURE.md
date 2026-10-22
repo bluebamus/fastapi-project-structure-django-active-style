@@ -747,7 +747,7 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
   변경·삭제면 관리 세션과 refresh 를 모두 끊습니다. Redis 폐기가 실패하면 예외로 커밋이 막혀 DB 변경이 남지 않습니다(fail-closed).
   `scripts/create_superuser.py --set-password` 로 기존 사용자의 비밀번호를 바꿀 때도 커밋 전에 같은
   `revoke_user_access` 로 관리 세션과 refresh 를 끊습니다 — Redis 에 닿지 못하면 종료 코드 2, 비밀번호는 그대로입니다.
-  자기 강등은 지금 세션도 끊습니다. 매 요청 DB 확인도 유지합니다(이중 방어). Redis 오류는 503 입니다(fail-closed) — 쿠키 없는 첫 요청처럼 응답 직전에 새 세션을 저장하다 실패해도 같습니다.
+  자기 강등은 지금 세션도 끊습니다. 매 요청 DB 확인도 유지합니다 — 이 폐기를 거치지 않고 DB 를 직접 바꾼 강등·비활성화(SQL·스크립트 등)는 다음 요청에서 끊깁니다(이중 방어). Redis 오류는 503 입니다(fail-closed) — 쿠키 없는 첫 요청처럼 응답 직전에 새 세션을 저장하다 실패해도 같습니다.
 - **세션은 관리 화면 전용입니다.** 메인 앱에는 세션 미들웨어가 없고, API 보호 경로는 Bearer
   토큰만 봅니다 — 관리 세션 쿠키로 API 를 호출해도 401 입니다. 회귀 가드: `tests/test_admin_login.py`
   의 세션 범위 테스트.
@@ -786,7 +786,7 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
 | 작성자 | 작성자 컬럼 도입 전의 글(`author_id` NULL)은 슈퍼유저만 수정한다. `author` 표시 이름은 작성 시점의 username 이라 이름을 바꿔도 따라가지 않는다 |
 | 참조 무결성 | `Reply.post_id` 는 FK 없는 문자열 — 게시글 존재 검증·삭제 전파 정책 없음 |
 | 로그인 보호 | 고정 창 rate limit(창 경계에서 최대 2배 통과, API·`/admin` 공통). 계정 잠금은 없다 |
-| 관리 세션 | Redis 서버 세션 — 로그아웃은 그 세션 하나를, 강등·비활성화·삭제(API·관리 화면 모두)는 그 사용자의 관리 세션 전부를 서버에서 즉시 폐기한다. Redis 장애 중에는 관리 화면이 503 이다. sqladmin 의 사용자 정의 `@action` 은 GET 이라 CSRF 검사 대상이 아니다(이 저장소에는 없다). 관리 화면에서 직접 편집한 강등은 다음 요청의 DB 확인으로 끊긴다 |
+| 관리 세션 | Redis 서버 세션 — 로그아웃은 그 세션 하나를, 강등·비활성화·삭제(API·관리 화면 모두)와 CLI `--set-password` 비밀번호 교체는 그 사용자의 관리 세션 전부를 커밋 전에 서버에서 즉시 폐기한다. Redis 장애 중에는 관리 화면이 503 이다. sqladmin 의 사용자 정의 `@action` 은 GET 이라 CSRF 검사 대상이 아니다(이 저장소에는 없다). 이 폐기를 거치지 않고 DB 를 직접 바꾼 강등·비활성화(SQL·스크립트 등)는 다음 요청의 DB 확인으로 끊긴다 |
 | 토큰 폐기 | refresh 는 family 단위로 폐기된다(재사용 탐지·로그아웃). access 토큰은 만료(기본 15분)까지 유효하다 |
 | 접속 로그 개인정보 | `query_string` 은 민감 키 값만 가리고 나머지와 `referer`·`session_id` 쿠키는 원문 저장한다 — **사용자 결정으로 유지**(log-redaction-fixes ADR-003). 보존 기간은 `ACCESS_LOG_RETENTION_DAYS`(기본 365일, beat 가 매일 삭제 — §7.1). 조회 API 는 슈퍼유저 전용 |
 | CORS | 기본 `CORS_ALLOW_ORIGINS=["*"]`, credentials false (staging/production 은 게이트가 `*` 를 거부) |

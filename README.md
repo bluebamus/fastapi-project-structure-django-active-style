@@ -458,7 +458,7 @@ uv run celery -A app.celery.app:celery_app beat --loglevel=INFO     # 스케줄 
 beat 는 실행 디렉터리에 스케줄 상태 파일 `celerybeat-schedule*` 을 만듭니다(`-s <경로>` 로 바꿀 수 있고, 저장소 안에서는 git 이 무시합니다).
 
 **`/admin` 은 슈퍼유저 로그인이 필요합니다.** SQLAdmin 에 붙인 `AdminAuthBackend` 가 활성 슈퍼유저만
-들여보내고(매 요청 DB 확인 — 강등·비활성화는 다음 요청부터 막힌다), 로그인 시도는 API 로그인과 같은
+들여보내고(매 요청 DB 확인 — DB 를 직접 바꾼 강등·비활성화도 다음 요청부터 막힌다), 로그인 시도는 API 로그인과 같은
 한도로 따로 셉니다(`admin:rl:`). 세션은 `/admin` 전용 **Redis 서버 세션**입니다 — 쿠키 `admin_session`
 (`Path=/admin`, `SameSite=Strict`, HttpOnly, staging/production 은 Secure)에는 무작위 세션 ID 만 있고,
 내용은 Redis `admin:sess:{HMAC(SESSION_SECRET_KEY, ID)}` 에 있습니다. 로그인하면 세션 ID 를 새로 발급하고,

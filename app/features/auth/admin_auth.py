@@ -7,8 +7,8 @@
   슈퍼유저 확인. 성공하면 세션을 비우고 사용자 id 와 새 CSRF 토큰만 넣은 뒤 세션 ID 를 회전한다
   (세션 고정 방지 — ``rotate_session``). 실패 사유는 구분하지 않는다(계정 열거 방지).
   한도 초과는 로그인 화면을 429 + ``Retry-After`` 로.
-- 인증: 매 요청 세션의 id 로 DB 를 다시 본다 — 강등·비활성화가 다음 요청부터 반영된다
-  (서버 세션 즉시 폐기와 이중 방어).
+- 인증: 매 요청 세션의 id 로 DB 를 다시 본다 — DB 를 직접 바꾼 강등·비활성화(SQL·스크립트 등)도
+  다음 요청부터 반영된다(``revoke_user_access`` 를 부르는 세 곳의 커밋 전 즉시 폐기와 이중 방어).
 - 세션: ``app/core/security/admin_session.py`` 의 Redis 서버 세션(admin-session-hardening ADR-001).
   쿠키 ``admin_session``(접속 로그가 읽는 ``SESSION_COOKIE_NAME`` 과 다르다)에는 무작위 세션 ID 만,
   ``Path=/admin``, ``SameSite=Strict``, HttpOnly, Max-Age=절대 만료, 배포 환경은 Secure.

@@ -109,6 +109,7 @@ Svc --&gt;|&quot;비활성화, 강등(PATCH), 삭제(DELETE)&quot;| Revoke[&quot
 </div>
 <p>명시적 비밀번호 교체는 CLI <code>--set-password</code> 뿐입니다. HTTP PATCH 의 <code>UserUpdate</code> 는 <code>email</code>·<code>is_active</code>·<code>is_superuser</code> 뿐이고, 관리 화면 폼은 비밀번호 해시를 노출하지 않습니다. 이 세 곳 밖에서 일어나는 해시 변경 — 로그인 시 bcrypt→Argon2 자동 재해시(<code>auth_service</code> 의 <code>verify_and_update</code>) — 은 비밀번호가 그대로라 폐기하지 않습니다.</p>
 <p>Redis 에 닿지 못하면 폐기가 실패하고 변경은 커밋되지 않습니다 — HTTP 는 503 <code>SERVICE_UNAVAILABLE</code>, CLI 는 종료 코드 2(비밀번호 그대로), 관리 화면은 저장하지 않고 오류를 표시합니다(<a href="../workflows/admin-authentication.html#lifecycle">관리 화면 인증 안내서</a>). 이미 발급된 access token 은 만료(기본 15분)까지 남습니다.</p>
+<p>이 세 곳을 거치지 않고 DB 를 직접 바꾼 강등·비활성화(SQL·스크립트 등)는 폐기가 일어나지 않습니다. 그 사용자의 관리 세션은 매 요청 DB 확인(<code>AdminAuthBackend.authenticate</code>)으로 다음 요청에 끊깁니다(<a href="../workflows/admin-authentication.html#failures">관리 화면 인증 안내서</a>).</p>
 </section>
 <section>
 <h2>주요 소스</h2>
