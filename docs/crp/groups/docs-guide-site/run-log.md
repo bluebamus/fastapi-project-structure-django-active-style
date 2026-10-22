@@ -53,3 +53,10 @@
 - **TDD:** 저장소 밖 `.env` 없는 클론 변이 4종 — (a) `user_service.py` 행 삭제 (b) `admin.py` 행 중복 (c) `admin.py` 행 삭제 (d) 비호출 모듈(`app/features/auth/admin_auth.py`) 행 추가. 기존 테스트는 (a)·(b) 통과(못 잡음), 새 테스트는 4종 모두 AssertionError 로 실패 → 원본 통과.
 - **검사:** `.env` 없는 클론에서 `tests/test_doc*.py`·auth 테스트·`test_admin_login`·`test_admin_session` 184 passed, `ENV=test review_gate --group docs` 통과, ruff check·format 통과, 링크 검사 broken 0.
 - **상태:** 수정됨 — 검수 대기 (수렴 판정은 감독이 병합 때 기록)
+
+### 후속 T-1 — 2026-10-22 · `_should_skip` 회귀 테스트
+- **트리거:** 문서가 말하는 접속 로그 저장 범위(`ACCESS_LOG_ENABLED`·제외 경로 정확 일치·확장자 접미사 일치)를 직접 고정하는 테스트가 없었다. 사용자 요청으로 추가
+- **변경:** `b37e665` (테스트만, 코드 무변경)
+- **red→green:** 저장소 밖 복사본에서 `_should_skip` 의 비활성 검사 제거·정확 일치→접두사·접미사 무시 → 각각 1 failed(케이스가 서로 다름), 원본 5 passed
+- **검사:** ruff check·format 통과, `.env` 없는 복사본 전체 1455 passed · 44 skipped, 실패·오류 0
+- **상태:** 수정됨 — 검수 대기
