@@ -741,8 +741,8 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
   사용자 id·새 CSRF 토큰을 넣은 뒤 `rotate_session` 으로 **세션 ID 를 새로 발급하고 이전 키를 지웁니다**.
   로그아웃·`authenticate` 거부는 키를 지우고, 사용자 서비스의 비활성화·강등·삭제는 refresh 폐기와 같은
   지점에서 `AdminSessionStore.revoke_user` 를 부릅니다(`get_user_service` 가 주입, `ADMIN_DISABLED=true` 면
-  `None`). 관리 화면에서 직접 고친 경우는 `UserAdmin` 의 커밋 전 훅 `on_model_change`(비활성화·슈퍼유저 해제·비밀번호
-  해시 변경일 때만, 변경 전후 비교)·`on_model_delete` 가 `UserService` 와 같은 판정 `revocation_for`·폐기
+  `None`). 관리 화면에서 직접 고친 경우는 `UserAdmin` 의 커밋 전 훅 `on_model_change`(변경 전후 비교 — 폼이 비밀번호
+  해시를 노출하지 않아 화면에서는 비활성화·슈퍼유저 해제만 해당)·`on_model_delete` 가 `UserService` 와 같은 판정 `revocation_for`·폐기
   `revoke_user_access` 를 부릅니다(규칙 한 곳 — 관리 화면 경로 = API 경로). 비활성화·슈퍼유저 해제·비밀번호 해시
   변경·삭제면 관리 세션과 refresh 를 모두 끊습니다. Redis 폐기가 실패하면 예외로 커밋이 막혀 DB 변경이 남지 않습니다(fail-closed).
   `scripts/create_superuser.py --set-password` 로 기존 사용자의 비밀번호를 바꿀 때도 커밋 전에 같은

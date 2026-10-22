@@ -462,9 +462,9 @@ beat 는 실행 디렉터리에 스케줄 상태 파일 `celerybeat-schedule*` �
 한도로 따로 셉니다(`admin:rl:`). 세션은 `/admin` 전용 **Redis 서버 세션**입니다 — 쿠키 `admin_session`
 (`Path=/admin`, `SameSite=Strict`, HttpOnly, staging/production 은 Secure)에는 무작위 세션 ID 만 있고,
 내용은 Redis `admin:sess:{HMAC(SESSION_SECRET_KEY, ID)}` 에 있습니다. 로그인하면 세션 ID 를 새로 발급하고,
-로그아웃·강등·비활성화·삭제(API 와 관리 화면 모두 — 관리 화면에서는 비밀번호 해시 변경도)는 서버에서 그 사용자의
+로그아웃·강등·비활성화·삭제(API 와 관리 화면 모두)와 `create_superuser --set-password` 의 비밀번호 변경은 서버에서 그 사용자의
 관리 세션을 커밋 전에 전부 끊으므로(Redis 폐기가 실패하면 변경 자체를 저장하지 않는다. 관리 화면과 API 가 같은 판정·폐기 함수를
-써서 비활성화·강등·삭제(관리 화면은 비밀번호 해시 변경도)면 API refresh 토큰도 함께 끊는다) 복사해 둔 쿠키도 즉시 무효입니다. 관리 화면에서 **자기 자신**을 강등·비활성화하면 지금 세션도 끊겨
+써서 비활성화·강등·삭제면 API refresh 토큰도 함께 끊는다. 관리 화면 폼에는 비밀번호 해시가 없다) 복사해 둔 쿠키도 즉시 무효입니다. 관리 화면에서 **자기 자신**을 강등·비활성화하면 지금 세션도 끊겨
 저장 뒤 로그인 화면으로 갑니다. 이메일 등 일반 수정은 세션을 유지합니다.
 만료는 절대·미사용 두 가지입니다([세션·토큰 만료](#세션토큰-만료)). API 인증에는 쓰이지 않습니다.
 CSRF 토큰은 세션에 하나이고, 로그인 폼과 로그인 이후의 모든 생성·수정·삭제·일괄 삭제·가져오기·로그아웃
@@ -607,7 +607,7 @@ uv run python -m scripts.create_superuser --username alice
 
 스크립트는 API 와 같은 부품(`background_db_session`, core `get_password_hasher` 의 Argon2,
 `UserRepository`)으로 조립하고 한 번 커밋합니다. `--set-password` 로 기존 사용자의 비밀번호를 바꾸면
-API 의 비밀번호 변경과 같게 그 사용자의 refresh 토큰과 `/admin` 관리 세션을 커밋 전에 폐기합니다 —
+`revocation_for` 와 같은 규칙(비밀번호 해시 변경)으로 그 사용자의 refresh 토큰과 `/admin` 관리 세션을 커밋 전에 폐기합니다 —
 Redis 에 닿지 못하면 종료 코드 2 로 끝나고 비밀번호도 바꾸지 않습니다(fail-closed). 만든 계정으로 `/admin` 에도 로그인합니다
 (`ADMIN_DISABLED=false` 일 때). 그 뒤의 관리자는 관리자가 `POST /api/v1/user/users`
 (`"is_superuser": true`) 또는 `PATCH /api/v1/user/users/{user_id}` 로 만듭니다.
@@ -648,7 +648,7 @@ Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워
 | `/docs` 가 404 | `DEBUG=false` | `DEBUG=true` (MySQL 필요) |
 | 기능 API 만 500, `/ready` 503 | 앱은 떴지만 DB 가 없다 | MySQL 준비 |
 | 기능 API 는 정상인데 `/ready` 503 | 기동 뒤 Redis 가 끊겼다(로그 `[Readiness] Redis 점검 실패`) | Redis 상태·`REDIS_*` 확인 |
-| 로그인·가입·재발급·로그아웃·사용자 비활성화가 503 `SERVICE_UNAVAILABLE` | Redis 연결 실패 — rate limit·refresh 저장소·세션 폐기가 Redis 에 있다(fail-closed, 로그 `[RedisUnavailable]` 한 번) | Redis·`REDIS_*` 확인, `/ready` |
+| 로그인·가입·재발급·로그아웃·사용자 비활성화·강등·삭제가 503 `SERVICE_UNAVAILABLE` | Redis 연결 실패 — rate limit·refresh 저장소·세션 폐기가 Redis 에 있다(fail-closed, 로그 `[RedisUnavailable]` 한 번) | Redis·`REDIS_*` 확인, `/ready` |
 | 로그에 WARNING `replica 연결 오류 … primary 로 한 번 다시 실행` | replica 에 닿지 못해 그 읽기를 primary 가 대신 처리했다(응답은 정상) | replica 상태·`MYSQL_REPLICA_*` 확인. `/ready` 는 replica 를 보지 않는다 |
 | 새 기능이 마운트되지 않음 | 디렉터리명이 `_` 로 시작, `__init__.py` 없음, 라우터 모듈 경로가 `api/routers/router.py` 가 아님(변수명이 틀린 경우는 아래 `AppContractError` 행) | [ARCHITECTURE §2](docs/guides/ARCHITECTURE.md). 파일 **안의** import 오류라면 조용히 넘어가지 않고 기동이 실패한다 |
 | startup 에서 `AppContractError` | `router.py`/`admin.py` 의 export 가 규약과 다르거나(디렉터리명이 식별자가 아니면 — 예: `order-items` — `<name>_router` 를 선언할 수 없다) 두 앱이 같은 객체를 내보냄 | 오류 메시지의 앱과 export 를 고친다 |

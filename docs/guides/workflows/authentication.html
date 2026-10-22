@@ -141,7 +141,7 @@ A--&gt;&gt;C: 204</code></pre>
   <li>access token 은 만료(<code>ACCESS_TOKEN_EXPIRE_MINUTES</code>, 기본 15분) 전에 폐기할 수 없습니다. 로그아웃·재사용 감지·권한 변경은 refresh 만 끊습니다.</li>
   <li><code>/me</code> 외의 보호 경로는 토큰 클레임만 봅니다. 비활성화·슈퍼유저 강등은 기존 access token 이 만료될 때까지 그 경로에 반영되지 않습니다(이때 refresh·관리 세션은 즉시 폐기).</li>
   <li>rate limit 은 가입(IP 5회/3600초)과 로그인 두 경로만입니다. refresh·logout 은 제한하지 않습니다.</li>
-  <li>모든 401 은 <code>WWW-Authenticate: Bearer</code> 를 싣습니다. Redis 장애 시 가입·로그인·refresh·logout 과, refresh·관리 세션 폐기가 따르는 사용자 변경(비활성화·강등·비밀번호 변경·삭제)은 503 입니다(성공으로 간주하지 않음). Redis 를 쓰지 않는 요청은 그대로 응답합니다.</li>
+  <li>모든 401 은 <code>WWW-Authenticate: Bearer</code> 를 싣습니다. Redis 장애 시 가입·로그인·refresh·logout 과, refresh·관리 세션 폐기가 따르는 HTTP 사용자 변경(PATCH 의 비활성화·강등, DELETE)은 503 입니다(성공으로 간주하지 않음). 비밀번호를 바꾸는 CLI <code>scripts/create_superuser.py --set-password</code> 는 503 이 아니라 종료 코드 2 로 끝납니다(<a href="../features/user.html#revocation">세션 폐기 규칙</a>). Redis 를 쓰지 않는 요청은 그대로 응답합니다.</li>
   <li>라우트 접근 수준과 리소스 소유권은 분리돼 있습니다. 작성자·본인 규칙은 서비스가 판정합니다.</li>
 </ul>
 </section>

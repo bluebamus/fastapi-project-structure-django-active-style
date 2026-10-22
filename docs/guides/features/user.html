@@ -10,7 +10,7 @@
 <header class="hero">
   <p class="eyebrow">PROJECT GUIDE</p>
   <h1>사용자 기능</h1>
-  <p>사용자 관리와 본인·슈퍼유저 접근 규칙, 비활성화·강등·비밀번호 변경·삭제 시 세션 폐기를 담당합니다.</p>
+  <p>사용자 관리와 본인·슈퍼유저 접근 규칙, 비활성화·강등·삭제 시 세션 폐기를 담당합니다.</p>
 </header>
 <nav class="topnav" aria-label="가이드 메뉴">
   <a href="../index.html">허브</a>
@@ -29,8 +29,8 @@
 <aside class="callout"><p id="diagram-status" role="status">도식은 고정 버전 Mermaid CDN을 사용합니다. 인터넷이 없어도 본문·표·도식 원문을 읽을 수 있습니다.</p><noscript>JavaScript가 꺼져 있어 도식 원문과 본문으로 설명을 제공합니다.</noscript></aside>
 <section>
 <h2>목적과 책임</h2>
-<p>사용자 관리와 본인·슈퍼유저 접근 규칙, 비활성화·강등·비밀번호 변경·삭제 시 세션 폐기를 담당합니다.</p>
-<div class="callout"><strong>핵심 패턴:</strong> 본인 또는 슈퍼유저 정책 + 비활성화·강등·비밀번호 변경·삭제 시 refresh·관리 세션 폐기</div>
+<p>사용자 관리와 본인·슈퍼유저 접근 규칙, 비활성화·강등·삭제 시 세션 폐기를 담당합니다.</p>
+<div class="callout"><strong>핵심 패턴:</strong> 본인 또는 슈퍼유저 정책 + 비활성화·강등·삭제 시 refresh·관리 세션 폐기(<a href="#revocation">세션 폐기 규칙</a>)</div>
 </section>
 <section>
 <h2>API와 권한</h2>
@@ -58,7 +58,7 @@ View --&gt; Svc[UserService]
 Svc --&gt; Policy[&quot;OwnershipPolicy: 본인 또는 슈퍼유저&quot;]
 Svc --&gt; Repo[UserRepository]
 Repo --&gt; DB[(MySQL)]
-Svc --&gt;|&quot;비활성화, 강등, 비밀번호 변경, 삭제&quot;| Revoke[&quot;RefreshTokenStore, 관리 세션 폐기 (Redis)&quot;]
+Svc --&gt;|&quot;비활성화, 강등(PATCH), 삭제(DELETE)&quot;| Revoke[&quot;RefreshTokenStore, 관리 세션 폐기 (Redis)&quot;]
 </div>
 <details>
 <summary>Mermaid 원문</summary>
@@ -68,14 +68,33 @@ View --&gt; Svc[UserService]
 Svc --&gt; Policy[&quot;OwnershipPolicy: 본인 또는 슈퍼유저&quot;]
 Svc --&gt; Repo[UserRepository]
 Repo --&gt; DB[(MySQL)]
-Svc --&gt;|&quot;비활성화, 강등, 비밀번호 변경, 삭제&quot;| Revoke[&quot;RefreshTokenStore, 관리 세션 폐기 (Redis)&quot;]</code></pre>
+Svc --&gt;|&quot;비활성화, 강등(PATCH), 삭제(DELETE)&quot;| Revoke[&quot;RefreshTokenStore, 관리 세션 폐기 (Redis)&quot;]</code></pre>
 </details>
 <ul>
   <li>본인 수정에서 <code>is_active</code>·<code>is_superuser</code> 를 보내면 403(<code>PrivilegedFieldException</code>)입니다. 슈퍼유저만 바꿀 수 있습니다.</li>
-  <li>비활성화(<code>is_active</code> 참→거짓)·강등(<code>is_superuser</code> 참→거짓)·비밀번호 변경이나 사용자 삭제면 그 사용자의 refresh family 와 관리 세션을 폐기합니다. 활성화·승격 등 그 밖의 수정은 유지합니다(<code>revocation_for</code>). 이미 발급된 access token 은 만료(기본 15분)까지 남습니다.</li>
+  <li>HTTP 로는 비활성화·강등(PATCH)·삭제(DELETE)가 그 사용자의 refresh family 와 관리 세션을 폐기합니다. 규칙과 진입점(HTTP·관리 화면·CLI)은 아래 <a href="#revocation">세션 폐기 규칙</a> 표가 정본입니다.</li>
   <li>첫 슈퍼유저는 API 가 아니라 <code>scripts/create_superuser.py</code> 로 만듭니다.</li>
   <li>트랜잭션 경계는 <strong>쓰기 View</strong>입니다. 쓰기 핸들러가 응답 DTO 를 먼저 검증한 뒤 <code>await service.commit()</code> 을 한 번 호출합니다. 서비스는 업무 규칙만, 저장소는 flush 까지만 하고 둘 다 commit 하지 않습니다. 세션은 의존성(<code>get_writer_db_session</code>·<code>get_read_only_db_session</code>)이 열고, 예외로 빠져나가면 세션 close 가 ROLLBACK 합니다. 순서는 <code>tests/test_dto_before_commit.py</code> 가 고정합니다.</li>
 </ul>
+</section>
+<section>
+<h2 id="revocation">세션 폐기 규칙</h2>
+<p>규칙은 <code>revocation_for</code>(<code>app/features/user/services/user_service.py</code>) 한 곳이고, HTTP·관리 화면·CLI 가 같은 폐기 함수 <code>revoke_user_access</code> 를 커밋 <strong>전</strong>에 부릅니다. 이 가이드에서 폐기 규칙의 정본은 이 표입니다.</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>변경</th><th>refresh family</th><th>관리 세션</th><th>어디서 일어나나</th></tr>
+</thead>
+<tbody>
+<tr><td>비활성화(<code>is_active</code> 참→거짓)</td><td>폐기</td><td>폐기</td><td>HTTP <code>PATCH /api/v1/user/users/{user_id}</code>(슈퍼유저), 관리 화면 수정</td></tr>
+<tr><td>강등(<code>is_superuser</code> 참→거짓)</td><td>폐기</td><td>폐기</td><td>HTTP <code>PATCH /api/v1/user/users/{user_id}</code>(슈퍼유저), 관리 화면 수정</td></tr>
+<tr><td>비밀번호 해시 변경</td><td>폐기</td><td>폐기</td><td>CLI <code>scripts/create_superuser.py --set-password</code> 만. HTTP PATCH 의 <code>UserUpdate</code> 는 <code>email</code>·<code>is_active</code>·<code>is_superuser</code> 뿐이고, 관리 화면 폼은 비밀번호 해시를 노출하지 않습니다.</td></tr>
+<tr><td>삭제</td><td>폐기</td><td>폐기</td><td>HTTP <code>DELETE /api/v1/user/users/{user_id}</code>(슈퍼유저), 관리 화면 삭제</td></tr>
+<tr><td>그 밖(이메일, 활성화·승격)</td><td>유지</td><td>유지</td><td>HTTP <code>PATCH</code>, 관리 화면 수정</td></tr>
+</tbody>
+</table>
+</div>
+<p>Redis 에 닿지 못하면 폐기가 실패하고 변경은 커밋되지 않습니다 — HTTP 는 503 <code>SERVICE_UNAVAILABLE</code>, CLI 는 종료 코드 2(비밀번호 그대로), 관리 화면은 저장하지 않고 오류를 표시합니다(<a href="../workflows/admin-authentication.html#lifecycle">관리 화면 인증 안내서</a>). 이미 발급된 access token 은 만료(기본 15분)까지 남습니다.</p>
 </section>
 <section>
 <h2>주요 소스</h2>
