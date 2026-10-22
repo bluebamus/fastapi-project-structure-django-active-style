@@ -21,3 +21,5 @@
 - [x] Round 3: 규칙/진입점 분리 — 정본 표 `features/user.html#revocation`, 저장소 전체 grep 판정 — `24f7a63`·`f5e6fb5`
 - [x] Round 3: A-C1 설정 표 계약 테스트 — 변이 4종 실패 → 원본 통과 — `74c483c`
 - [x] Round 3: A-C2 접속 로그 docstring·.env.example — `f5e6fb5`
+- [x] Round 4: 폐기 정본을 `revoke_user_access` 호출 모듈 표로 재정의 + AST 계약 테스트(변이 빼기·더하기 실패 → 원본 통과) — `76df541`·`9b76c66`
+- [x] Round 4: A-R2-1 로그아웃(지금 세션 하나) / 강등·비활성화·삭제·CLI 비밀번호 교체(사용자 세션 전부) 분리 — `08337b9`

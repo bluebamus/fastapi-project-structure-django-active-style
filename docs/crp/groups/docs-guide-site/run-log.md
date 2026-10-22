@@ -32,3 +32,11 @@
 - **TDD:** 저장소 밖 `.env` 없는 클론 변이 4종(MYSQL_PORT 3306→9999, 이름 MYSQL_PORTX, 중복 행, 설명 변조) — 기존 테스트는 셋 다 통과(못 잡음), 새 테스트는 4종 모두 실패 → 원본에서 통과.
 - **검사:** 클론에서 문서 테스트·tests/scripts·test_admin_session·tests/core·user 테스트 895 passed, ruff check·format 통과, 링크 검사 broken 0, `review_gate --group docs` 통과.
 - **상태:** 수정됨 — 검수 대기 (수렴 판정은 감독이 병합 때 기록)
+
+### Round 4 — 2026-10-22 (base SHA: `7daf2ad`) — 검수 루프 라운드 3
+- **트리거:** 루프 라운드 3 지시 — `features/user#폐기` 3회째 지적(거시 재진단 2) + A-R2-1(README 로그아웃 범위).
+- **재진단:** `revoke_user_access` 호출부를 코드로 확정 — `app/features/user/services/user_service.py`(UserService PATCH·DELETE), `app/features/user/admin.py`(`on_model_change`·`on_model_delete` → `_revoke`), `scripts/create_superuser.py`(`--set-password`, 기존 사용자). 로그인 재해시는 `auth_service` 에서 해시만 UPDATE(폐기 없음). 로그아웃은 `session.clear()` → 미들웨어 `_commit` 이 그 SID 만 `delete`.
+- **Fix:** `76df541`(폐기 정본 표 + 계약 테스트) · `08337b9`(로그아웃 범위 분리) · `9b76c66`(ruff format 끝 빈 줄) · 이 기록 커밋.
+- **TDD:** 새 테스트는 수정 전 문서에서 실패(`admin.py` 누락). 저장소 밖 `.env` 없는 클론에서 문서 경로 하나 빼기(`admin.py`)·더하기(`auth_service.py`) 변이 둘 다 실패 → 원본 통과.
+- **검사:** 클론에서 `tests/test_doc*.py` 35 passed, `ENV=test review_gate --group docs` 통과, ruff check·format 통과, 링크 검사 broken 0.
+- **상태:** 수정됨 — 검수 대기 (수렴 판정은 감독이 병합 때 기록)

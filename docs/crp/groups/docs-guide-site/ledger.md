@@ -80,3 +80,14 @@
 | R2-A 확인만 | — | 확인 | 맞음 — 고치지 않음 | — | DEVELOPMENT.md:570·admin-authentication.html:372 '새 서비스(예: 비밀번호 변경)' 는 가정 예시. admin-authentication 327·352 는 이미 진입점 구분('폼은 노출하지 않는다'). getting-started 100·deployment 73 '사용자 수정·삭제의 세션 폐기' 는 사실. CRP 다른 그룹 기록은 append-only 이력이라 손대지 않음 |
 | A-C1 / N-2 | MED | Fix(테스트) | 수정됨 — 검수 대기 | `74c483c` | `test_configuration_table_matches_settings_fields` — 이름 집합 == model_fields, 중복 행 금지, 코드 기본값·description 일치(말로 적은 값: 없음/빈 값/config.API_DESCRIPTION 명시 목록). 기존 이름 부분 문자열 검사를 대체 |
 | A-C2 | LOW | Fix | 수정됨 — 검수 대기 | `f5e6fb5` | `user_info_middleware` 모듈 docstring·`.env.example` ACCESS_LOG_ENABLED 주석 → `_should_skip`(활성 + 제외 경로·확장자 아님). README·ARCHITECTURE §7.1·config API_DESCRIPTION·가이드는 이미 맞음 |
+
+## Round 4 — 검수 루프 라운드 3: 폐기 정본을 코드에서 닫는다 (2026-10-22)
+
+원인(거시 재진단 2, 위치 키 `features/user#폐기` 3회째): 정본 표의 "어디서 일어나나" 를 사람이 진입점을 떠올려 나열했다 — 경로가 새로 보일 때마다(관리 화면 → CLI → 로그인 재해시) 표가 틀어졌다. 처방: 표를 `revoke_user_access` 를 **호출하는 모듈**(AST 로 닫힌 사실 — `user_service.py`·`admin.py`·`scripts/create_superuser.py`)로 다시 정의하고 `tests/test_docs_guide_site.py` 로 고정. 그 밖의 해시 변경(로그인 bcrypt→Argon2 재해시, `auth_service` `verify_and_update`)은 비밀번호가 그대로라 폐기하지 않는다고 경계를 적었다.
+
+| ID | 심각도 | 처리 | 상태 | 커밋 | 근거·비고 |
+|---|---|---|---|---|---|
+| R2-A 정정 | MED | 정정 기록 | **Round 3 의 "진입점은 CLI 하나" 서술은 좁지 않았다** | — | "비밀번호 해시 변경 … CLI 만" 은 로그인 재해시(해시는 바뀌나 폐기 없음)를 빠뜨렸다. 표의 진입점 열은 관리 화면 모듈(`admin.py`)을 소스 경로로 적지 않았다 → R3-REV |
+| R3-REV | MED | Fix + 계약 테스트 | 수정됨 — 검수 대기 | `76df541`·`9b76c66` | `features/user.html#revocation` = 판정 표(변경 → refresh·관리 세션) + 실행 위치 표(호출 모듈 3개, 판정 `revocation_for`/`DELETED`/CLI 둘 다) + 경계 문장 + "명시적 비밀번호 교체는 CLI `--set-password` 뿐". `test_revocation_section_lists_exactly_the_revoke_callers` — 절의 소스 경로 집합 == AST 호출 모듈 집합 |
+| A-R2-1 | MED | Fix | 수정됨 — 검수 대기 | `08337b9` | 로그아웃 = 지금 세션 하나(`admin_auth.logout` → `session.clear()`, 미들웨어 `_commit` 이 그 SID `store.delete`, DB 커밋 무관) / 강등·비활성화·삭제·CLI 비밀번호 교체 = 그 사용자의 관리 세션 전부(`revoke_user`, 커밋 전). README 465·ARCHITECTURE 789·admin-authentication 개요 표 '폐기' 행 |
+| A-R2-1 확인만 | — | 확인 | 맞음 — 고치지 않음 | — | ARCHITECTURE 742('로그아웃·authenticate 거부는 키를 지우고' — 그 세션 키), admin-authentication 166·222·270/279·284·356(세션 단위 서술), `admin_session.py` 모듈 docstring 4(복사 쿠키 무효 — 사용자 전체라고 하지 않음) |
