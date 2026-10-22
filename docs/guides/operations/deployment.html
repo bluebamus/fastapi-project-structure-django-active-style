@@ -30,7 +30,7 @@
 <section>
 <h2>배포 전 필수 확인</h2>
 <ul>
-  <li><code>ENV=staging</code> 또는 <code>production</code> 으로 둡니다. 이때 <code>DEBUG=true</code>·<code>CORS_ALLOW_ORIGINS</code> 의 <code>*</code>·<code>LOG_SQL_ECHO_ENABLED=true</code>·<code>LOG_LEVEL=DEBUG</code> 는 기동 거부입니다. 비밀 키 3종(32자 이상, access≠refresh)과 <code>MYSQL_PASSWORD</code> 는 모든 ENV 에서 실제 값이어야 합니다.</li>
+  <li><code>ENV=staging</code> 또는 <code>production</code> 으로 둡니다. 이때 <code>DEBUG=true</code>·<code>CORS_ALLOW_ORIGINS</code> 의 <code>*</code>·<code>LOG_SQL_ECHO_ENABLED=true</code>·<code>LOG_LEVEL=DEBUG</code> 는 기동 거부입니다. 비밀 키 3종(32자 이상, access≠refresh)과 <code>MYSQL_PASSWORD</code> 는 test 외 모든 ENV(개발 환경 포함)에서 실제 값이어야 합니다.</li>
   <li>접속 정보는 URL 이 아니라 개별 키로 주입합니다: <code>MYSQL_HOST</code>·<code>MYSQL_PORT</code>·<code>MYSQL_USER</code>·<code>MYSQL_PASSWORD</code>·<code>MYSQL_DATABASE</code>, <code>REDIS_HOST</code>·<code>REDIS_PORT</code>·<code>REDIS_DB</code>·<code>REDIS_PASSWORD</code>. URL 설정은 마이그레이션용 <code>ALEMBIC_DATABASE_URL</code>(선택) 하나뿐입니다. <code>.env</code> 없이 주입하면 필수 8개가 모두 있어야 합니다.</li>
   <li><code>DEBUG=false</code> 면 <code>create_all</code> 을 하지 않으므로 <code>uv run alembic upgrade head</code> 를 rollout 과 호환되는 순서로 먼저 실행합니다.</li>
   <li>staging/production 의 <code>/admin</code> 세션 쿠키는 <code>Secure</code> 라 HTTPS(프록시의 TLS 종료 포함)가 필요합니다. 관리 화면을 쓰지 않으면 <code>ADMIN_DISABLED=true</code>.</li>

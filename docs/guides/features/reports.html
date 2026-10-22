@@ -54,7 +54,6 @@ View --&gt; Deps[&quot;Depends: 접근 수준, 세션, 서비스&quot;]
 View --&gt; Service[&quot;reports Service: 업무 규칙&quot;]
 Service --&gt; Repo[Repository]
 Repo --&gt; DB[(MySQL)]
-View --&gt;|&quot;응답 DTO 검증 뒤 await service.commit()&quot;| Service
 </div>
 <details>
 <summary>Mermaid 원문</summary>
@@ -63,8 +62,7 @@ Client --&gt; View[&quot;reports View&quot;]
 View --&gt; Deps[&quot;Depends: 접근 수준, 세션, 서비스&quot;]
 View --&gt; Service[&quot;reports Service: 업무 규칙&quot;]
 Service --&gt; Repo[Repository]
-Repo --&gt; DB[(MySQL)]
-View --&gt;|&quot;응답 DTO 검증 뒤 await service.commit()&quot;| Service</code></pre>
+Repo --&gt; DB[(MySQL)]</code></pre>
 </details>
 <ul>
   <li>모든 엔드포인트가 조회 전용이라 read-only 세션을 쓰고 commit 하지 않습니다.</li>
