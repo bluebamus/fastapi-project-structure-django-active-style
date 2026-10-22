@@ -4,6 +4,7 @@
 들어왔다. 여기서는 코드에서 뽑은 집합과 문서의 집합을 직접 대조한다.
 """
 
+import json
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -23,6 +24,7 @@ class _Page(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self.rows: list[list[str]] = []
+        self.header_rows: set[int] = set()  # <th> 가 있는 행의 번호
         self.hrefs: list[str] = []
         self.stylesheets: list[str] = []
         self.scripts: list[str] = []
@@ -36,6 +38,8 @@ class _Page(HTMLParser):
             self.rows.append([])
         elif tag in ("td", "th"):
             self._cell = []
+            if tag == "th":
+                self.header_rows.add(len(self.rows) - 1)
         elif tag == "a" and a.get("href"):
             self.hrefs.append(a["href"])
         elif tag == "link" and a.get("rel") == "stylesheet":
@@ -101,16 +105,60 @@ def test_feature_api_tables_match_openapi_and_access_policy():
     assert checked, "기능별 문서에 API 표 행이 없습니다 — 검사가 무의미해집니다."
 
 
-def test_configuration_page_names_every_setting():
-    names = {
-        field
+SETTINGS_HEADER = ["설정", "코드 기본값", ".env.example", "설명(Field description)"]
+# 값 대신 말로 적은 기본값 — 코드 값 → 표 문구.
+SPOKEN_DEFAULTS = {None: "없음", "": "빈 값"}
+NAMED_DEFAULTS = {config.API_DESCRIPTION: "config.API_DESCRIPTION"}
+
+
+def _render_default(value) -> str:
+    """코드 기본값을 설정 표의 '코드 기본값' 열 문구로 바꾼다."""
+    if isinstance(value, bool):
+        return str(value).lower()
+    if isinstance(value, list):
+        return json.dumps(value, ensure_ascii=False)
+    if value in SPOKEN_DEFAULTS:
+        return SPOKEN_DEFAULTS[value]
+    return NAMED_DEFAULTS.get(value, str(value))
+
+
+def _settings_rows(page: Path) -> list[list[str]]:
+    """설정 표(머리행이 SETTINGS_HEADER 인 표)의 데이터 행."""
+    parsed = _parse(page)
+    rows, inside = [], False
+    for i, row in enumerate(parsed.rows):
+        if i in parsed.header_rows:
+            inside = row == SETTINGS_HEADER
+        elif inside:
+            rows.append(row)
+    return rows
+
+
+def test_configuration_table_matches_settings_fields():
+    """설정 표의 이름 집합·코드 기본값·설명이 Settings 의 model_fields 와 같다(중복 행 금지)."""
+    fields = {
+        name: field
         for obj in vars(config).values()
         if isinstance(obj, type) and issubclass(obj, BaseSettings) and obj is not BaseSettings
-        for field in obj.model_fields
+        for name, field in obj.model_fields.items()
     }
-    text = " ".join(_parse(GUIDES / "reference" / "configuration.html").text)
-    missing = sorted(name for name in names if name not in text)
-    assert not missing, f"configuration.html 에 없는 설정: {missing}"
+    rows = _settings_rows(GUIDES / "reference" / "configuration.html")
+    names = [row[0] for row in rows]
+    duplicated = sorted({n for n in names if names.count(n) > 1})
+    assert not duplicated, f"configuration.html 에 두 번 나온 설정: {duplicated}"
+    assert set(names) == set(fields), (
+        f"문서에만: {sorted(set(names) - set(fields))}\n"
+        f"코드에만: {sorted(set(fields) - set(names))}"
+    )
+    wrong = []
+    for name, default, _example, description in rows:
+        field = fields[name]
+        value = field.default_factory() if field.default_factory else field.default
+        if default != _render_default(value):
+            wrong.append(f"{name} 기본값: 문서 {default!r} / 코드 {_render_default(value)!r}")
+        if description != field.description:
+            wrong.append(f"{name} 설명: 문서 {description!r} / 코드 {field.description!r}")
+    assert not wrong, "\n".join(wrong)
 
 
 def test_every_mermaid_page_pins_one_version():
