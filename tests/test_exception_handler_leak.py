@@ -101,7 +101,7 @@ def test_server_error_app_exception_logs_error_with_detail(caplog):
     assert records[0].detail == {"model": "Post"}
 
 
-# ------------------------------------------------------------------ e2e-policy-2 결정 2 (P-003)
+# ------------------------------------------------------------------ integration-e2e ADR-013 (P-003)
 # 처리기가 없는 예외는 ServerErrorMiddleware 바로 안쪽(가장 바깥 사용자 미들웨어)에서 받아 기존 Exception
 # 처리기로 응답을 끝낸다 — 로그 1번, 연결 유지, 응답 불변. 다시 올라가면 uvicorn 이 traceback 을 한 번 더
 # 남기고 keep-alive 연결을 닫는다. raise_server_exceptions=True(기본)인 TestClient 는 앱 밖으로 나온 예외를 던진다.

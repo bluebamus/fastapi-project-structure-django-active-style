@@ -145,7 +145,7 @@ def _redis_from_settings() -> Redis:
 
 
 async def _revoke_sessions(redis_factory: Callable[[], Redis], user_id: str) -> None:
-    """API 의 비밀번호 변경과 같은 폐기 — 그 사용자의 refresh family 와 관리 세션(e2e-policy-2 결정 4)."""
+    """API 의 비밀번호 변경과 같은 폐기 — 그 사용자의 refresh family 와 관리 세션(integration-e2e ADR-010)."""
     redis = redis_factory()
     try:
         await revoke_user_access(

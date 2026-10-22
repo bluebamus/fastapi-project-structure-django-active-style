@@ -491,7 +491,7 @@ def test_normal(op_key, world, inventory, stack, cover):
 def test_validation_error(op_key, world, inventory, stack, cover):
     """검증 오류: 422 + 앱 공통 오류 형식(ErrorResponse, VALIDATION_ERROR, detail[field·message·type]).
 
-    OpenAPI 가 그 operation 에 광고한 422 스키마로 실제 본문을 검증한다(P-001 → e2e-policy-2 결정 1:
+    OpenAPI 가 그 operation 에 광고한 422 스키마로 실제 본문을 검증한다(P-001 → integration-e2e ADR-009:
     문서 = 실제 형식). 광고 스키마 이름은 산출물 ``openapi-422.json`` 에 기록한다.
     """
     openapi = inventory["openapi"]

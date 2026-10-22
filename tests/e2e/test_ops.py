@@ -131,7 +131,7 @@ def test_create_superuser_promotes_and_sets_password(api, stack, cover):
     assert new_password not in changed.stdout + changed.stderr
     assert api.login(user.username, user.password).status_code == 401
     assert api.login(user.username, new_password).status_code == 200
-    # e2e-policy-2 결정 4(P-002): API 의 비밀번호 변경과 같게 기존 refresh 와 관리 세션이 끊긴다.
+    # integration-e2e ADR-010(P-002): API 의 비밀번호 변경과 같게 기존 refresh 와 관리 세션이 끊긴다.
     revoked = api.request("POST", f"{V1}/auth/refresh", json={"refresh_token": user.refresh})
     assert revoked.status_code == 401, revoked.text
     assert admin.request("GET", "/admin/").status_code == 302  # 로그인 화면으로

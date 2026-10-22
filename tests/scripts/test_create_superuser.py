@@ -208,7 +208,7 @@ def _alice(session_factory) -> None:
 
 def test_set_password_revokes_refresh_and_admin_sessions(db):
     """CLI 비밀번호 변경도 API 와 같게 그 사용자의 refresh family 와 관리 세션을 끊는다
-    (e2e-policy-2 결정 4, P-002)."""
+    (integration-e2e ADR-010, P-002)."""
     from app.core.security.admin_session import AdminSessionStore
     from app.core.security.refresh_store import RefreshTokenStore
 

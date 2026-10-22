@@ -97,7 +97,7 @@ def test_redis_outage_fails_closed_with_503_and_recovers(app, api, stack, superu
             assert call("GET", f"{V1}/blog/posts").status_code == 200  # Redis 를 안 쓰는 읽기
             # 관리 화면: fail-closed 503, 사용자 변경은 저장되지 않는다
             assert admin_client.request("GET", "/admin/").status_code == 503
-            # 쿠키 없는 첫 요청 — 응답 직전의 새 세션 저장이 실패해도 503(e2e-policy-2 결정 6)
+            # 쿠키 없는 첫 요청 — 응답 직전의 새 세션 저장이 실패해도 503(integration-e2e V-006)
             first = call("GET", "/admin/login")
             assert first.status_code == 503, first.text
             no_leak(stack, first)
@@ -136,7 +136,7 @@ def test_primary_outage_ready_503_health_200_no_leak(app, api, stack, cover):
             assert 500 <= failed.status_code < 600, failed.status_code
             assert failed.json()["error_code"], failed.text
             no_leak(stack, failed)
-            # 처리되지 않은 예외(e2e-policy-2 결정 2): 로그인의 사용자 조회는 저장소가 번역하지 않는 읽기라
+            # 처리되지 않은 예외(integration-e2e ADR-013): 로그인의 사용자 조회는 저장소가 번역하지 않는 읽기라
             # OperationalError 가 그대로 올라간다 — 500 한 번, traceback 은 핸들러의 한 레코드, 연결은 유지.
             log_before = len(app.proc.output())
             with httpx.Client(base_url=stack.base_url, timeout=30) as http:
@@ -224,7 +224,7 @@ def test_replica_lag_keeps_read_after_write_on_primary(app, api, stack, cover):
             assert (
                 api.request("GET", item).status_code == 404
             )  # 지연은 연결 오류가 아니다 — 재시도 없음
-            # 인증 사용자 조회는 primary(e2e-policy-2 결정 5): replica 에 아직 없는 새 사용자도 /me 200
+            # 인증 사용자 조회는 primary(integration-e2e ADR-011): replica 에 아직 없는 새 사용자도 /me 200
             # (api.user() 가 /me 를 부른다), primary 의 비활성화는 replica 를 기다리지 않고 401.
             fresh = api.user()
             with stack.mysql() as conn, conn.cursor() as primary:

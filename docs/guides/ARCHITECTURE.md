@@ -672,7 +672,7 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
   절단)으로 검증하고, 맞으면 Argon2 해시로 바꿔 저장합니다 — `/login` 핸들러가 커밋합니다.
 - `get_current_user`(auth)는 `get_current_principal` 이 검증한 주체로 read-only 세션에서 활성 사용자를
   읽습니다 — 엔티티가 필요한 `/me` 만 씁니다. 이 조회는 replica 가 아니라 **primary** 로 갑니다(`using_writer`,
-  e2e-policy-2 결정 5) — 복제 지연 때 유효한 토큰이 401 이 되지 않고, 비활성화·삭제가 바로 반영됩니다. 나머지
+  integration-e2e ADR-011) — 복제 지연 때 유효한 토큰이 401 이 되지 않고, 비활성화·삭제가 바로 반영됩니다. 나머지
   read-only 조회의 라우팅은 그대로입니다. 이 객체를 쓰기 세션에서 직접 수정하지 말고, 쓰기 세션으로 다시 조회합니다.
 - **상수 시간 인증:** 사용자가 없거나 해시가 없어도 Argon2 더미 해시로 검증을 수행해 응답 시간으로
   사용자명 존재를 알아내기 어렵게 합니다(네트워크 변동까지 없애지는 못합니다).
@@ -760,7 +760,7 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
   헤더 `X-CSRF-Token` 또는 폼 필드 `csrf_token`(본문 버퍼링 후 receive 재생)을 같은 함수로 비교해 403 으로
   막습니다(로그인 POST 는 건너뜀 — 검사는 한 번). 버퍼링하는 폼 본문은 10 MiB 까지입니다 — `Content-Length` 로
   먼저, 없거나 거짓이면 읽는 도중 누적 크기로 판정해 넘으면 413, 1 MiB 를 넘는 필드(starlette 폼 파서 기본 상한)나
-  깨진 폼은 400 입니다(e2e-policy-2 결정 7, 상한은 `admin_auth.py` 의 상수). 토큰은 `app/templates/admin/sqladmin/base.html`(원본
+  깨진 폼은 400 입니다(integration-e2e ADR-012, 상한은 `admin_auth.py` 의 상수). 토큰은 `app/templates/admin/sqladmin/base.html`(원본
   `sqladmin_original/base.html` 상속, `head_tail` 블록만 추가)의 meta 와 인라인 스크립트가 폼 제출·XHR·fetch
   에 붙입니다. 로그아웃은 `_make_logout_post_only` 가 POST 전용으로 바꾸고(GET 405) 스크립트가 링크를
   POST 폼으로 바꿉니다. sqladmin 원본이 어긋나면 `test_packaged_templates_still_fit_the_base_override` 가 실패합니다.
@@ -907,6 +907,7 @@ CI(`.github/workflows/ci.yml`)는 세 job 입니다: `gate` job 이 `static stru
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-22 | **docs-guide-site**: HTML 가이드 사이트(`docs/guides/index.html` 허브와 주제별 19편)를 추가하고 코드와 대조해 정정했다 — 트랜잭션 경계(쓰기 View 의 commit), 설정 검사 시점, 미들웨어 순서, 접근 수준, Redis 장애 범위. API 표·설정 표·Mermaid 고정 버전·허브 링크는 `tests/test_docs_guide_site.py` 가 검사한다. 이 문서의 `e2e-policy-2 결정 N` 인용을 integration-e2e ADR 번호로 바꿨다. 코드 동작 변경 없음. |
 | 2026-10-21 | **docs-guide-review**: 가이드 검수 지적을 코드에 맞췄다 — 기동 도식(422 문서 후처리·`answer_unhandled_exception`·`AccessPolicyGuard`)·글로벌 핸들러 5종·미들웨어 순서·Settings 9종·설정 검사 3종·핸들러별 로그 필터·CI 세 job·e2e 마커(§1·§2·§3·§4·§5·§7·§8·§9·§10.3·§13). 코드 변경 없음. |
 | 2026-10-21 | **e2e-policy-2**(사용자 결정): OpenAPI 의 422 를 실제 본문 `ErrorResponse` 로 광고(문서 후처리 한 곳), 처리기가 없는 예외를 가장 바깥 사용자 미들웨어 `answer_unhandled_exception` 이 500 으로 끝냄(traceback 한 번·keep-alive 유지, DEBUG 는 다시 던짐), `create_superuser --set-password` 도 refresh·관리 세션을 커밋 전에 폐기(Redis 불가면 종료 코드 2), `/me` 의 사용자 조회는 primary, 관리 CSRF 폼 버퍼링 상한(본문 10 MiB 초과 413, 필드 1 MiB 초과·깨진 폼 400). 모든 401 의 `WWW-Authenticate: Bearer`·관리 화면 Redis 장애 503 은 이미 충족 — 계약 테스트로 고정. 의존성: `cryptography` 를 `aiomysql[rsa]` 로 선언(`pymysql` 은 추가 옵션 없이). |
 | 2026-10-20 | **integration-e2e**: 전수 통합 스위트(`tests/e2e/`, `compose.e2e.yaml` primary+GTID replica+Redis, CI job `e2e`). 고친 결함 — `pymysql[rsa]`(인증 캐시가 빈 MySQL 에 TLS 없이 붙을 때 RSA 필요, F-001), 401 의 `WWW-Authenticate: Bearer`(F-002), 상품 관리 폼의 서버 관리 열 제외(F-003). 사용자 결정 반영 — Redis 연결 장애 503(F-004), read-only 읽기의 replica 연결 오류 → primary 한 번 재시도(F-005), 프로세스 종류를 진입점으로 정해 Celery 기동 초기 줄도 `celery.log`(F-006). |

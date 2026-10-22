@@ -306,7 +306,7 @@ async def test_token_service_is_injected(client):
 
 
 async def test_every_auth_401_carries_www_authenticate_bearer(client):
-    """로그인·refresh·logout·/me 의 모든 401 이 ``WWW-Authenticate: Bearer`` 를 싣는다 (e2e-policy-2 결정 3)."""
+    """로그인·refresh·logout·/me 의 모든 401 이 ``WWW-Authenticate: Bearer`` 를 싣는다 (integration-e2e V-003)."""
     await _register(client)
     tokens = (await _login(client)).json()
     await _refresh(client, tokens["refresh_token"])  # 소비 → 다음 사용은 재사용 탐지
@@ -370,7 +370,7 @@ async def _db(user: User | None):
     ids=["replica-lag-new-user", "deactivated-on-primary-only"],
 )
 async def test_authenticated_user_is_read_from_primary(primary_active, replica_row, expected):
-    """토큰의 사용자 조회는 replica 가 아니라 primary 에서 읽는다 (e2e-policy-2 결정 5).
+    """토큰의 사용자 조회는 replica 가 아니라 primary 에서 읽는다 (integration-e2e ADR-011).
 
     복제 지연 중인 replica 에 사용자가 아직 없어도 유효한 토큰은 200 이고, primary 의 비활성화는
     replica 가 따라오기 전에도 바로 401 이다.
