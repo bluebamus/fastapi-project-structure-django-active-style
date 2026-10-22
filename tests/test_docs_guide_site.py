@@ -65,18 +65,40 @@ def _parse(path: Path) -> _Page:
     return page
 
 
-def test_api_table_matches_openapi_and_access_policy():
+def _operations() -> set[tuple[str, str, str]]:
+    """코드의 (메서드, 경로, 접근 수준) — OpenAPI operation × AccessPolicyGuard."""
     levels = AccessPolicyGuard().operations(app)
     expected = set()
     for path, item in app.openapi()["paths"].items():
         for method in item:
             (level,) = levels[(method.upper(), path)]
             expected.add((method.upper(), path, str(level)))
-    rows = _parse(GUIDES / "reference" / "api.html").rows
-    documented = {(r[0], r[1], r[2]) for r in rows if len(r) >= 3 and r[1].startswith("/")}
+    return expected
+
+
+def _api_rows(page: Path) -> set[tuple[str, str, str]]:
+    rows = _parse(page).rows
+    return {(r[0], r[1], r[2]) for r in rows if len(r) >= 3 and r[1].startswith("/")}
+
+
+def test_api_table_matches_openapi_and_access_policy():
+    expected = _operations()
+    documented = _api_rows(GUIDES / "reference" / "api.html")
     assert (
         documented == expected
     ), f"문서에만: {sorted(documented - expected)}\n코드에만: {sorted(expected - documented)}"
+
+
+def test_feature_api_tables_match_openapi_and_access_policy():
+    """기능별 문서의 API 표는 전체의 부분집합이다 — 행마다 경로·접근 수준이 코드와 같아야 한다."""
+    expected = _operations()
+    checked = 0
+    for page in sorted((GUIDES / "features").glob("*.html")):
+        documented = _api_rows(page)
+        checked += len(documented)
+        wrong = sorted(documented - expected)
+        assert not wrong, f"features/{page.name} 의 코드와 다른 행: {wrong}"
+    assert checked, "기능별 문서에 API 표 행이 없습니다 — 검사가 무의미해집니다."
 
 
 def test_configuration_page_names_every_setting():
