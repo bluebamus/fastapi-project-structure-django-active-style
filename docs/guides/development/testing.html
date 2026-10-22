@@ -3,34 +3,107 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>테스트와 검증</title>
+  <title>테스트</title>
   <link rel="stylesheet" href="../assets/style.css">
 </head>
 <body>
-<header class="hero"><p class="eyebrow">CODE-VERIFIED GUIDE</p><h1>테스트와 검증</h1><p>단위·계약·통합·E2E 테스트의 역할과 실행 기준을 설명합니다.</p></header>
+<header class="hero">
+  <p class="eyebrow">PROJECT GUIDE</p>
+  <h1>테스트</h1>
+  <p>테스트 명령, 마커, CI job 과 검증 층입니다.</p>
+</header>
 <nav class="topnav" aria-label="가이드 메뉴">
-  <a href="../index.html">허브</a><a href="../getting-started/index.html">부팅</a><a href="../architecture/index.html">설계</a>
-  <a href="../reference/api.html">API</a><a href="../workflows/request-processing.html">요청</a><a href="../workflows/authentication.html">인증</a>
-  <a href="../features/index.html">기능</a><a href="../development/index.html">개발</a><a href="../operations/deployment.html">운영</a>
+  <a href="../index.html">허브</a>
+  <a href="../getting-started/index.html">부팅</a>
+  <a href="../architecture/index.html">설계</a>
+  <a href="../reference/api.html">API</a>
+  <a href="../reference/configuration.html">설정</a>
+  <a href="../workflows/request-processing.html">요청</a>
+  <a href="../workflows/authentication.html">인증</a>
+  <a href="../features/index.html">기능</a>
+  <a href="../development/index.html">개발</a>
+  <a href="../development/testing.html">테스트</a>
+  <a href="../operations/deployment.html">운영</a>
 </nav>
 <main>
-<section><h2>기본 명령</h2><pre><code>uv run pytest
-uv run pytest -m "not integration and not e2e"
-uv run ruff check .</code></pre><p>정확한 marker와 검사 옵션은 <a data-source="pyproject.toml" href="../../../pyproject.toml"><code>pyproject.toml</code></a> 및 테스트 파일을 기준으로 합니다.</p></section>
-<section><h2>검증 층</h2><div class="mermaid">flowchart TD
-Unit[단위: 서비스·정책·유틸] --&gt; Contract[계약: 라우트·OpenAPI·문서]
-Contract --&gt; Integration[통합: DB·Redis·migration]
-Integration --&gt; E2E[E2E: 실제 프로세스·종료·프록시]
-E2E --&gt; Deploy[배포 승인]</div><details><summary>Mermaid 원문</summary><pre><code>flowchart TD
-Unit[단위: 서비스·정책·유틸] --&gt; Contract[계약: 라우트·OpenAPI·문서]
-Contract --&gt; Integration[통합: DB·Redis·migration]
-Integration --&gt; E2E[E2E: 실제 프로세스·종료·프록시]
-E2E --&gt; Deploy[배포 승인]</code></pre></details></section>
-<section><h2>무엇을 어디서 검증하나</h2><div class="table-wrap"><table><thead><tr><th>대상</th><th>우선 검증</th><th>실패 의미</th></tr></thead><tbody><tr><td>서비스 규칙</td><td>가짜/격리 저장소 단위 테스트</td><td>업무 규칙 회귀</td></tr><tr><td>저장소·migration</td><td>실제 지원 DB 통합 테스트</td><td>SQL·dialect·스키마 불일치</td></tr><tr><td>인증·rate limit</td><td>Redis 포함 통합 테스트</td><td>회전·폐기·원자성 회귀</td></tr><tr><td>라우트·문서</td><td>OpenAPI와 링크 계약 테스트</td><td>외부 계약 또는 문서 드리프트</td></tr><tr><td>종료·keep-alive</td><td>프로세스 E2E</td><td>운영 수명주기 회귀</td></tr></tbody></table></div></section>
-<section><h2>변경 완료 조건</h2><p>성공 경로만이 아니라 잘못된 입력, 미인증, 권한 부족, 없음, 충돌, 저장소 실패를 검증합니다. 외부 서비스가 필요한 테스트를 생략했다면 결과에 명시하고 CI에서 보완합니다.</p></section>
-<section><h2>관련 문서</h2><ul><li><a href="index.html">개발 가이드</a></li><li><a href="../operations/deployment.html">배포 전 점검</a></li><li><a href="../DEVELOPMENT.md">상세 체크리스트</a></li></ul></section>
+<aside class="callout"><p id="diagram-status" role="status">도식은 고정 버전 Mermaid CDN을 사용합니다. 인터넷이 없어도 본문·표·도식 원문을 읽을 수 있습니다.</p><noscript>JavaScript가 꺼져 있어 도식 원문과 본문으로 설명을 제공합니다.</noscript></aside>
+<section>
+<h2>기본 명령</h2>
+<pre><code>uv run python -m pytest                    # 전체 — mysql 마커는 MySQL 이 없으면 skip
+uv run python -m pytest -m &quot;not mysql&quot;     # CI gate job 과 같은 범위(skip 0)
+uv run ruff check . &amp;&amp; uv run mypy .</code></pre>
+<p><code>uv run pytest</code> 대신 <code>python -m pytest</code> 를 씁니다. pytest 설정이 <code>DEBUG=true</code>·<code>ENV=test</code> 를 주입하고 <code>tests/</code> 와 <code>app/features/*/tests/</code> 를 함께 수집합니다. 단위 테스트는 SQLite 와 가짜 Redis(fakeredis)를 써서 외부 인프라 없이 돕니다. CI gate job 은 실수로 생긴 실물 접속이 닫힌 포트에서 실패하도록 <code>REDIS_HOST=127.0.0.1</code>·<code>REDIS_PORT=16392</code> 를 줍니다.</p>
+</section>
+<section>
+<h2>MySQL·E2E</h2>
+<pre><code>docker compose -f compose.test.yaml up -d --wait
+uv run python -m pytest -m mysql
+docker compose -f compose.test.yaml down -v</code></pre>
+<p><code>mysql</code> 마커 테스트는 <code>compose.test.yaml</code> 의 MySQL 8.4(<code>127.0.0.1:3310</code>, <code>MYSQL_TEST_PORT</code>)가 필요합니다. <code>e2e</code> 마커는 <code>-m e2e</code> 를 줄 때만 수집되며(<code>tests/e2e/conftest.py</code>) <code>compose.e2e.yaml</code> 위에서 실제 uvicorn·Celery·Chromium 을 띄웁니다. 명령과 포트는 <a href="../../../README.md#테스트">README 테스트</a>가 정본입니다.</p>
+<p>CI 는 세 job 입니다: gate(<code>-m "not mysql"</code>), MySQL(<code>compose.test.yaml</code> + <code>-m mysql</code>), e2e(<code>compose.e2e.yaml</code> + <code>-m e2e</code>). skip·xfail 이 하나라도 있으면 실패합니다.</p>
+</section>
+<section>
+<h2>검증 층</h2>
+<div class="mermaid">
+flowchart TD
+Unit[&quot;단위: SQLite, fakeredis&quot;] --&gt; Contract[&quot;계약: 라우트, OpenAPI, 접근 수준, 문서&quot;]
+Contract --&gt; MySQL[&quot;mysql 마커: 실제 MySQL 8.4&quot;]
+MySQL --&gt; E2E[&quot;e2e 마커: 실제 프로세스, 복제, Redis, 브라우저&quot;]
+E2E --&gt; Deploy[배포 승인]
+</div>
+<details>
+<summary>Mermaid 원문</summary>
+<pre><code>flowchart TD
+Unit[&quot;단위: SQLite, fakeredis&quot;] --&gt; Contract[&quot;계약: 라우트, OpenAPI, 접근 수준, 문서&quot;]
+Contract --&gt; MySQL[&quot;mysql 마커: 실제 MySQL 8.4&quot;]
+MySQL --&gt; E2E[&quot;e2e 마커: 실제 프로세스, 복제, Redis, 브라우저&quot;]
+E2E --&gt; Deploy[배포 승인]</code></pre>
+</details>
+</section>
+<section>
+<h2>무엇을 어디서 검증하나</h2>
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>대상</th><th>우선 검증</th><th>실패 의미</th></tr>
+</thead>
+<tbody>
+<tr><td>서비스 규칙</td><td>SQLite 단위 테스트</td><td>업무 규칙 회귀</td></tr>
+<tr><td>저장소·migration·방언</td><td><code>mysql</code> 마커(실제 MySQL)</td><td>SQL·dialect·스키마 불일치</td></tr>
+<tr><td>인증·rate limit</td><td>fakeredis 단위 테스트(실제 Redis 는 e2e)</td><td>회전·폐기·제한 회귀</td></tr>
+<tr><td>라우트·접근 수준·문서</td><td>OpenAPI·인벤토리·문서 계약 테스트</td><td>외부 계약 또는 문서 드리프트</td></tr>
+<tr><td>장애·종료·복제</td><td><code>e2e</code> 마커</td><td>운영 수명주기 회귀</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+<section>
+<h2>변경 완료 조건</h2>
+<p>성공 경로만이 아니라 잘못된 입력, 미인증, 권한 부족, 없음, 충돌, 저장소 실패를 검증합니다. 외부 서비스가 필요한 테스트를 생략했다면 결과에 명시하고 CI 에서 보완합니다.</p>
+</section>
+<section>
+<h2>관련 문서</h2>
+<ul>
+  <li><a href="../development/index.html">개발 가이드</a></li>
+  <li><a href="../operations/deployment.html">배포 전 점검</a></li>
+  <li><a href="../DEVELOPMENT.md">DEVELOPMENT 상세 체크리스트</a></li>
+</ul>
+</section>
 </main>
-<footer>문서보다 코드가 우선입니다. 변경 시 연결된 소스와 테스트를 함께 확인하세요.</footer>
-<script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs'; mermaid.initialize({startOnLoad:true,securityLevel:'strict'});</script>
+<footer>main 6f00cf6(2026-10-22) 코드와 대조해 작성했습니다. 문서와 코드가 다르면 코드가 정답입니다.</footer>
+<script type="module">
+const status = document.getElementById("diagram-status");
+try {
+  const { default: mermaid } = await import("https://cdn.jsdelivr.net/npm/mermaid@11.12.0/dist/mermaid.esm.min.mjs");
+  mermaid.initialize({startOnLoad:false,securityLevel:"strict",theme:"neutral",fontFamily:'system-ui, "Malgun Gothic", sans-serif',flowchart:{htmlLabels:false},suppressErrorRendering:true});
+  for (const node of document.querySelectorAll(".mermaid")) {
+    try { await mermaid.run({nodes:[node]}); }
+    catch { node.textContent = "도식을 렌더링하지 못했습니다. 아래 Mermaid 원문과 본문 설명을 확인하세요."; node.classList.add("warning"); }
+  }
+  status.textContent = "Mermaid 도식 표시 완료. 원문은 각 도식 아래에서 확인할 수 있습니다.";
+} catch {
+  status.textContent = "오프라인 또는 CDN 접근 제한: 도식 대신 아래 원문과 본문을 확인하세요. 문서 본문은 인터넷 없이 읽을 수 있습니다.";
+}
+</script>
 </body>
 </html>
