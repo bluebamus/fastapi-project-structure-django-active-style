@@ -91,3 +91,14 @@
 | R3-REV | MED | Fix + 계약 테스트 | 수정됨 — 검수 대기 | `76df541`·`9b76c66` | `features/user.html#revocation` = 판정 표(변경 → refresh·관리 세션) + 실행 위치 표(호출 모듈 3개, 판정 `revocation_for`/`DELETED`/CLI 둘 다) + 경계 문장 + "명시적 비밀번호 교체는 CLI `--set-password` 뿐". `test_revocation_section_lists_exactly_the_revoke_callers` — 절의 소스 경로 집합 == AST 호출 모듈 집합 |
 | A-R2-1 | MED | Fix | 수정됨 — 검수 대기 | `08337b9` | 로그아웃 = 지금 세션 하나(`admin_auth.logout` → `session.clear()`, 미들웨어 `_commit` 이 그 SID `store.delete`, DB 커밋 무관) / 강등·비활성화·삭제·CLI 비밀번호 교체 = 그 사용자의 관리 세션 전부(`revoke_user`, 커밋 전). README 465·ARCHITECTURE 789·admin-authentication 개요 표 '폐기' 행 |
 | A-R2-1 확인만 | — | 확인 | 맞음 — 고치지 않음 | — | ARCHITECTURE 742('로그아웃·authenticate 거부는 키를 지우고' — 그 세션 키), admin-authentication 166·222·270/279·284·356(세션 단위 서술), `admin_session.py` 모듈 docstring 4(복사 쿠키 무효 — 사용자 전체라고 하지 않음) |
+
+## Round 5 — 검수 루프 라운드 4: 관리 세션 종료를 두 층으로 귀속한다 (2026-10-22)
+
+원인(거시 재진단 3, 주제 "관리 세션 종료·폐기 서술" 라운드 1·2·3 연속): 라운드마다 지적된 문장만 고치고 같은 사실을 말하는 이웃 문장(같은 표 행의 다른 절 포함)은 판정하지 않았다. 관리 세션 종료는 두 층이다 — ① 즉시 폐기: `revoke_user_access` 를 부르는 세 곳(`UserService` PATCH·DELETE, `UserAdmin.on_model_change`·`on_model_delete`, CLI `create_superuser --set-password`)이 DB 커밋 전에 그 사용자의 관리 세션 전부와 refresh family 를 지운다(로그아웃은 지금 세션 하나). ② 매 요청 DB 확인: `AdminAuthBackend.authenticate` 가 활성·슈퍼유저가 아니면 세션을 비운다 — ①을 거치지 않은, DB 를 직접 바꾼 강등·비활성화(SQL·스크립트 등)에 대한 이중 방어. 처방: README·docs/guides/**·app/**·scripts/** 의 관리 세션 '다음 요청·DB 확인·끊긴다·막힌다·폐기·무효' 문장을 전수 판정해 층에 귀속(목록은 run-log Round 5).
+
+| ID | 심각도 | 처리 | 상태 | 커밋 | 근거·비고 |
+|---|---|---|---|---|---|
+| A-R3-1 | MED | Fix | 수정됨 — 검수 대기 | `4967927` | ARCHITECTURE 789 "관리 화면에서 직접 편집한 강등은 다음 요청의 DB 확인으로 끊긴다" → 관리 화면 편집은 ①, ②는 "DB 를 직접 바꾼 강등·비활성화(SQL·스크립트 등)" 로 한정. 같은 행 ①에 CLI `--set-password` 와 '커밋 전' 추가 |
+| R4-LAYER | MED | Fix | 수정됨 — 검수 대기 | `4967927` | ② 범위가 빠진 이웃 문장: README 461·ARCHITECTURE 750·admin-authentication 개요 표 '폐기' 행·`admin_auth.py` 모듈 docstring 을 "DB 를 직접 바꾼 강등·비활성화" 로 한정. `features/user.html#revocation` 에 ②로 넘기는 경계 문장 한 줄 |
+| R2-A 정정 | LOW | 정정 기록 + Fix | 수정됨 — 검수 대기 | `4967927` | Round 4 의 "R2-A 확인만" 에서 맞음으로 둔 DEVELOPMENT 570·admin-authentication 372 '새 서비스는 `revoke_user` 를 부른다' 는 ① 정본(폐기 함수는 `revoke_user_access` 하나)과 어긋났다 — refresh 를 빠뜨리고 AST 계약 표에도 안 잡힌다. `revocation_for`·`revoke_user_access` 를 커밋 전에 부르고 정본 표에 행을 더한다로 고침 |
+| A-R3-2 | MED | Fix(테스트) | 수정됨 — 검수 대기 | `0725b4b` | `test_revocation_section_lists_exactly_the_revoke_callers` — 절 전체 경로 set 비교(도입 문장이 빠진 행을 가리고 set 이 중복 행을 숨김) → 머리 `모듈`·`진입점`·`판정` 표의 모듈 열만, 중복 금지 + 호출 모듈 집합 일치. 표 찾기는 기존 `_settings_rows` 로직을 `_table_rows(page, header)` 로 일반화해 재사용 |

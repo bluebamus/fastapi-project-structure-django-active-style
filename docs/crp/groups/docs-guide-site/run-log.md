@@ -40,3 +40,16 @@
 - **TDD:** 새 테스트는 수정 전 문서에서 실패(`admin.py` 누락). 저장소 밖 `.env` 없는 클론에서 문서 경로 하나 빼기(`admin.py`)·더하기(`auth_service.py`) 변이 둘 다 실패 → 원본 통과.
 - **검사:** 클론에서 `tests/test_doc*.py` 35 passed, `ENV=test review_gate --group docs` 통과, ruff check·format 통과, 링크 검사 broken 0.
 - **상태:** 수정됨 — 검수 대기 (수렴 판정은 감독이 병합 때 기록)
+
+### Round 5 — 2026-10-22 (base SHA: `37cf2a7`) — 검수 루프 라운드 4
+- **트리거:** 루프 라운드 4 지시 — 거시 재진단 3(관리 세션 종료 서술 3회 연속) + A-R3-1(ARCHITECTURE 789) + A-R3-2(폐기 표 테스트가 set 비교).
+- **재진단(코드):** ① `revoke_user_access` 호출 = `user_service.py:108`(`_revoke_sessions` ← `update_user`·`delete_user`)·`admin.py:174`(`_revoke` ← `on_model_change`·`on_model_delete`)·`scripts/create_superuser.py:152`(커밋 전). 로그아웃 = `admin_auth.logout` → `session.clear()`(그 세션 하나). ② `admin_auth.py:181` `authenticate` — 사용자 없음·비활성·비슈퍼유저면 `session.clear()`.
+- **두 층 전수 판정(맞음 = 고치지 않음):**
+  - 고침: ARCHITECTURE 789(①+② 오귀속), ARCHITECTURE 750(② 범위), README 461(② 범위), admin-authentication 31 '폐기' 행(② 범위), `admin_auth.py` 10-11(② 범위), DEVELOPMENT 568-570·admin-authentication 372(① `revoke_user` → `revoke_user_access`), `features/user.html#revocation`(② 경계 문장 추가).
+  - 맞음 ①: README 310(키 교체=전부 무효, 별도 사실)·466-470·547·611·652, ARCHITECTURE 742-749, DEVELOPMENT 568(앞 문장), features/index 58, user.html 13·32·33·61/71·75·89-90·106·111, authentication 142·144, getting-started 100, deployment 73, admin-authentication 172/187(키 없음=폐기)·216 행 7·8·9·222·270/279·327·328·340/351·352 전 행, `admin_session.py` 12·14-15·45·57·120·183, `admin.py` 145-153, `user_dependencies.py` 36, `user_service.py` 13-14·59-60·103·107·159-160·170, `create_superuser.py` 13·149·180-181·221.
+  - 맞음 ②: admin-authentication 31 '권한 확인 시점' 행·166·167 도식(dbcheck)·216 행 10(정본)·356 '쿠키 탈취' 행, ARCHITECTURE 742('authenticate 거부는 키를 지우고').
+  - 관리 세션 아님(범위 밖): ARCHITECTURE 573·675·705-706, `auth_dependencies.py` 129, `authorization.py` 19, `refresh_store.py` 71.
+- **Fix:** `4967927`(문서·docstring) · `0725b4b`(계약 테스트) · 이 기록 커밋.
+- **TDD:** 저장소 밖 `.env` 없는 클론 변이 4종 — (a) `user_service.py` 행 삭제 (b) `admin.py` 행 중복 (c) `admin.py` 행 삭제 (d) 비호출 모듈(`app/features/auth/admin_auth.py`) 행 추가. 기존 테스트는 (a)·(b) 통과(못 잡음), 새 테스트는 4종 모두 AssertionError 로 실패 → 원본 통과.
+- **검사:** `.env` 없는 클론에서 `tests/test_doc*.py`·auth 테스트·`test_admin_login`·`test_admin_session` 184 passed, `ENV=test review_gate --group docs` 통과, ruff check·format 통과, 링크 검사 broken 0.
+- **상태:** 수정됨 — 검수 대기 (수렴 판정은 감독이 병합 때 기록)
