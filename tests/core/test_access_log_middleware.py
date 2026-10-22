@@ -143,3 +143,28 @@ async def test_anonymous_request_records_no_user_id(recorded):
     await runner.drain()
 
     assert [entry["user_id"] for entry in saved] == [None, None]
+
+
+@pytest.mark.parametrize(
+    ("enabled", "url", "stored"),
+    [
+        (False, "/ok", False),  # ACCESS_LOG_ENABLED=false 면 아무것도 저장하지 않는다
+        (True, "/skip", False),  # 제외 경로는 정확 일치
+        (True, "/skip/child", True),  # 접두사는 제외가 아니다
+        (True, "/app.css", False),  # 제외 확장자는 접미사 일치
+        (True, "/ok", True),
+    ],
+)
+async def test_only_enabled_and_not_excluded_requests_are_stored(
+    recorded, monkeypatch, enabled, url, stored
+):
+    """문서가 말하는 저장 범위(``_should_skip``) — 로컬 .env 값과 무관하게 고정한다."""
+    saved, runner = recorded
+    monkeypatch.setattr(module.middleware_settings, "ACCESS_LOG_ENABLED", enabled)
+    monkeypatch.setattr(module.middleware_settings, "ACCESS_LOG_EXCLUDE_PATHS", ["/skip"])
+    monkeypatch.setattr(module.middleware_settings, "ACCESS_LOG_EXCLUDE_EXTENSIONS", [".css"])
+
+    await _get(url)
+    await runner.drain()
+
+    assert [entry["request_path"] for entry in saved] == ([url] if stored else [])
