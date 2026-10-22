@@ -24,3 +24,11 @@
 - **Fix:** `eda2049`(테스트) · `7be79b3`(문서·docstring) · 이 기록 커밋.
 - **보강 테스트:** 저장소 밖 복사본 변이 3종 — 기존 테스트 28 passed(못 잡음), 새 테스트 3 failed → 원본에서 29 passed.
 - **수렴 판정:** `CONVERGED` (Open Fix 0, 재검수 대기)
+
+### Round 3 — 2026-10-22 (base SHA: `b900316`) — 검수 루프 라운드 2
+- **트리거:** 루프 라운드 2 지시 — 반복 지적(`workflows/authentication#Redis 503 범위`, `features/user#폐기 조건`) 거시 재진단 + A-C1·A-C2.
+- **재진단:** 규칙(`revocation_for`)과 진입점(HTTP PATCH·DELETE / 관리 화면 / CLI `--set-password`)을 섞었다. `UserUpdate` 필드·`UserAdmin.form_excluded_columns`·auth 라우터(비밀번호 변경 없음)·`create_superuser` 종료 코드 2 로 확인.
+- **Fix:** `24f7a63`(가이드·README·ARCHITECTURE) · `f5e6fb5`(주석·docstring·.env.example, 동작 변경 없음) · `74c483c`(설정 표 계약 테스트) · 이 기록 커밋.
+- **TDD:** 저장소 밖 `.env` 없는 클론 변이 4종(MYSQL_PORT 3306→9999, 이름 MYSQL_PORTX, 중복 행, 설명 변조) — 기존 테스트는 셋 다 통과(못 잡음), 새 테스트는 4종 모두 실패 → 원본에서 통과.
+- **검사:** 클론에서 문서 테스트·tests/scripts·test_admin_session·tests/core·user 테스트 895 passed, ruff check·format 통과, 링크 검사 broken 0, `review_gate --group docs` 통과.
+- **상태:** 수정됨 — 검수 대기 (수렴 판정은 감독이 병합 때 기록)

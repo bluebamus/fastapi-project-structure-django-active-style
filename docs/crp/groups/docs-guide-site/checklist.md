@@ -18,3 +18,6 @@
 - [x] Round 2: 보강 테스트(기능별 API 표·링크 fragment) 복사본 변이에서 실패 → 통과 — `eda2049`
 - [x] Round 2: 문서·docstring 정정 — `7be79b3`
 - [x] Round 2: 1차 CONVERGED 선언 정정 행(ledger)
+- [x] Round 3: 규칙/진입점 분리 — 정본 표 `features/user.html#revocation`, 저장소 전체 grep 판정 — `24f7a63`·`f5e6fb5`
+- [x] Round 3: A-C1 설정 표 계약 테스트 — 변이 4종 실패 → 원본 통과 — `74c483c`
+- [x] Round 3: A-C2 접속 로그 docstring·.env.example — `f5e6fb5`

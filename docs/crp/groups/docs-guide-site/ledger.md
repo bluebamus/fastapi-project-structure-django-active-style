@@ -67,3 +67,16 @@
 | A-N6 | LOW | Fix | **Fixed** | `7be79b3` | docstring 인용 → integration-e2e ADR-014 |
 | A-N7 | LOW | Fix | **Fixed** | `7be79b3` | 접속 로그는 `ACCESS_LOG_ENABLED` + 제외 경로·확장자 아닌 요청(`user_info_middleware._should_skip`) — home·features 허브 |
 | X-2 | LOW | Fix(테스트) | **Fixed** | `eda2049` | 링크 `#fragment` 실재 검사(HTML id·name, MD 제목 slug) — 복사본 변이 HTML·MD 앵커에서 실패 |
+
+## Round 3 — 검수 루프 라운드 2: 반복 지적 거시 재진단 (2026-10-22)
+
+원인: 폐기 **규칙**(`revocation_for` — 비활성화·강등·비밀번호 해시 변경, 삭제는 `DELETED`)을 **진입점** 목록처럼 옮겨 적었다. HTTP `PATCH` 의 `UserUpdate` 는 email·is_active·is_superuser 뿐이고 관리 화면 폼은 해시를 노출하지 않는다 — 비밀번호 해시 변경의 진입점은 CLI `create_superuser --set-password`(Redis 실패 = 종료 코드 2) 하나다. 처방: 규칙 정본은 `features/user.html#revocation` 표 한 곳, 다른 곳은 링크 또는 진입점 기준 서술. 저장소 전체 grep('비밀번호 변경'·'503'·'폐기')으로 사실 단위 판정.
+
+| ID | 심각도 | 처리 | 상태 | 커밋 | 근거·비고 |
+|---|---|---|---|---|---|
+| A-N2 정정 | MED | 정정 기록 | **Round 2 Fixed 는 사실과 달랐다** | — | 도식·요약에 '비밀번호 변경' 을 HTTP 경로처럼 넣었다 → R2-A |
+| A-N3 정정 | LOW | 정정 기록 | **Round 2 Fixed 는 사실과 달랐다** | — | authentication 503 대상에 '비밀번호 변경' 이 들어갔다(HTTP 경로 없음, CLI 는 종료 코드 2) → R2-A |
+| R2-A | MED | Fix | 수정됨 — 검수 대기 | `24f7a63`·`f5e6fb5` | 정본 표 `features/user.html#revocation`(규칙 + 어디서 일어나나). user 요약 2·핵심 패턴·도식 렌더/원문·features 허브·authentication 503 범위·README 465/467/610/651·ARCHITECTURE 744. 코드 주석: create_superuser 12·149, user/admin.py 123·147, user_service 모듈 docstring, refresh_store.revoke_user, e2e test_ops 134, test_create_superuser 210 |
+| R2-A 확인만 | — | 확인 | 맞음 — 고치지 않음 | — | DEVELOPMENT.md:570·admin-authentication.html:372 '새 서비스(예: 비밀번호 변경)' 는 가정 예시. admin-authentication 327·352 는 이미 진입점 구분('폼은 노출하지 않는다'). getting-started 100·deployment 73 '사용자 수정·삭제의 세션 폐기' 는 사실. CRP 다른 그룹 기록은 append-only 이력이라 손대지 않음 |
+| A-C1 / N-2 | MED | Fix(테스트) | 수정됨 — 검수 대기 | `74c483c` | `test_configuration_table_matches_settings_fields` — 이름 집합 == model_fields, 중복 행 금지, 코드 기본값·description 일치(말로 적은 값: 없음/빈 값/config.API_DESCRIPTION 명시 목록). 기존 이름 부분 문자열 검사를 대체 |
+| A-C2 | LOW | Fix | 수정됨 — 검수 대기 | `f5e6fb5` | `user_info_middleware` 모듈 docstring·`.env.example` ACCESS_LOG_ENABLED 주석 → `_should_skip`(활성 + 제외 경로·확장자 아님). README·ARCHITECTURE §7.1·config API_DESCRIPTION·가이드는 이미 맞음 |
