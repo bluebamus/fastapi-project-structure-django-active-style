@@ -68,7 +68,7 @@ class RefreshTokenStore:
         return bool(await self._redis.exists(self._revoked_key(fam)))
 
     async def revoke_user(self, sub: str) -> None:
-        """사용자의 모든 family 를 폐기한다(비활성화·삭제 시)."""
+        """사용자의 모든 family 를 폐기한다(비활성화·강등·비밀번호 해시 변경·삭제 — ``revocation_for``)."""
         # redis-py 의 SMEMBERS 반환 타입은 동기·비동기 클라이언트 합집합이라 좁혀 준다.
         families = await cast(Awaitable[set[bytes]], self._redis.smembers(self._user_key(sub)))
         async with self._redis.pipeline(transaction=True) as pipe:

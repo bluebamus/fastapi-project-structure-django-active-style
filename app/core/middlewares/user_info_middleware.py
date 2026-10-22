@@ -1,7 +1,9 @@
 """
 사용자 접속 정보 수집 미들웨어
 
-모든 요청에서 사용자의 접속 정보를 수집하여 데이터베이스에 저장합니다.
+``ACCESS_LOG_ENABLED`` 이고 제외 경로(``ACCESS_LOG_EXCLUDE_PATHS``)·확장자
+(``ACCESS_LOG_EXCLUDE_EXTENSIONS``)가 아닌 요청만(``_should_skip``) 접속 정보를 수집해
+데이터베이스에 저장합니다.
 """
 
 import time
