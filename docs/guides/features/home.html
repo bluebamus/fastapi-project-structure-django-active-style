@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>접속 로그(home)</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<header class="hero">
+  <p class="eyebrow">PROJECT GUIDE</p>
+  <h1>접속 로그(home)</h1>
+  <p><code>ACCESS_LOG_ENABLED</code> 이면 제외 경로·확장자(<code>ACCESS_LOG_EXCLUDE_PATHS</code>·<code>ACCESS_LOG_EXCLUDE_EXTENSIONS</code>)가 아닌 요청의 접속 로그를 저장하고, 슈퍼유저 조회 API 와 보존 삭제 태스크를 제공합니다.</p>
+</header>
+<nav class="topnav" aria-label="가이드 메뉴">
+  <a href="../index.html">허브</a>
+  <a href="../getting-started/index.html">부팅</a>
+  <a href="../architecture/index.html">설계</a>
+  <a href="../reference/api.html">API</a>
+  <a href="../reference/configuration.html">설정</a>
+  <a href="../workflows/request-processing.html">요청</a>
+  <a href="../workflows/authentication.html">인증</a>
+  <a href="../features/index.html">기능</a>
+  <a href="../development/index.html">개발</a>
+  <a href="../development/testing.html">테스트</a>
+  <a href="../operations/deployment.html">운영</a>
+</nav>
+<main>
+<aside class="callout"><p id="diagram-status" role="status">도식은 고정 버전 Mermaid CDN을 사용합니다. 인터넷이 없어도 본문·표·도식 원문을 읽을 수 있습니다.</p><noscript>JavaScript가 꺼져 있어 도식 원문과 본문으로 설명을 제공합니다.</noscript></aside>
+<section>
+<h2>목적과 책임</h2>
+<p><code>ACCESS_LOG_ENABLED</code> 이면 제외 경로·확장자(<code>ACCESS_LOG_EXCLUDE_PATHS</code>·<code>ACCESS_LOG_EXCLUDE_EXTENSIONS</code>)가 아닌 요청의 접속 로그를 저장하고, 슈퍼유저 조회 API 와 보존 삭제 태스크를 제공합니다.</p>
+<div class="callout"><strong>핵심 패턴:</strong> 미들웨어 → sink → background 세션 저장, 조회는 read-only 세션, 보존 삭제는 Celery beat</div>
+</section>
+<section>
+<h2>API와 권한</h2>
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>메서드</th><th>경로</th><th>접근 수준</th><th>추가 규칙</th><th>용도</th></tr>
+</thead>
+<tbody>
+<tr><td><span class="method">GET</span></td><td><code>/api/v1/home/access-logs</code></td><td>SuperuserRequired</td><td>—</td><td>접속 로그 목록 조회</td></tr>
+<tr><td><span class="method">GET</span></td><td><code>/api/v1/home/access-logs/recent</code></td><td>SuperuserRequired</td><td>—</td><td>최근 접속 로그 조회</td></tr>
+<tr><td><span class="method">GET</span></td><td><code>/api/v1/home/access-logs/by-ip/{ip_address}</code></td><td>SuperuserRequired</td><td>—</td><td>IP별 접속 로그 조회</td></tr>
+<tr><td><span class="method">GET</span></td><td><code>/api/v1/home/access-logs/by-user/{user_id}</code></td><td>SuperuserRequired</td><td>—</td><td>사용자별 접속 로그 조회</td></tr>
+<tr><td><span class="method">GET</span></td><td><code>/api/v1/home/access-logs/stats</code></td><td>SuperuserRequired</td><td>—</td><td>접속 로그 통계</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+<section>
+<h2>내부 흐름</h2>
+<div class="mermaid">
+flowchart LR
+Req[요청] --&gt; MW[UserInfoMiddleware]
+MW --&gt;|&quot;응답 뒤 저장 작업 제출&quot;| Sink[&quot;access_log_sink, apps.ready 가 등록&quot;]
+Sink --&gt; BG[(&quot;background 세션에서 commit&quot;)]
+Admin[슈퍼유저] --&gt; View[home View]
+View --&gt; Svc[&quot;UserAccessLogService, read-only 세션&quot;]
+Beat[&quot;Celery beat 매일 03:30&quot;] --&gt; Purge[&quot;purge_expired_access_logs, 5,000행씩 배치 commit&quot;]
+</div>
+<details>
+<summary>Mermaid 원문</summary>
+<pre><code>flowchart LR
+Req[요청] --&gt; MW[UserInfoMiddleware]
+MW --&gt;|&quot;응답 뒤 저장 작업 제출&quot;| Sink[&quot;access_log_sink, apps.ready 가 등록&quot;]
+Sink --&gt; BG[(&quot;background 세션에서 commit&quot;)]
+Admin[슈퍼유저] --&gt; View[home View]
+View --&gt; Svc[&quot;UserAccessLogService, read-only 세션&quot;]
+Beat[&quot;Celery beat 매일 03:30&quot;] --&gt; Purge[&quot;purge_expired_access_logs, 5,000행씩 배치 commit&quot;]</code></pre>
+</details>
+<ul>
+  <li>보존 삭제: <code>tasks.py</code> 의 <code>purge_expired_access_logs</code> 를 Celery beat 가 매일 03:30(<code>TIME_ZONE</code> 기준)에 실행해 <code>ACCESS_LOG_RETENTION_DAYS</code>(기본 365일)보다 오래된 행을 5,000행씩 지웁니다. 0 이면 지우지 않습니다. <strong>beat 를 띄우지 않으면 지워지지 않습니다.</strong></li>
+  <li>통계 집계 태스크 <code>aggregate_access_stats</code> 도 같은 모듈에 있습니다(beat 스케줄 없음).</li>
+  <li>저장은 <code>apps.py</code> 의 <code>ready()</code> 가 sink 를 미들웨어에 등록해서 이뤄집니다. 조회 API 는 모두 read-only 세션이라 commit 하지 않습니다.</li>
+  <li>모든 엔드포인트가 조회 전용이라 read-only 세션을 쓰고 commit 하지 않습니다.</li>
+</ul>
+</section>
+<section>
+<h2>주요 소스</h2>
+<ul>
+  <li><a data-source="app/features/home/api/routers/router.py" href="../../../app/features/home/api/routers/router.py"><code>app/features/home/api/routers/router.py</code></a></li>
+  <li><a data-source="app/features/home/api/routers/v1/home.py" href="../../../app/features/home/api/routers/v1/home.py"><code>app/features/home/api/routers/v1/home.py</code></a></li>
+  <li><a data-source="app/features/home/services/access_log_retention_service.py" href="../../../app/features/home/services/access_log_retention_service.py"><code>app/features/home/services/access_log_retention_service.py</code></a></li>
+  <li><a data-source="app/features/home/services/user_access_log_service.py" href="../../../app/features/home/services/user_access_log_service.py"><code>app/features/home/services/user_access_log_service.py</code></a></li>
+  <li><a data-source="app/features/home/repositories/user_access_log_repository.py" href="../../../app/features/home/repositories/user_access_log_repository.py"><code>app/features/home/repositories/user_access_log_repository.py</code></a></li>
+  <li><a data-source="app/features/home/models/models.py" href="../../../app/features/home/models/models.py"><code>app/features/home/models/models.py</code></a></li>
+  <li><a data-source="app/features/home/schemas/home_schema.py" href="../../../app/features/home/schemas/home_schema.py"><code>app/features/home/schemas/home_schema.py</code></a></li>
+  <li><a data-source="app/features/home/schemas/user_access_log_schema.py" href="../../../app/features/home/schemas/user_access_log_schema.py"><code>app/features/home/schemas/user_access_log_schema.py</code></a></li>
+  <li><a data-source="app/features/home/dependencies/access_log_dependencies.py" href="../../../app/features/home/dependencies/access_log_dependencies.py"><code>app/features/home/dependencies/access_log_dependencies.py</code></a></li>
+  <li><a data-source="app/features/home/access_log_sink.py" href="../../../app/features/home/access_log_sink.py"><code>app/features/home/access_log_sink.py</code></a></li>
+  <li><a data-source="app/features/home/admin.py" href="../../../app/features/home/admin.py"><code>app/features/home/admin.py</code></a></li>
+  <li><a data-source="app/features/home/apps.py" href="../../../app/features/home/apps.py"><code>app/features/home/apps.py</code></a></li>
+  <li><a data-source="app/features/home/tasks.py" href="../../../app/features/home/tasks.py"><code>app/features/home/tasks.py</code></a></li>
+</ul>
+</section>
+<section>
+<h2>사용과 확장</h2>
+<p>클라이언트는 API 레퍼런스의 접근 수준을 만족한 뒤 OpenAPI 스키마에 맞춰 호출합니다. 보존 기간과 개인정보 정책(query string 마스킹 키, 원문 저장 항목)을 먼저 정한 뒤 통계 집계를 확장합니다.</p>
+<ol>
+  <li>요구사항과 접근 수준·소유권 규칙을 먼저 정합니다.</li>
+  <li>스키마 → 저장소 → 서비스 규칙 → View 순서로 책임을 배치합니다.</li>
+  <li>migration 과 테스트를 같은 변경에 포함하고, 새 API 는 <code>tests/e2e/test_api_matrix.py</code> 의 <code>OPS</code> 에 한 줄 더합니다.</li>
+  <li>API 가 바뀌면 이 문서와 <a href="../reference/api.html">전체 API 표</a>를 함께 갱신합니다.</li>
+</ol>
+</section>
+<section>
+<h2>주의점</h2>
+<ul>
+  <li>commit 은 쓰기 View 에서 응답 DTO 검증 뒤 한 번입니다. 서비스·저장소에서 commit 하지 않고, View 에서 쿼리를 조립하지 않습니다.</li>
+  <li>목록 API 는 정렬·페이지 경계를 안정적으로 유지합니다.</li>
+  <li>없음(404)과 권한 실패(403)를 구분하되 내부 정보를 노출하지 않습니다.</li>
+</ul>
+</section>
+<section>
+<h2>관련 문서</h2>
+<ul>
+  <li><a href="../features/index.html">기능 목록</a></li>
+  <li><a href="../reference/api.html">전체 API</a></li>
+  <li><a href="../development/index.html">개발 절차</a></li>
+</ul>
+</section>
+</main>
+<footer>main 6f00cf6(2026-10-22) 코드와 대조해 작성했습니다. 문서와 코드가 다르면 코드가 정답입니다.</footer>
+<script type="module">
+const status = document.getElementById("diagram-status");
+try {
+  const { default: mermaid } = await import("https://cdn.jsdelivr.net/npm/mermaid@11.12.0/dist/mermaid.esm.min.mjs");
+  mermaid.initialize({startOnLoad:false,securityLevel:"strict",theme:"neutral",fontFamily:'system-ui, "Malgun Gothic", sans-serif',flowchart:{htmlLabels:false},suppressErrorRendering:true});
+  for (const node of document.querySelectorAll(".mermaid")) {
+    try { await mermaid.run({nodes:[node]}); }
+    catch { node.textContent = "도식을 렌더링하지 못했습니다. 아래 Mermaid 원문과 본문 설명을 확인하세요."; node.classList.add("warning"); }
+  }
+  status.textContent = "Mermaid 도식 표시 완료. 원문은 각 도식 아래에서 확인할 수 있습니다.";
+} catch {
+  status.textContent = "오프라인 또는 CDN 접근 제한: 도식 대신 아래 원문과 본문을 확인하세요. 문서 본문은 인터넷 없이 읽을 수 있습니다.";
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>부팅과 첫 실행</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<header class="hero">
+  <p class="eyebrow">PROJECT GUIDE</p>
+  <h1>부팅과 첫 실행</h1>
+  <p>환경 준비부터 설정 검사, lifespan 기동·종료까지의 첫 실행 절차입니다.</p>
+</header>
+<nav class="topnav" aria-label="가이드 메뉴">
+  <a href="../index.html">허브</a>
+  <a href="../getting-started/index.html">부팅</a>
+  <a href="../architecture/index.html">설계</a>
+  <a href="../reference/api.html">API</a>
+  <a href="../reference/configuration.html">설정</a>
+  <a href="../workflows/request-processing.html">요청</a>
+  <a href="../workflows/authentication.html">인증</a>
+  <a href="../features/index.html">기능</a>
+  <a href="../development/index.html">개발</a>
+  <a href="../development/testing.html">테스트</a>
+  <a href="../operations/deployment.html">운영</a>
+</nav>
+<main>
+<aside class="callout"><p id="diagram-status" role="status">도식은 고정 버전 Mermaid CDN을 사용합니다. 인터넷이 없어도 본문·표·도식 원문을 읽을 수 있습니다.</p><noscript>JavaScript가 꺼져 있어 도식 원문과 본문으로 설명을 제공합니다.</noscript></aside>
+<section>
+<h2>목적</h2>
+<p>개발 환경을 재현하고 서버를 처음 띄우는 절차입니다. 설정 검사는 lifespan 이 아니라 <strong><a data-source="config.py" href="../../../config.py"><code>config.py</code></a> import 시점</strong>에 실행되므로, 잘못된 설정은 서버가 요청을 받기 전에 <code>RuntimeError</code> 로 드러납니다. 자세한 명령과 표는 <a href="../../../README.md#빠른-시작">README 빠른 시작</a>이 정본입니다.</p>
+</section>
+<section>
+<h2>필수 절차</h2>
+<ol>
+  <li><code>uv sync</code> 로 잠금 파일 기준 의존성을 설치합니다.</li>
+  <li><code>cp .env.example .env</code> 후 <code>ACCESS_TOKEN_SECRET_KEY</code>·<code>REFRESH_TOKEN_SECRET_KEY</code>·<code>SESSION_SECRET_KEY</code> 를 서로 다른 32자 이상 값으로, <code>MYSQL_PASSWORD</code> 를 실제 비밀번호로 바꿉니다. 예시 값·빈 값·짧은 키·access=refresh 이면 <strong>개발 환경에서도</strong> 기동하지 않습니다. 키 생성: <code>uv run python -c "import secrets; print(secrets.token_urlsafe(48))"</code>. Redis 설정은 로컬 기본값(<code>localhost:6379</code>)이면 바꿀 필요가 없습니다.</li>
+  <li>Redis 7.0 이상을 띄웁니다. Redis 는 필수입니다 — 기동 시 PING 이 실패하거나 버전이 7.0 미만이면 시작하지 않습니다(<code>DEBUG=false</code> 로도 우회되지 않습니다).</li>
+  <li>MySQL 을 준비합니다. <code>DEBUG=true</code>(기본값)면 기동 때 <code>create_all</code> 로 테이블을 만들므로 MySQL 이 없으면 startup 이 실패합니다. Alembic 으로 관리할 때는 <code>uv run alembic upgrade head</code> 를 먼저 적용합니다.</li>
+  <li><code>uv run python main.py</code>(<code>SERVER_HOST</code>·<code>SERVER_PORT</code>, DEBUG 면 reload) 또는 <code>uv run uvicorn main:app --reload --port 8000</code> 로 실행합니다.</li>
+  <li>첫 슈퍼유저를 만듭니다: <code>uv run python -m scripts.create_superuser --username admin --email admin@example.com</code>. 관리 API 와 <code>/admin</code> 은 슈퍼유저 전용이고 API 로는 첫 슈퍼유저를 만들 수 없습니다.</li>
+  <li><code>GET /health</code>(DB 를 보지 않음)와 <code>GET /ready</code>(writer DB <code>SELECT 1</code>·Redis PING, 각 2초)를 구분해 확인합니다. <code>/docs</code>·<code>/openapi.json</code> 은 <code>DEBUG=true</code> 일 때만 열립니다.</li>
+</ol>
+</section>
+<section>
+<h2>부팅 순서</h2>
+<div class="mermaid">
+sequenceDiagram
+participant O as 운영자
+participant M as main.py import
+participant C as config.py
+participant L as lifespan
+participant R as Redis
+participant D as MySQL
+O-&gt;&gt;M: uv run python main.py
+M-&gt;&gt;C: Settings 생성 + 설정 검사 3종
+C--&gt;&gt;M: 위반이면 RuntimeError, 기동 중단
+M-&gt;&gt;M: 앱 발견·ready 훅·모델 import, 미들웨어·처리기, 라우터 마운트, AccessPolicyGuard
+M-&gt;&gt;L: ASGI 서버가 lifespan 진입
+L-&gt;&gt;R: PING, INFO server 로 7.0 이상 확인
+L-&gt;&gt;L: background 작업 정리 등록
+L-&gt;&gt;D: DEBUG=true 면 create_all
+L--&gt;&gt;O: 요청 수락
+O-&gt;&gt;L: GET /ready
+L-&gt;&gt;D: SELECT 1 (2초)
+L-&gt;&gt;R: PING (2초)
+O-&gt;&gt;L: 종료 신호
+L-&gt;&gt;L: 등록 역순 정리: background 작업, Redis, DB 엔진, 로그 큐
+</div>
+<details>
+<summary>Mermaid 원문</summary>
+<pre><code>sequenceDiagram
+participant O as 운영자
+participant M as main.py import
+participant C as config.py
+participant L as lifespan
+participant R as Redis
+participant D as MySQL
+O-&gt;&gt;M: uv run python main.py
+M-&gt;&gt;C: Settings 생성 + 설정 검사 3종
+C--&gt;&gt;M: 위반이면 RuntimeError, 기동 중단
+M-&gt;&gt;M: 앱 발견·ready 훅·모델 import, 미들웨어·처리기, 라우터 마운트, AccessPolicyGuard
+M-&gt;&gt;L: ASGI 서버가 lifespan 진입
+L-&gt;&gt;R: PING, INFO server 로 7.0 이상 확인
+L-&gt;&gt;L: background 작업 정리 등록
+L-&gt;&gt;D: DEBUG=true 면 create_all
+L--&gt;&gt;O: 요청 수락
+O-&gt;&gt;L: GET /ready
+L-&gt;&gt;D: SELECT 1 (2초)
+L-&gt;&gt;R: PING (2초)
+O-&gt;&gt;L: 종료 신호
+L-&gt;&gt;L: 등록 역순 정리: background 작업, Redis, DB 엔진, 로그 큐</code></pre>
+</details>
+</section>
+<section>
+<h2>실패를 읽는 법</h2>
+<ul>
+  <li>설정 위반은 config import 에서 한 번에 모아 보고합니다. 메시지에 고칠 설정 이름만 나오고 값은 나오지 않습니다.</li>
+  <li>Redis 는 필수입니다. 기동 중 PING 실패·7.0 미만이면 시작하지 않고, 실행 중 Redis 연결이 끊기면 Redis 를 쓰는 요청(가입·로그인·refresh·logout, 사용자 수정·삭제의 세션 폐기, <code>/admin</code>)은 503, <code>/ready</code> 도 503 입니다. Redis 를 쓰지 않는 조회 API 는 계속 응답합니다.</li>
+  <li><code>DEBUG=false</code> 에 MySQL 이 없으면 기동은 되지만 <code>/ready</code> 는 503, 기능 API 는 500 입니다.</li>
+  <li><code>/ready</code> 는 <code>SELECT 1</code> 과 PING 만 봅니다. 마이그레이션과 모델이 어긋난 것은 잡지 못하고 요청 시점에 실패하므로 배포 전에 <code>alembic upgrade head</code> 를 적용합니다.</li>
+  <li>종료 시 lifespan 이 등록 역순으로 자원을 정리합니다. 단계별 예산과 순서는 <a href="../workflows/server-lifecycle.html">서버 수명주기 안내서</a>에 있습니다.</li>
+</ul>
+</section>
+<section>
+<h2>코드 근거</h2>
+<ul>
+  <li><a data-source="main.py" href="../../../main.py"><code>main.py</code></a></li>
+  <li><a data-source="config.py" href="../../../config.py"><code>config.py</code></a></li>
+  <li><a data-source="app/core/resources.py" href="../../../app/core/resources.py"><code>app/core/resources.py</code></a></li>
+  <li><a data-source=".env.example" href="../../../.env.example"><code>.env.example</code></a></li>
+  <li><a data-source="scripts/create_superuser.py" href="../../../scripts/create_superuser.py"><code>scripts/create_superuser.py</code></a></li>
+</ul>
+</section>
+<section>
+<h2>관련 문서</h2>
+<ul>
+  <li><a href="../../../README.md#빠른-시작">README 빠른 시작</a></li>
+  <li><a href="../workflows/server-lifecycle.html">서버 수명주기 상세</a></li>
+  <li><a href="../reference/configuration.html">환경 설정</a></li>
+  <li><a href="../operations/deployment.html">배포 체크리스트</a></li>
+</ul>
+</section>
+</main>
+<footer>main 6f00cf6(2026-10-22) 코드와 대조해 작성했습니다. 문서와 코드가 다르면 코드가 정답입니다.</footer>
+<script type="module">
+const status = document.getElementById("diagram-status");
+try {
+  const { default: mermaid } = await import("https://cdn.jsdelivr.net/npm/mermaid@11.12.0/dist/mermaid.esm.min.mjs");
+  mermaid.initialize({startOnLoad:false,securityLevel:"strict",theme:"neutral",fontFamily:'system-ui, "Malgun Gothic", sans-serif',flowchart:{htmlLabels:false},suppressErrorRendering:true});
+  for (const node of document.querySelectorAll(".mermaid")) {
+    try { await mermaid.run({nodes:[node]}); }
+    catch { node.textContent = "도식을 렌더링하지 못했습니다. 아래 Mermaid 원문과 본문 설명을 확인하세요."; node.classList.add("warning"); }
+  }
+  status.textContent = "Mermaid 도식 표시 완료. 원문은 각 도식 아래에서 확인할 수 있습니다.";
+} catch {
+  status.textContent = "오프라인 또는 CDN 접근 제한: 도식 대신 아래 원문과 본문을 확인하세요. 문서 본문은 인터넷 없이 읽을 수 있습니다.";
+}
+</script>
+</body>
+</html>

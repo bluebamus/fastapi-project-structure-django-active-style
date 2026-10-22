@@ -22,11 +22,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 README = REPO_ROOT / "README.md"
 GUIDE = REPO_ROOT / "docs" / "guides" / "DEVELOPMENT.md"
 ARCHITECTURE = REPO_ROOT / "docs" / "guides" / "ARCHITECTURE.md"
-HTML_GUIDES = (
+INDEXED_HTML_GUIDES = (
     REPO_ROOT / "docs" / "guides" / "workflows" / "server-lifecycle.html",
     REPO_ROOT / "docs" / "guides" / "workflows" / "feature-development.html",
     REPO_ROOT / "docs" / "guides" / "workflows" / "admin-authentication.html",
 )
+HTML_GUIDES = tuple(sorted((REPO_ROOT / "docs" / "guides").rglob("*.html")))
 # 문서 목록은 README 의 이 절 한 곳에만 둔다(별도 docs/README.md 없음).
 DOCS_INDEX_HEADING = "## 문서 안내"
 
@@ -46,17 +47,38 @@ def _docs_index() -> str:
     return text[start : end if end != -1 else len(text)]
 
 
+def _anchors(path: Path) -> set[str]:
+    """`#fragment` 가 가리킬 수 있는 이름 — HTML 은 id·name, 마크다운은 GitHub 제목 slug + id."""
+    text = _read(path)
+    found = set(re.findall(r'\b(?:id|name)="([^"]+)"', text))
+    if path.suffix == ".md":
+        for heading in re.findall(r"^#+\s+(.*)$", text, re.M):
+            found.add(re.sub(r"[^\w\- ]", "", heading.strip().lower()).replace(" ", "-"))
+    return found
+
+
+def _missing_anchor(doc: Path, raw: str) -> bool:
+    """`target#fragment` 의 fragment 가 대상(.md·.html, 없으면 같은 문서)에 없으면 참."""
+    target, _, fragment = raw.partition("#")
+    if not fragment:
+        return False
+    path = (doc.parent / unquote(target)).resolve() if target else doc
+    return path.suffix in (".md", ".html") and unquote(fragment) not in _anchors(path)
+
+
 def _broken_relative_links(doc: Path, text: str) -> tuple[int, list[str]]:
-    """문서 기준 상대 링크를 풀어 실재하지 않는 것을 돌려준다(검사 수, 끊긴 목록)."""
+    """문서 기준 상대 링크를 풀어 실재하지 않는 것(파일·앵커)을 돌려준다(검사 수, 끊긴 목록)."""
     checked = 0
     missing = []
     for raw in LINK.findall(text):
         target = raw.split("#", 1)[0]
-        if not target or "://" in target or target.startswith("mailto:"):
+        if "://" in target or target.startswith("mailto:"):
             continue
         checked += 1
-        if not (doc.parent / target).resolve().exists():
+        if target and not (doc.parent / unquote(target)).resolve().exists():
             missing.append(f"{doc.relative_to(REPO_ROOT).as_posix()}: {raw}")
+        elif _missing_anchor(doc, raw):
+            missing.append(f"{doc.relative_to(REPO_ROOT).as_posix()}: {raw} (앵커 없음)")
     return checked, missing
 
 
@@ -88,13 +110,13 @@ def test_docs_index_reaches_the_guide():
     index = _docs_index()
     assert "docs/guides/DEVELOPMENT.md" in index
     assert "docs/guides/ARCHITECTURE.md" in index
-    for page in HTML_GUIDES:
+    for page in INDEXED_HTML_GUIDES:
         relative = page.relative_to(REPO_ROOT).as_posix()
         assert relative in index, f"문서 안내에 {relative} 이 없습니다."
 
 
 def test_html_guides_links_resolve():
-    """HTML 안내서의 상대 href(파일·같은 문서 앵커)가 실재하는지 확인한다.
+    """HTML 안내서의 상대 href(파일·앵커 — 다른 문서의 `#fragment` 포함)가 실재하는지 확인한다.
 
     HTML 은 마크다운 링크 검사에 걸리지 않고, 게이트도 `<code>` 경로만 본다. 안내서가
     옮겨진 문서(QUICKSTART 등)를 가리킨 채 남으면 아무도 모르므로 여기서 본다.
@@ -103,16 +125,15 @@ def test_html_guides_links_resolve():
     missing: list[str] = []
     for page in HTML_GUIDES:
         text = _read(page)
-        ids = set(re.findall(r'\bid="([^"]+)"', text))
         for raw in re.findall(r'<a [^>]*href="([^"]+)"', text):
             if "://" in raw:
                 continue
-            target, _, anchor = raw.partition("#")
+            target = raw.partition("#")[0]
             checked += 1
             if target and not (page.parent / unquote(target)).resolve().exists():
                 missing.append(f"{page.name}: {raw}")
-            elif not target and anchor not in ids:
-                missing.append(f"{page.name}: {raw}")
+            elif _missing_anchor(page, raw):
+                missing.append(f"{page.name}: {raw} (앵커 없음)")
 
     assert checked, "HTML 안내서에 상대 링크가 없습니다."
     assert not missing, f"HTML 안내서의 끊긴 링크: {missing}"

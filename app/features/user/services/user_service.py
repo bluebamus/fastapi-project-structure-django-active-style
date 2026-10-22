@@ -10,7 +10,8 @@ Dependency(또는 컨텍스트)가 맡는다.
 권한 규칙(ADR-016): 목록·생성·삭제는 라우트가 슈퍼유저로 막고, 단건 조회·수정은 본인
 또는 슈퍼유저(`OwnershipPolicy` — 사용자 자신이 "소유자"다), ``is_active``·``is_superuser``
 변경은 슈퍼유저만 한다. 비활성화·강등·삭제는 그 사용자의 refresh family 와 /admin 관리 세션을
-모두 폐기한다(admin-session-hardening ADR-003 — 비밀번호 변경 경로는 아직 없다).
+모두 폐기한다(admin-session-hardening ADR-003). API 에는 비밀번호 변경 경로가 없다 — CLI
+``create_superuser --set-password`` 가 같은 규칙(``revocation_for``)으로 폐기한다.
 """
 
 import asyncio

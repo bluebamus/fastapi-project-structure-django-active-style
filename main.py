@@ -364,7 +364,7 @@ def _openapi_with_actual_422() -> dict[str, Any]:
     """FastAPI 가 붙이는 422 ``HTTPValidationError`` 문서를 실제 본문(``ErrorResponse``)으로 바꾼다.
 
     검증 오류는 위 ``validation_exception_handler`` 가 ``ErrorResponse``(VALIDATION_ERROR,
-    detail[field·message·type])로 낸다. 문서만 바꾸고 응답은 그대로다(e2e-policy-2 결정 1).
+    detail[field·message·type])로 낸다. 문서만 바꾸고 응답은 그대로다(integration-e2e ADR-009).
     """
     if app.openapi_schema is None:
         schema = _default_openapi()
@@ -410,7 +410,7 @@ async def answer_unhandled_exception(
 
     Starlette ``ServerErrorMiddleware`` 는 ``Exception`` 처리기로 응답한 뒤 예외를 다시 던진다 — uvicorn 이
     traceback 을 한 번 더 남기고 keep-alive 연결을 닫는다. 여기서 끝내면 로그는 처리기의 ``[UnhandledException]``
-    한 번, 연결은 유지, 응답(500 ``INTERNAL_SERVER_ERROR``)은 그대로다(e2e-policy-2 결정 2).
+    한 번, 연결은 유지, 응답(500 ``INTERNAL_SERVER_ERROR``)은 그대로다(integration-e2e ADR-013).
 
     가장 나중에 등록해 사용자 미들웨어 중 가장 바깥에 둔다 — 다른 미들웨어 안에서 난 예외도 받는다.
     ``DEBUG=true`` 면 지금처럼 다시 던진다. 응답 본문을 보내는 중의 예외는 ``call_next`` 밖에서 나므로 여기 오지 않는다.

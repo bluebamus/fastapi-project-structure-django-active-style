@@ -245,7 +245,7 @@ def test_tag_metadata_entries_are_well_formed():
         assert entry.get("description", "").strip(), f"설명 없는 tag: {entry['name']}"
 
 
-# ------------------------------------------------------------------ 422 문서 = 실제 형식 (e2e-policy-2 결정 1)
+# ------------------------------------------------------------------ 422 문서 = 실제 형식 (integration-e2e ADR-009)
 
 
 def _actual_422_body() -> dict:

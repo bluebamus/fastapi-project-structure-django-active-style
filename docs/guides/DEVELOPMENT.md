@@ -567,7 +567,8 @@ async with background_db_session() as session:     # 별도 풀, 예외 시 roll
   실물 그대로 시험합니다(`tests/core/test_refresh_store.py`·`test_rate_limiter.py`).
 - 사용자를 비활성화·강등·삭제하는 서비스는 `/admin` 관리 세션도 끊는다 — `get_user_service` 가
   `get_admin_session_store`(같은 `get_redis` 사용, `ADMIN_DISABLED=true` 면 `None`)를 주입한다. 세션을 끊어야
-  하는 새 서비스(예: 비밀번호 변경)는 같은 provider 를 받아 `revoke_user(user_id)` 를 부른다.
+  하는 새 서비스(예: 비밀번호 변경)는 같은 provider 를 받아 커밋 전에 `revocation_for`·`revoke_user_access` 를 부르고,
+  [세션 폐기 규칙](features/user.html#revocation)의 실행 위치 표에 행을 더한다.
   `/admin` 흐름 테스트는 `tests/test_admin_login.py` 의 `build_admin_app`(SQLite 파일 DB + fakeredis
   `AdminSessionStore`)을 쓰고, 상태 변경 요청은 `page_token()` 으로 꺼낸 CSRF 토큰을 싣는다.
 

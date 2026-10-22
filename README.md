@@ -458,13 +458,14 @@ uv run celery -A app.celery.app:celery_app beat --loglevel=INFO     # 스케줄 
 beat 는 실행 디렉터리에 스케줄 상태 파일 `celerybeat-schedule*` 을 만듭니다(`-s <경로>` 로 바꿀 수 있고, 저장소 안에서는 git 이 무시합니다).
 
 **`/admin` 은 슈퍼유저 로그인이 필요합니다.** SQLAdmin 에 붙인 `AdminAuthBackend` 가 활성 슈퍼유저만
-들여보내고(매 요청 DB 확인 — 강등·비활성화는 다음 요청부터 막힌다), 로그인 시도는 API 로그인과 같은
+들여보내고(매 요청 DB 확인 — DB 를 직접 바꾼 강등·비활성화도 다음 요청부터 막힌다), 로그인 시도는 API 로그인과 같은
 한도로 따로 셉니다(`admin:rl:`). 세션은 `/admin` 전용 **Redis 서버 세션**입니다 — 쿠키 `admin_session`
 (`Path=/admin`, `SameSite=Strict`, HttpOnly, staging/production 은 Secure)에는 무작위 세션 ID 만 있고,
 내용은 Redis `admin:sess:{HMAC(SESSION_SECRET_KEY, ID)}` 에 있습니다. 로그인하면 세션 ID 를 새로 발급하고,
-로그아웃·강등·비활성화·삭제(API 와 관리 화면 모두 — 관리 화면에서는 비밀번호 해시 변경도)는 서버에서 그 사용자의
-관리 세션을 커밋 전에 전부 끊으므로(Redis 폐기가 실패하면 변경 자체를 저장하지 않는다. 관리 화면과 API 가 같은 판정·폐기 함수를
-써서 비활성화·강등·삭제(관리 화면은 비밀번호 해시 변경도)면 API refresh 토큰도 함께 끊는다) 복사해 둔 쿠키도 즉시 무효입니다. 관리 화면에서 **자기 자신**을 강등·비활성화하면 지금 세션도 끊겨
+로그아웃은 **지금 세션 하나**를 서버에서 지웁니다(`logout` 이 세션을 비우면 미들웨어가 그 세션 ID 의 Redis 키를 삭제 — DB 커밋과 무관).
+강등·비활성화·삭제(API 와 관리 화면 모두)와 `create_superuser --set-password` 의 비밀번호 교체는 그 사용자의 관리 세션
+**전부**를 커밋 전에 폐기합니다(Redis 폐기가 실패하면 변경 자체를 저장하지 않는다. 같은 판정·폐기 함수라 API refresh 토큰도
+함께 끊는다. 폐기 경로는 [사용자 기능 안내서](docs/guides/features/user.html#revocation) 표가 정본). 어느 쪽이든 지워진 세션의 쿠키는 복사해 둔 것도 즉시 무효입니다. 관리 화면에서 **자기 자신**을 강등·비활성화하면 지금 세션도 끊겨
 저장 뒤 로그인 화면으로 갑니다. 이메일 등 일반 수정은 세션을 유지합니다.
 만료는 절대·미사용 두 가지입니다([세션·토큰 만료](#세션토큰-만료)). API 인증에는 쓰이지 않습니다.
 CSRF 토큰은 세션에 하나이고, 로그인 폼과 로그인 이후의 모든 생성·수정·삭제·일괄 삭제·가져오기·로그아웃
@@ -607,7 +608,7 @@ uv run python -m scripts.create_superuser --username alice
 
 스크립트는 API 와 같은 부품(`background_db_session`, core `get_password_hasher` 의 Argon2,
 `UserRepository`)으로 조립하고 한 번 커밋합니다. `--set-password` 로 기존 사용자의 비밀번호를 바꾸면
-API 의 비밀번호 변경과 같게 그 사용자의 refresh 토큰과 `/admin` 관리 세션을 커밋 전에 폐기합니다 —
+`revocation_for` 와 같은 규칙(비밀번호 해시 변경)으로 그 사용자의 refresh 토큰과 `/admin` 관리 세션을 커밋 전에 폐기합니다 —
 Redis 에 닿지 못하면 종료 코드 2 로 끝나고 비밀번호도 바꾸지 않습니다(fail-closed). 만든 계정으로 `/admin` 에도 로그인합니다
 (`ADMIN_DISABLED=false` 일 때). 그 뒤의 관리자는 관리자가 `POST /api/v1/user/users`
 (`"is_superuser": true`) 또는 `PATCH /api/v1/user/users/{user_id}` 로 만듭니다.
@@ -648,7 +649,7 @@ Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워
 | `/docs` 가 404 | `DEBUG=false` | `DEBUG=true` (MySQL 필요) |
 | 기능 API 만 500, `/ready` 503 | 앱은 떴지만 DB 가 없다 | MySQL 준비 |
 | 기능 API 는 정상인데 `/ready` 503 | 기동 뒤 Redis 가 끊겼다(로그 `[Readiness] Redis 점검 실패`) | Redis 상태·`REDIS_*` 확인 |
-| 로그인·가입·재발급·로그아웃·사용자 비활성화가 503 `SERVICE_UNAVAILABLE` | Redis 연결 실패 — rate limit·refresh 저장소·세션 폐기가 Redis 에 있다(fail-closed, 로그 `[RedisUnavailable]` 한 번) | Redis·`REDIS_*` 확인, `/ready` |
+| 로그인·가입·재발급·로그아웃·사용자 비활성화·강등·삭제가 503 `SERVICE_UNAVAILABLE` | Redis 연결 실패 — rate limit·refresh 저장소·세션 폐기가 Redis 에 있다(fail-closed, 로그 `[RedisUnavailable]` 한 번) | Redis·`REDIS_*` 확인, `/ready` |
 | 로그에 WARNING `replica 연결 오류 … primary 로 한 번 다시 실행` | replica 에 닿지 못해 그 읽기를 primary 가 대신 처리했다(응답은 정상) | replica 상태·`MYSQL_REPLICA_*` 확인. `/ready` 는 replica 를 보지 않는다 |
 | 새 기능이 마운트되지 않음 | 디렉터리명이 `_` 로 시작, `__init__.py` 없음, 라우터 모듈 경로가 `api/routers/router.py` 가 아님(변수명이 틀린 경우는 아래 `AppContractError` 행) | [ARCHITECTURE §2](docs/guides/ARCHITECTURE.md). 파일 **안의** import 오류라면 조용히 넘어가지 않고 기동이 실패한다 |
 | startup 에서 `AppContractError` | `router.py`/`admin.py` 의 export 가 규약과 다르거나(디렉터리명이 식별자가 아니면 — 예: `order-items` — `<name>_router` 를 선언할 수 없다) 두 앱이 같은 객체를 내보냄 | 오류 메시지의 앱과 export 를 고친다 |
@@ -658,11 +659,12 @@ Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워
 
 ## 문서 안내
 
-이 저장소의 문서 목록은 여기 하나뿐입니다. 위에서부터 읽는 순서입니다.
+이 저장소의 문서 목록은 여기 하나뿐입니다(HTML 허브는 가이드 HTML 을 주제별로 잇는 탐색 페이지이고 목록의 정본은 이 표입니다). 위에서부터 읽는 순서입니다.
 
 | 문서 | 역할 | 언제 보나 |
 |---|---|---|
 | 이 README | 개요 · 빠른 시작 · API 목록 · 운영 전 확인 · 문서 안내 | 처음 받았을 때 |
+| [docs/guides/index.html](docs/guides/index.html) | HTML 가이드 허브 — 부팅, 설계, API, 요청 처리, 인증, 기능, 개발, 테스트, 운영 문서를 주제별로 연결 | 브라우저에서 전체 매뉴얼을 탐색할 때 |
 | [docs/guides/ARCHITECTURE.md](docs/guides/ARCHITECTURE.md) | 구조 · 런타임 동작 레퍼런스 — 앱 자동 등록, 설정·로깅, 기동·종료, 요청 처리, DB 세션·라우팅, 보안 경계 | 실행 중에 무엇이 어떻게 조립되는지 찾을 때 |
 | [docs/guides/DEVELOPMENT.md](docs/guides/DEVELOPMENT.md) | 기능 개발 가이드 — ORM/Raw 선택, 파일 순서, 세션·트랜잭션, migration, 테스트, 체크리스트 | 새 기능을 만들 때 |
 | [docs/guides/workflows/server-lifecycle.html](docs/guides/workflows/server-lifecycle.html) | 서버 수명주기 안내서 — 설정 → 기동 → 요청 → 종료를 도식으로 추적 (브라우저로 연다) | 기동·종료 흐름을 한 번에 따라가 볼 때 |
@@ -672,7 +674,7 @@ Celery 태스크는 기능 폴더의 선택 모듈 `tasks.py` 에 둡니다. 워
 | [docs/specs/orm-raw-repository/development-plan.md](docs/specs/orm-raw-repository/development-plan.md) | 고정 기준선 — ORM/Raw 개발 계획 | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/orm-raw-repository/workflow-guide.md](docs/specs/orm-raw-repository/workflow-guide.md) | 고정 기준선 — ORM/Raw 지침 원본 (코드 주석의 `workflow-guide §N` 출처) | 규칙의 원래 의도를 볼 때 |
 | [docs/specs/django-style-app-automation.md](docs/specs/django-style-app-automation.md) | 고정 기준선 — 앱 자동 등록 요구사항(`FR-*`·`NFR-*`·`SEC-*` 등, 코드 주석이 인용)과 설계 근거 | 자동 등록 규칙의 원래 의도를 볼 때 |
-| [docs/crp/groups/](docs/crp/groups/) | 검수 이력(append-only) — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계), `service-hardening`(인증·인가·rate limit·UTC), `admin-login`(관리 화면 로그인·`ADMIN_DISABLED`), `log-redaction-fixes`(traceback 마스킹·예외 헤더·Redis 최소 버전·커버리지 하한), `security-ops-hardening`(DB 바인드 값 숨김·접속 로그 보존·관리 로그인 CSRF·날짜 필터), `admin-session-hardening`(관리 세션 Redis 이전·로그인 이후 CSRF·기간 필터), `config-cleanup`(쓰지 않는 SMTP·업로드·세션 만료 설정 삭제·설정 사용 계약 테스트, 2차: `API_VERSION` 삭제·로그 형식/콘솔 설정 연결), `logging-overhaul`(모든 경로 같은 로그 형식·헤더별 레벨·프로세스별 파일·날짜+크기 회전·보관 일수·설정 비밀값 마스킹), `access-policy`(뷰마다 접근 수준 `Public`·`PublicWrite`·`LoginRequired`·`SuperuserRequired` 선언과 기동 시 `AccessPolicyGuard` 검사), `integration-e2e`(전수 통합 e2e 스위트·`compose.e2e.yaml`·CI e2e job, Redis 장애 503·replica 재시도·422 문서·처리기 없는 예외·401 헤더·CSRF 본문 상한 등 정책 결정), `docs-guide-review`(가이드 문서를 코드와 대조한 검수·정정) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
+| [docs/crp/groups/](docs/crp/groups/) | 검수 이력(append-only) — `orm-raw-repository`(ORM/Raw Base·예제·게이트), `runtime-lifecycle`(자원 정리·로깅 큐·Celery 워커), `docs-learnability`(이 문서 체계), `service-hardening`(인증·인가·rate limit·UTC), `admin-login`(관리 화면 로그인·`ADMIN_DISABLED`), `log-redaction-fixes`(traceback 마스킹·예외 헤더·Redis 최소 버전·커버리지 하한), `security-ops-hardening`(DB 바인드 값 숨김·접속 로그 보존·관리 로그인 CSRF·날짜 필터), `admin-session-hardening`(관리 세션 Redis 이전·로그인 이후 CSRF·기간 필터), `config-cleanup`(쓰지 않는 SMTP·업로드·세션 만료 설정 삭제·설정 사용 계약 테스트, 2차: `API_VERSION` 삭제·로그 형식/콘솔 설정 연결), `logging-overhaul`(모든 경로 같은 로그 형식·헤더별 레벨·프로세스별 파일·날짜+크기 회전·보관 일수·설정 비밀값 마스킹), `access-policy`(뷰마다 접근 수준 `Public`·`PublicWrite`·`LoginRequired`·`SuperuserRequired` 선언과 기동 시 `AccessPolicyGuard` 검사), `integration-e2e`(전수 통합 e2e 스위트·`compose.e2e.yaml`·CI e2e job, Redis 장애 503·replica 재시도·422 문서·처리기 없는 예외·401 헤더·CSRF 본문 상한 등 정책 결정), `docs-guide-review`(가이드 문서를 코드와 대조한 검수·정정), `docs-guide-site`(HTML 가이드 사이트 추가와 코드 대조 정정·내용 계약 테스트) | "이 코드가 왜 이렇게 생겼나" 를 추적할 때 |
 
 `docs/guides/` 는 **현행 문서**라 코드 기준으로 유지하고, `review_gate` docs 그룹이 Markdown 의 백틱
 경로와 HTML 의 `<code>` 경로·환경변수를 검사합니다. HTML 안내서는 흐름을 요약하고 표·목록의 원문은

@@ -9,7 +9,8 @@ API 에는 "첫 슈퍼유저" 를 만드는 경로가 없다(가입은 항상 �
 
 - 사용자명이 없으면 새 슈퍼유저를 만든다 — 이메일·비밀번호가 필요하다.
 - 이미 있으면 슈퍼유저로 **승격**한다. 비밀번호는 ``--set-password`` 를 줄 때만 바꾼다.
-  바꾸면 API 의 비밀번호 변경과 같게 그 사용자의 refresh 토큰과 ``/admin`` 관리 세션을 커밋 전에 폐기한다.
+  바꾸면 ``revocation_for`` 와 같은 규칙(비밀번호 해시 변경)으로 그 사용자의 refresh 토큰과
+  ``/admin`` 관리 세션을 커밋 전에 폐기한다. API 에는 비밀번호를 바꾸는 경로가 없다.
   Redis 에 닿지 못하면 종료 코드 2 로 끝나고 비밀번호도 바꾸지 않는다(fail-closed).
 
 비밀번호는 인자로 받지 않는다(셸 기록·프로세스 목록에 남는다). 대화형이면 ``getpass``
@@ -145,7 +146,7 @@ def _redis_from_settings() -> Redis:
 
 
 async def _revoke_sessions(redis_factory: Callable[[], Redis], user_id: str) -> None:
-    """API 의 비밀번호 변경과 같은 폐기 — 그 사용자의 refresh family 와 관리 세션(e2e-policy-2 결정 4)."""
+    """비밀번호 해시 변경의 폐기(``revocation_for``) — refresh family 와 관리 세션(integration-e2e ADR-010)."""
     redis = redis_factory()
     try:
         await revoke_user_access(

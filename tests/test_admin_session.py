@@ -274,7 +274,7 @@ class _WriteBrokenRedis(FakeAsyncRedis):
 
 async def test_session_save_failure_on_cookieless_first_request_is_503(tmp_path):
     """쿠키 없는 첫 요청(로그인 화면)은 응답 직전에 새 세션을 저장한다 — 그 저장이 실패해도 500 이 아니라
-    503 이다 (e2e-policy-2 결정 6)."""
+    503 이다 (integration-e2e V-006)."""
     engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'a.db').as_posix()}")
     maker = async_sessionmaker(engine, expire_on_commit=False)
     broken = _WriteBrokenRedis()
@@ -792,7 +792,7 @@ async def test_save_does_not_resurrect_a_revoked_session():
 
 
 # =============================================================================
-# CSRF 본문 버퍼링 상한 (e2e-policy-2 결정 7) — 본문 10 MiB 초과 413, 필드 1 MiB 초과 400
+# CSRF 본문 버퍼링 상한 (integration-e2e ADR-012) — 본문 10 MiB 초과 413, 필드 1 MiB 초과 400
 # =============================================================================
 _MiB = 1024 * 1024
 

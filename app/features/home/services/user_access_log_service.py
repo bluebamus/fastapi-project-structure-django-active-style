@@ -2,7 +2,8 @@
 UserAccessLog Service
 
 접속 로그 관련 비즈니스 로직. 세션을 주입받아 Repository 를 구성한다.
-트랜잭션 경계(commit/rollback)는 호출하는 의존성 또는 background_db_session 이 책임진다.
+commit 은 이 서비스가 하지 않는다 — 요청 경로는 쓰기 핸들러가 응답 DTO 검증 뒤 한 번(home 의 View 는 조회 전용이라 commit 없음),
+요청 밖 적재는 access_log_sink 가 background 세션에서 commit 한다.
 """
 
 from collections.abc import Sequence

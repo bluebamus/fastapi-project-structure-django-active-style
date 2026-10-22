@@ -5,7 +5,7 @@ replica) 비밀번호를 RSA 로 암호화해 보내야 하고, 그 암호화는
 DB 를 쓰는 모든 요청이 ``RuntimeError: 'cryptography' package is required`` 로 500 이 된다.
 
 선언은 실제 드라이버의 공식 추가 옵션 하나로 둔다: ``aiomysql[rsa]``(= ``PyMySQL[rsa]`` = ``cryptography``,
-e2e-policy-2 추가 결정). Alembic 이 직접 쓰는 ``pymysql`` 은 추가 옵션 없이 선언한다.
+integration-e2e ADR-014). Alembic 이 직접 쓰는 ``pymysql`` 은 추가 옵션 없이 선언한다.
 """
 
 import tomllib

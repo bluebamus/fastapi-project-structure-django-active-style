@@ -672,7 +672,7 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
   절단)으로 검증하고, 맞으면 Argon2 해시로 바꿔 저장합니다 — `/login` 핸들러가 커밋합니다.
 - `get_current_user`(auth)는 `get_current_principal` 이 검증한 주체로 read-only 세션에서 활성 사용자를
   읽습니다 — 엔티티가 필요한 `/me` 만 씁니다. 이 조회는 replica 가 아니라 **primary** 로 갑니다(`using_writer`,
-  e2e-policy-2 결정 5) — 복제 지연 때 유효한 토큰이 401 이 되지 않고, 비활성화·삭제가 바로 반영됩니다. 나머지
+  integration-e2e ADR-011) — 복제 지연 때 유효한 토큰이 401 이 되지 않고, 비활성화·삭제가 바로 반영됩니다. 나머지
   read-only 조회의 라우팅은 그대로입니다. 이 객체를 쓰기 세션에서 직접 수정하지 말고, 쓰기 세션으로 다시 조회합니다.
 - **상수 시간 인증:** 사용자가 없거나 해시가 없어도 Argon2 더미 해시로 검증을 수행해 응답 시간으로
   사용자명 존재를 알아내기 어렵게 합니다(네트워크 변동까지 없애지는 못합니다).
@@ -741,13 +741,13 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
   사용자 id·새 CSRF 토큰을 넣은 뒤 `rotate_session` 으로 **세션 ID 를 새로 발급하고 이전 키를 지웁니다**.
   로그아웃·`authenticate` 거부는 키를 지우고, 사용자 서비스의 비활성화·강등·삭제는 refresh 폐기와 같은
   지점에서 `AdminSessionStore.revoke_user` 를 부릅니다(`get_user_service` 가 주입, `ADMIN_DISABLED=true` 면
-  `None`). 관리 화면에서 직접 고친 경우는 `UserAdmin` 의 커밋 전 훅 `on_model_change`(비활성화·슈퍼유저 해제·비밀번호
-  해시 변경일 때만, 변경 전후 비교)·`on_model_delete` 가 `UserService` 와 같은 판정 `revocation_for`·폐기
+  `None`). 관리 화면에서 직접 고친 경우는 `UserAdmin` 의 커밋 전 훅 `on_model_change`(변경 전후 비교 — 폼이 비밀번호
+  해시를 노출하지 않아 화면에서는 비활성화·슈퍼유저 해제만 해당)·`on_model_delete` 가 `UserService` 와 같은 판정 `revocation_for`·폐기
   `revoke_user_access` 를 부릅니다(규칙 한 곳 — 관리 화면 경로 = API 경로). 비활성화·슈퍼유저 해제·비밀번호 해시
   변경·삭제면 관리 세션과 refresh 를 모두 끊습니다. Redis 폐기가 실패하면 예외로 커밋이 막혀 DB 변경이 남지 않습니다(fail-closed).
   `scripts/create_superuser.py --set-password` 로 기존 사용자의 비밀번호를 바꿀 때도 커밋 전에 같은
   `revoke_user_access` 로 관리 세션과 refresh 를 끊습니다 — Redis 에 닿지 못하면 종료 코드 2, 비밀번호는 그대로입니다.
-  자기 강등은 지금 세션도 끊습니다. 매 요청 DB 확인도 유지합니다(이중 방어). Redis 오류는 503 입니다(fail-closed) — 쿠키 없는 첫 요청처럼 응답 직전에 새 세션을 저장하다 실패해도 같습니다.
+  자기 강등은 지금 세션도 끊습니다. 매 요청 DB 확인도 유지합니다 — 이 폐기를 거치지 않고 DB 를 직접 바꾼 강등·비활성화(SQL·스크립트 등)는 다음 요청에서 끊깁니다(이중 방어). Redis 오류는 503 입니다(fail-closed) — 쿠키 없는 첫 요청처럼 응답 직전에 새 세션을 저장하다 실패해도 같습니다.
 - **세션은 관리 화면 전용입니다.** 메인 앱에는 세션 미들웨어가 없고, API 보호 경로는 Bearer
   토큰만 봅니다 — 관리 세션 쿠키로 API 를 호출해도 401 입니다. 회귀 가드: `tests/test_admin_login.py`
   의 세션 범위 테스트.
@@ -760,7 +760,7 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
   헤더 `X-CSRF-Token` 또는 폼 필드 `csrf_token`(본문 버퍼링 후 receive 재생)을 같은 함수로 비교해 403 으로
   막습니다(로그인 POST 는 건너뜀 — 검사는 한 번). 버퍼링하는 폼 본문은 10 MiB 까지입니다 — `Content-Length` 로
   먼저, 없거나 거짓이면 읽는 도중 누적 크기로 판정해 넘으면 413, 1 MiB 를 넘는 필드(starlette 폼 파서 기본 상한)나
-  깨진 폼은 400 입니다(e2e-policy-2 결정 7, 상한은 `admin_auth.py` 의 상수). 토큰은 `app/templates/admin/sqladmin/base.html`(원본
+  깨진 폼은 400 입니다(integration-e2e ADR-012, 상한은 `admin_auth.py` 의 상수). 토큰은 `app/templates/admin/sqladmin/base.html`(원본
   `sqladmin_original/base.html` 상속, `head_tail` 블록만 추가)의 meta 와 인라인 스크립트가 폼 제출·XHR·fetch
   에 붙입니다. 로그아웃은 `_make_logout_post_only` 가 POST 전용으로 바꾸고(GET 405) 스크립트가 링크를
   POST 폼으로 바꿉니다. sqladmin 원본이 어긋나면 `test_packaged_templates_still_fit_the_base_override` 가 실패합니다.
@@ -786,7 +786,7 @@ provider(rate limit·`AuthService`)는 auth 의 `dependencies/auth_dependencies.
 | 작성자 | 작성자 컬럼 도입 전의 글(`author_id` NULL)은 슈퍼유저만 수정한다. `author` 표시 이름은 작성 시점의 username 이라 이름을 바꿔도 따라가지 않는다 |
 | 참조 무결성 | `Reply.post_id` 는 FK 없는 문자열 — 게시글 존재 검증·삭제 전파 정책 없음 |
 | 로그인 보호 | 고정 창 rate limit(창 경계에서 최대 2배 통과, API·`/admin` 공통). 계정 잠금은 없다 |
-| 관리 세션 | Redis 서버 세션 — 로그아웃·강등·비활성화·삭제(API·관리 화면 모두)는 서버에서 즉시 폐기된다. Redis 장애 중에는 관리 화면이 503 이다. sqladmin 의 사용자 정의 `@action` 은 GET 이라 CSRF 검사 대상이 아니다(이 저장소에는 없다). 관리 화면에서 직접 편집한 강등은 다음 요청의 DB 확인으로 끊긴다 |
+| 관리 세션 | Redis 서버 세션 — 로그아웃은 그 세션 하나를, 강등·비활성화·삭제(API·관리 화면 모두)와 CLI `--set-password` 비밀번호 교체는 그 사용자의 관리 세션 전부를 커밋 전에 서버에서 즉시 폐기한다. Redis 장애 중에는 관리 화면이 503 이다. sqladmin 의 사용자 정의 `@action` 은 GET 이라 CSRF 검사 대상이 아니다(이 저장소에는 없다). 이 폐기를 거치지 않고 DB 를 직접 바꾼 강등·비활성화(SQL·스크립트 등)는 다음 요청의 DB 확인으로 끊긴다 |
 | 토큰 폐기 | refresh 는 family 단위로 폐기된다(재사용 탐지·로그아웃). access 토큰은 만료(기본 15분)까지 유효하다 |
 | 접속 로그 개인정보 | `query_string` 은 민감 키 값만 가리고 나머지와 `referer`·`session_id` 쿠키는 원문 저장한다 — **사용자 결정으로 유지**(log-redaction-fixes ADR-003). 보존 기간은 `ACCESS_LOG_RETENTION_DAYS`(기본 365일, beat 가 매일 삭제 — §7.1). 조회 API 는 슈퍼유저 전용 |
 | CORS | 기본 `CORS_ALLOW_ORIGINS=["*"]`, credentials false (staging/production 은 게이트가 `*` 를 거부) |
@@ -907,6 +907,7 @@ CI(`.github/workflows/ci.yml`)는 세 job 입니다: `gate` job 이 `static stru
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-22 | **docs-guide-site**: HTML 가이드 사이트(`docs/guides/index.html` 허브와 주제별 19편)를 추가하고 코드와 대조해 정정했다 — 트랜잭션 경계(쓰기 View 의 commit), 설정 검사 시점, 미들웨어 순서, 접근 수준, Redis 장애 범위. API 표·설정 표·Mermaid 고정 버전·허브 링크는 `tests/test_docs_guide_site.py` 가 검사한다. 이 문서의 `e2e-policy-2 결정 N` 인용을 integration-e2e ADR 번호로 바꿨다. 코드 동작 변경 없음. |
 | 2026-10-21 | **docs-guide-review**: 가이드 검수 지적을 코드에 맞췄다 — 기동 도식(422 문서 후처리·`answer_unhandled_exception`·`AccessPolicyGuard`)·글로벌 핸들러 5종·미들웨어 순서·Settings 9종·설정 검사 3종·핸들러별 로그 필터·CI 세 job·e2e 마커(§1·§2·§3·§4·§5·§7·§8·§9·§10.3·§13). 코드 변경 없음. |
 | 2026-10-21 | **e2e-policy-2**(사용자 결정): OpenAPI 의 422 를 실제 본문 `ErrorResponse` 로 광고(문서 후처리 한 곳), 처리기가 없는 예외를 가장 바깥 사용자 미들웨어 `answer_unhandled_exception` 이 500 으로 끝냄(traceback 한 번·keep-alive 유지, DEBUG 는 다시 던짐), `create_superuser --set-password` 도 refresh·관리 세션을 커밋 전에 폐기(Redis 불가면 종료 코드 2), `/me` 의 사용자 조회는 primary, 관리 CSRF 폼 버퍼링 상한(본문 10 MiB 초과 413, 필드 1 MiB 초과·깨진 폼 400). 모든 401 의 `WWW-Authenticate: Bearer`·관리 화면 Redis 장애 503 은 이미 충족 — 계약 테스트로 고정. 의존성: `cryptography` 를 `aiomysql[rsa]` 로 선언(`pymysql` 은 추가 옵션 없이). |
 | 2026-10-20 | **integration-e2e**: 전수 통합 스위트(`tests/e2e/`, `compose.e2e.yaml` primary+GTID replica+Redis, CI job `e2e`). 고친 결함 — `pymysql[rsa]`(인증 캐시가 빈 MySQL 에 TLS 없이 붙을 때 RSA 필요, F-001), 401 의 `WWW-Authenticate: Bearer`(F-002), 상품 관리 폼의 서버 관리 열 제외(F-003). 사용자 결정 반영 — Redis 연결 장애 503(F-004), read-only 읽기의 replica 연결 오류 → primary 한 번 재시도(F-005), 프로세스 종류를 진입점으로 정해 Celery 기동 초기 줄도 `celery.log`(F-006). |
