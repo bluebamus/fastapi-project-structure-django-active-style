@@ -238,7 +238,7 @@ uv run uvicorn main:app --reload     # DEBUG=true 여도 자동 생성은 할 �
 ```bash
 uv run python -m pytest                       # 전체 (mysql 마커는 MySQL 이 없으면 skip)
 uv run ruff check . && uv run mypy .
-uv run python -m scripts.review_gate --list   # 게이트 그룹: static tests structure supply docs deps
+uv run python -m scripts.review_gate --list   # 게이트 그룹: static tests structure supply docs files deps
 uv run python -m scripts.review_gate --group static structure docs
 ```
 

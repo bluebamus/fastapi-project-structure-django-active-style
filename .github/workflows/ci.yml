@@ -64,8 +64,8 @@ jobs:
       #
       # deps 는 uv.lock 기준 취약점 검사라 네트워크가 필요하다. Bandit 은 의존성
       # CVE 를 보지 않으므로 이것이 별도 게이트로 존재해야 한다.
-      - name: review gate (static · structure · supply · docs · deps)
-        run: uv run python -m scripts.review_gate --group static structure supply docs deps
+      - name: review gate (static · structure · supply · docs · files · deps)
+        run: uv run python -m scripts.review_gate --group static structure supply docs files deps
 
       # ── 테스트 ──────────────────────────────────────────────────────────
       # -rsxX: 건너뛴 테스트를 로그에 드러낸다.
