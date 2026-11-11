@@ -1,4 +1,4 @@
-"""전역 예외 핸들러는 raw 예외 본문을 응답에 담지 않는다 (계획서 §8, C-5).
+"""전역 예외 핸들러는 raw 예외 본문을 응답에 담지 않는다.
 
 DEBUG 에서만 노출한다 해도 개발 환경의 예외 메시지에는 DSN·쿼리·입력값이 그대로
 실려 온다. 응답에는 안정적인 error code 만 남기고, 로그에는 raw path 대신 route
@@ -66,7 +66,7 @@ def _handler_records(caplog):
 
 
 def test_client_error_app_exception_logs_warning_without_detail(caplog):
-    """4xx 는 WARNING 이고, 클라이언트가 보낸 값이 담긴 detail 은 로그에 싣지 않는다 (F-013)."""
+    """4xx 는 WARNING 이고, 클라이언트가 보낸 값이 담긴 detail 은 로그에 싣지 않는다."""
     import logging
 
     from app.core.exception import NotFoundException

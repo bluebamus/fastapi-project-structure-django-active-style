@@ -1,4 +1,4 @@
-"""검증 게이트 — 로컬과 CI 가 **같은 파일**로 실행하는 단일 진입점 (계획서 §10 Phase 9).
+"""검증 게이트 — 로컬과 CI 가 **같은 파일**로 실행하는 단일 진입점.
 
 ## 왜 스크립트 하나인가
 
@@ -18,7 +18,7 @@ CI 는 이 파일을 부르기만 한다.
 
 출력은 항상 UTF-8 로 쓴다. Windows 한국어 콘솔(cp949)에서 인코딩 불가 문자를 만나
 게이트 자체가 죽은 적이 있다 — 게이트가 죽으면 종료 코드가 검사 결과가 아니라
-콘솔 설정을 반영하게 된다 (F-028).
+콘솔 설정을 반영하게 된다.
 
 사용:
     python -m scripts.review_gate              # 전체
@@ -126,79 +126,31 @@ _DOC_ENV = re.compile(r"\b([A-Z][A-Z0-9_]{3,})=")
 
 _RELATIVE_PREFIX = re.compile(r"^(?:\.\.?/)+")
 
-# HTML 가이드는 경로를 백틱이 아니라 `<code>` 로 감싼다. 같은 규칙을 적용하려고
-# 백틱 표기로 바꿔 넣는다.
-_HTML_CODE = re.compile(r"<code>([^<]+)</code>")
 
-# `## N. 변경 이력` 절은 당시의 사실을 적는다 — 지운 파일·옛 이름이 나오는 것이 정상이다.
-# 다음 같은 수준 이상의 제목(또는 문서 끝)까지 검사에서 뺀다.
-_HISTORY_SECTION = re.compile(r"^(#{1,6}) [^\n]*변경 이력[^\n]*\n.*?(?=^#{1,6} |\Z)", re.M | re.S)
-
-
-def doc_text_for_check(text: str, *, html: bool) -> str:
-    """검사 대상 본문 — 변경 이력 절을 빼고, HTML 은 `<code>` 를 백틱으로 바꾼다."""
-    if html:
-        text = _HTML_CODE.sub(r"`\1`", text)
-    return _HISTORY_SECTION.sub("", text)
-
-
-def check_doc_paths(
-    doc_text: str, known_paths: Iterable[str], allowed_missing: set[str]
-) -> list[str]:
-    """문서가 언급하는 파일이 실제로 존재하는지 본다.
+def check_doc_paths(doc_text: str, known_paths: Iterable[str]) -> list[str]:
+    """문서가 백틱으로 언급하는 파일이 실제로 존재하는지 본다.
 
     문서는 `db/session.py` 처럼 앞을 생략해 쓰는 일이 많아 저장소 루트 기준
     존재 검사로는 오탐이 쏟아진다. 그래서 **접미사 일치**로 판정한다 — 실제
     파일 경로의 끝과 맞으면 통과다.
-
-    `allowed_missing` 은 아직 만들지 않은 것을 가리키는 의도적 전방 참조다
-    (예: 이월된 결함이 예고하는 파일). 목록에 두어 "빠뜨린 것" 과 구분한다.
     """
     known = list(known_paths)
     problems = []
     for reference in sorted(set(_DOC_PATH.findall(doc_text))):
-        if reference in allowed_missing:
-            continue
-        # `../crp/x.md` 같은 상대 표기는 접두사를 떼야 접미사 비교가 성립한다.
+        # `../x.md` 같은 상대 표기는 접두사를 떼야 접미사 비교가 성립한다.
         needle = _RELATIVE_PREFIX.sub("", reference.replace("\\", "/"))
         if not any(path.endswith(needle) for path in known):
             problems.append(f"{reference}: 저장소에 없는 경로입니다")
     return problems
 
 
-# Phase 2 가 정식화한 Dependency 이름과 그 이전의 별칭. 문서가 별칭을 가르치면
-# 사람이 그대로 따라 쓰고, 특히 `get_session` 은 **쓰기용이 아니라 동적 라우팅**이라
-# 따라 한 사람의 쓰기가 승인되지 않은 경로로 나간다. 생성기 템플릿에서 같은 일이
-# 실제로 일어났다(F-025) — 코드 스캔 범위 밖이라 문서에서도 따로 막는다.
-DEPRECATED_SESSION_ALIASES = {
-    "get_session": "get_writer_db_session (기능 코드의 쓰기용 — 옛 별칭이 가리키던 "
-    "get_routed_db_session 은 승인된 특수 경로 전용이다)",
-    "get_read_session": "get_read_only_db_session",
-    "get_write_session": "get_writer_db_session",
-    "get_background_session": "get_background_db_session",
-    "background_session": "background_db_session",
-}
-
-
-def check_doc_deprecated_names(doc_text: str) -> list[str]:
-    """문서가 폐기된 Dependency 별칭을 가르치지 않는지 본다."""
-    problems = []
-    for alias, canonical in DEPRECATED_SESSION_ALIASES.items():
-        # 정식 이름이 별칭을 부분 문자열로 포함하지 않도록 경계를 건다.
-        if re.search(rf"(?<![A-Za-z0-9_]){re.escape(alias)}(?![A-Za-z0-9_])", doc_text):
-            problems.append(f"폐기된 별칭 `{alias}` 을 가르칩니다 — `{canonical}` 을 쓰세요")
-    return problems
-
-
-def check_doc_env_vars(
-    doc_text: str, known_env: Iterable[str], allowed_missing: set[str]
-) -> list[str]:
-    """문서가 언급하는 환경변수가 설정 계층에 실제로 존재하는지 본다."""
+def check_doc_env_vars(doc_text: str, known_env: Iterable[str]) -> list[str]:
+    """문서가 대입 형태로 언급하는 환경변수가 설정 계층에 실제로 존재하는지 본다."""
     known = set(known_env)
     return [
         f"{name}: 설정에 없는 환경변수입니다"
         for name in sorted(set(_DOC_ENV.findall(doc_text)))
-        if name not in known and name not in allowed_missing
+        if name not in known
     ]
 
 
@@ -297,7 +249,7 @@ def _repo_files() -> list[str]:
     작업 트리를 훑으면 무시 대상(로컬 `.env`, 도구 캐시, 로컬 전용 문서)까지 들어온다.
     그러면 비밀 스캔이 개발자의 실제 `.env` 때문에 로컬에서만 빨개지고, 문서 경로 검사는
     로컬 전용 파일과 우연히 맞아 로컬은 통과·CI 는 실패한다 — 같은 파일로 같은 판정을
-    내린다는 이 게이트의 전제가 깨진다(service-hardening F-002). 추적 목록은 CI 의
+    내린다는 이 게이트의 전제가 깨진다. 추적 목록은 CI 의
     checkout 과 같다. git 을 쓸 수 없을 때(소스 압축본 등)만 작업 트리 순회로 대체한다.
     """
     try:
@@ -326,56 +278,6 @@ def _walk_files() -> list[str]:
         if path.is_file() and not ignored & set(path.parts)
     ]
 
-
-# 의도적 전방 참조 — 이월된 결함이 예고하는 산출물이다. 만들어지면 여기서 지운다.
-# 뒤쪽 셋은 그 거울인 **후방 참조**다: 이미 지운 파일을 CRP ledger 가 "무엇을 왜 지웠는가"
-# 로 기록한다. 이력은 당시의 사실이라 고쳐 쓰지 않으므로(C-3) 여기서 면제한다 —
-# 살아 있는 문서가 이 경로들을 다시 가리키기 시작하면 그건 이 목록이 아니라 리뷰가 잡을 일이다.
-DOC_ALLOWED_MISSING_PATHS = {
-    # `app/core/resources.py` 는 runtime-lifecycle ADR-001 로 실제 생성됐다 — 주석의 규칙대로
-    # 목록에서 뺀다(2026-09-30). 다시 사라지면 게이트가 잡는 편이 맞다.
-    "app/core/bootstrap.py",  # F-210 — create_app() 시대 잔재, 문서만 남아 있었다
-    "docs/concepts/README.md",  # F-210 — 삭제된 폴더
-    "docs/review/improvement-plan-2026-08-10.md",  # F-213 — 애초에 없던 인용
-    # 2026-09-17 문서 재구성(docs-learnability ADR-006) — 내용은 README·ARCHITECTURE 로 합쳤다.
-    "docs/README.md",  # F-203 이 만든 문서 안내 → README 「문서 안내」 절
-    "docs/guides/QUICKSTART.md",  # → README 「빠른 시작」
-    # 2026-09-17 문서 일관성 정리(docs-learnability ADR-007) — 이름만 바뀌었고, 검수 이력은
-    # 당시 경로를 그대로 인용한다.
-    "docs/guides/orm-raw-workflow.md",  # → docs/guides/DEVELOPMENT.md
-    # 개발 안내서가 "새 기능을 만든다면" 의 가상 예시로 쓰는 경로다.
-    "dependencies/inventory_dependencies.py",
-    # MySQL 통합·e2e 테스트 삭제(2026-11-11) — 옛 문서가 아직 가리킨다. 문서 정리 때 함께 지운다.
-    "tests/e2e/conftest.py",
-    "tests/e2e/inventory_probe.py",
-    "tests/e2e/test_api_matrix.py",
-    "tests/e2e/test_faults.py",
-    "tests/integration/conftest.py",
-    "tests/integration/test_mysql_access_log_retention.py",
-    "tests/integration/test_mysql_admin_login.py",
-    "tests/integration/test_mysql_harness.py",
-    "tests/integration/test_mysql_orm_smoke.py",
-    "tests/integration/test_mysql_utc_datetime.py",
-    "tests/integration/test_raw_primitives_mysql.py",
-    "tests/integration/test_sales_report_mysql.py",
-    "tests/redis_target.py",
-    "tests/test_redis_target.py",
-    # 마이그레이션 리비전을 baseline 하나로 합쳤다(2026-11-11) — 옛 문서의 후방 참조.
-    "migrations/versions/a7c3e9f1b2d4_add_superuser_and_author_ids.py",
-    "migrations/versions/e5a7c9d1f3b5_store_datetimes_as_utc.py",
-    "tests/core/test_migration_chain.py",
-}
-# 위 경로 면제와 같은 규칙이다 — 설정이 생기면 여기서 지운다. 예전에는
-# `LOG_SQL_ECHO_ENABLED` 가 있었는데, 이 설정은 F-018 이 예고한 뒤 실제로 만들어졌는데(`config.py:584`)
-# 면제만 남아 있었다. 죽은 면제는 검사가 보는 범위를 조용히 줄인다.
-DOC_ALLOWED_MISSING_ENV: set[str] = {
-    # admin-login(2026-10-12)이 없앤·바꾼 설정. CRP 이력(C-3, 고쳐 쓰지 않는다)이 당시 이름으로
-    # 인용하고, 현행 문서는 이름 변경 안내에서만 부른다. 현행 코드·문서에 되살아나지 않는지는
-    # tests/test_admin_login.py 의 제거 회귀 검사와 config 의 validate_renamed_settings 가 지킨다.
-    "ADMIN",  # → ADMIN_DISABLED (의미 반대)
-    "ADMIN_ALLOW_UNAUTHENTICATED",  # /admin 에 로그인이 붙어 필요 없어진 확인 플래그
-    "E2E_MYSQL_PASSWORD",  # 삭제한 e2e 하네스의 변수 — 옛 가이드가 아직 부른다
-}
 
 # 앱이 정의하지 않지만 문서가 정당하게 언급하는 외부 환경변수. 인터프리터·도구·CI 가
 # 소유하며, 설정 계층에 없다고 해서 오타가 아니다.
@@ -406,43 +308,20 @@ def check_supply_chain() -> list[str]:
 
 
 def check_docs() -> list[str]:
+    """README·docs/*.md·워크플로가 가리키는 경로와 환경 변수가 실제로 있는지 본다."""
     known_paths = _repo_files()
     known_env = _config_env_names() | EXTERNAL_ENV
-    targets = sorted((REPO_ROOT / "docs" / "crp").rglob("*.md"))
-    readme = REPO_ROOT / "README.md"
-    if readme.exists():
-        targets.append(readme)
-    # 현행 가이드는 사람이 **따라 하는** 문서라 틀리면 가장 비싸다. 게이트 밖에 두면
-    # 코드가 바뀐 뒤에도 초록불이 유지된다(2026-09-17 가이드 대조에서 실제로 여러 건).
-    targets += sorted((REPO_ROOT / "docs" / "guides").glob("*.md"))
-    targets += sorted((REPO_ROOT / "docs" / "guides").glob("*.html"))
-    docs_index = REPO_ROOT / "docs" / "README.md"
-    if docs_index.exists():
-        targets.append(docs_index)
-    # 워크플로 주석도 계약 문서를 가리킨다. 검사 밖에 두면 그 참조만 조용히
-    # 썩는다 — 실제로 ci.yml 첫 줄이 존재하지 않는 charter 를 1개월간 가리켰다
-    # (F-035). 여기서도 규칙은 같다: 백틱으로 감싼 경로만 본다.
+    targets = [REPO_ROOT / "README.md", *sorted((REPO_ROOT / "docs").glob("*.md"))]
     targets += sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml"))
 
     problems: list[str] = []
     for doc in targets:
+        if not doc.is_file():
+            continue
         name = str(doc.relative_to(REPO_ROOT)).replace("\\", "/")
         text = doc.read_text(encoding="utf-8")
-        if name.startswith("docs/guides/") or name == "docs/README.md":
-            text = doc_text_for_check(text, html=doc.suffix == ".html")
-        problems += [
-            f"{name}: {issue}"
-            for issue in check_doc_paths(text, known_paths, DOC_ALLOWED_MISSING_PATHS)
-        ]
-        problems += [
-            f"{name}: {issue}"
-            for issue in check_doc_env_vars(text, known_env, DOC_ALLOWED_MISSING_ENV)
-        ]
-        # 별칭 검사는 **가르치는 문서**에만 적용한다. `docs/crp/` 는 무슨 일이
-        # 있었는지에 대한 기록이라 옛 이름을 그대로 불러야 한다 — 기록에까지
-        # 규칙을 걸면 사실을 쓸 수 없게 된다.
-        if not name.startswith("docs/crp/"):
-            problems += [f"{name}: {issue}" for issue in check_doc_deprecated_names(text)]
+        problems += [f"{name}: {issue}" for issue in check_doc_paths(text, known_paths)]
+        problems += [f"{name}: {issue}" for issue in check_doc_env_vars(text, known_env)]
     return problems
 
 

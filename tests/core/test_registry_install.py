@@ -1,4 +1,4 @@
-"""발견 목록을 실제로 결선하는 단계 — 라우터·모델·Admin (FR-02, FR-03, FR-04)."""
+"""발견 목록을 실제로 결선하는 단계 — 라우터·모델·Admin."""
 
 import pytest
 from fastapi import APIRouter, FastAPI
@@ -88,7 +88,7 @@ def test_install_admin_rejects_duplicate_view():
 
 
 def test_wiring_uses_the_discovered_list_only():
-    """결선은 스스로 다시 스캔하지 않고 마지막 discover() 결과만 쓴다 (NFR-05).
+    """결선은 스스로 다시 스캔하지 않고 마지막 discover() 결과만 쓴다.
 
     두 번째 스캔 로직이 생기면 런타임과 Alembic 의 앱 목록이 어긋날 수 있다.
     발견 목록을 비우면 결선 결과도 비어야 한다.

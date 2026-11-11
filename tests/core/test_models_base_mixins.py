@@ -1,4 +1,4 @@
-"""공통 모델 mixin 조합 (계획서 §4).
+"""공통 모델 mixin 조합.
 
 `Base` + `UUIDPrimaryKeyMixin` / `CreatedAtMixin` / `UpdatedAtMixin` 의 작은 조합으로
 공통 컬럼을 구성한다. 지금까지는 mixin 이 정의만 되어 있고 모델마다 같은 컬럼을

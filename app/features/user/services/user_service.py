@@ -2,15 +2,15 @@
 User Service
 
 사용자 비즈니스 로직. 세션을 주입받아 Repository 를 구성하고, 협력 객체(해시기·refresh
-저장소·소유권 판정)는 생성자로 받는다(service-hardening C-1).
+저장소·소유권 판정)는 생성자로 받는다.
 commit 은 여기서 하지 않는다. 요청에서는 쓰기 핸들러 본문이 응답 DTO 검증 뒤 한 번,
 요청 밖에서는 background_db_session() 을 연 호출자가 한다. 예외 시 rollback 은 세션
 Dependency(또는 컨텍스트)가 맡는다.
 
-권한 규칙(ADR-016): 목록·생성·삭제는 라우트가 슈퍼유저로 막고, 단건 조회·수정은 본인
+권한 규칙: 목록·생성·삭제는 라우트가 슈퍼유저로 막고, 단건 조회·수정은 본인
 또는 슈퍼유저(`OwnershipPolicy` — 사용자 자신이 "소유자"다), ``is_active``·``is_superuser``
 변경은 슈퍼유저만 한다. 비활성화·강등·삭제는 그 사용자의 refresh family 와 /admin 관리 세션을
-모두 폐기한다(admin-session-hardening ADR-003). API 에는 비밀번호 변경 경로가 없다 — CLI
+모두 폐기한다. API 에는 비밀번호 변경 경로가 없다 — CLI
 ``create_superuser --set-password`` 가 같은 규칙(``revocation_for``)으로 폐기한다.
 """
 
@@ -57,7 +57,7 @@ def revocation_for(before: Mapping[str, Any], after: Mapping[str, Any]) -> Revoc
     """변경 전후로 끊을 것을 정한다 — **규칙은 여기 한 곳**(API ``UserService``·관리 화면 ``UserAdmin`` 공용).
 
     비활성화·슈퍼유저 해제(강등)·비밀번호 해시 변경이면 관리 세션과 refresh 를 모두 끊는다
-    (service-hardening 결정 — 강등도 refresh 폐기, admin-session-hardening ADR-010). 그 밖의 수정은 유지.
+    (service-hardening 결정 — 강등도 refresh 폐기). 그 밖의 수정은 유지.
     """
     lost = (
         bool(before["is_active"] and not after["is_active"])
@@ -157,7 +157,7 @@ class UserService(BaseService):
             raise PrivilegedFieldException()
         existing = await self._get(user_id)  # 존재 보장(없으면 404)
         # 비활성화·강등이면 기존 로그인 세션을 끊는다 — 판정은 관리 화면과 같은 ``revocation_for``.
-        # 이미 발급된 access 토큰은 만료(기본 15분)까지 남는다(R-201). /admin 세션은 즉시 끊긴다.
+        # 이미 발급된 access 토큰은 만료(기본 15분)까지 남는다. /admin 세션은 즉시 끊긴다.
         before = {f: getattr(existing, f) for f in REVOKING_FIELDS}
         after = {f: changes.get(f, before[f]) for f in REVOKING_FIELDS}
         await self._revoke_sessions(user_id, revocation_for(before, after))

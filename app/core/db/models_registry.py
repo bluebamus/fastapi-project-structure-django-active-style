@@ -6,7 +6,7 @@ Alembic autogenerate 와 DEBUG 모드 테이블 생성은 둘 다 `Base.metadata
 어긋난다. 증상은 나중에 "마이그레이션이 비어 있음" 또는 "테이블이 안 생김" 으로
 나타나서 원인을 찾기 어렵다.
 
-**앱 목록의 출처는 `app.core.registry.AppRegistry` 하나뿐이다** (NFR-05).
+**앱 목록의 출처는 `app.core.registry.AppRegistry` 하나뿐이다**.
 이 모듈은 자체 디렉터리 스캔을 하지 않고 registry 의 발견 결과를 걸러 쓴다 —
 스캔 로직이 둘이 되면 런타임과 Alembic 이 서로 다른 앱 목록을 볼 수 있다.
 

@@ -34,7 +34,7 @@ class AuthUserResponse(BaseModel):
     OpenAPI component key 에 모듈 경로를 합성해
     `app__features__auth__schemas__auth_schema__UserResponse` 같은 이름을 만든다.
     클라이언트 생성기가 그 이름을 그대로 타입명으로 쓰므로 공개 계약이 내부
-    디렉터리 구조에 묶인다 — 파일을 옮기면 클라이언트가 깨진다 (F-004).
+    디렉터리 구조에 묶인다 — 파일을 옮기면 클라이언트가 깨진다.
 
     두 DTO 는 필드도 다르다. 이쪽은 인증에 필요한 최소 정보만 담고 시각 정보를
     노출하지 않는다.

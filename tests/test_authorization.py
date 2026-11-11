@@ -1,10 +1,10 @@
-"""라우트 권한 정책 (service-hardening 단계 F2 — ADR-014·ADR-015·ADR-016, INV-11).
+"""라우트 권한 정책.
 
 접근 수준의 정본은 각 뷰의 선언(``dependencies=[Public]`` 등, ``app/core/security/access.py``)이다.
 선언이 없는 뷰는 ``AccessPolicyGuard`` 가 기동 시 막으므로 "모든 operation 이 분류됐는가" 는
 여기서 다시 묻지 않는다. 이 파일은 **예시 정책이 의도대로인가** 를 고정한다.
 
-- ``EXPECTED`` 표(README "권한 표" 와 같은 내용)와 가드의 실제 판정을 대조한다.
+- ``EXPECTED`` 표(docs/ARCHITECTURE.md 권한 표와 같은 내용)와 가드의 실제 판정을 대조한다.
 - 실제 요청으로 401·403·소유권 동작을 확인한다. 소유자 판정(LoginRequired 위의 서비스
   ``OwnershipPolicy``)은 선언이 아니라 동작이라 아래 소유권 테스트가 맡는다.
 토큰은 실제 ``TokenService`` 로 서명한다(``tests.auth_headers``) — 인증 의존성을 override 하지
@@ -44,7 +44,7 @@ PUBLIC_WRITE = AccessLevel.PUBLIC_WRITE
 LOGIN = AccessLevel.LOGIN
 SUPERUSER = AccessLevel.SUPERUSER
 
-# (메서드, 경로 템플릿) → 기대 접근 수준. README "권한 표" 와 같은 내용이다.
+# (메서드, 경로 템플릿) → 기대 접근 수준. docs/ARCHITECTURE.md 권한 표와 같은 내용이다.
 # 수정·삭제의 소유자 판정은 LOGIN 위에서 서비스가 한다(아래 소유권 테스트).
 EXPECTED: dict[tuple[str, str], AccessLevel] = {
     ("GET", "/health"): PUBLIC,
@@ -189,7 +189,9 @@ def test_example_routes_declare_expected_access_levels():
     declared = AccessPolicyGuard().operations(app)
     actual = {key: next(iter(levels)) for key, levels in declared.items() if len(levels) == 1}
 
-    assert actual == EXPECTED, "예시 정책이 바뀌었습니다 — 의도라면 README 권한 표도 함께"
+    assert (
+        actual == EXPECTED
+    ), "예시 정책이 바뀌었습니다 — 의도라면 docs/ARCHITECTURE.md 권한 표도 함께"
 
     secured = {
         (method.upper(), path): bool(operation.get("security"))
@@ -331,7 +333,7 @@ async def test_superuser_bypasses_ownership(client, feature):
 
 @pytest.mark.parametrize("feature", list(OWNED))
 async def test_legacy_rows_without_author_are_superuser_only(env, feature):
-    """작성자 컬럼 도입 전의 행(author_id NULL)은 슈퍼유저만 고친다(ADR-015)."""
+    """작성자 컬럼 도입 전의 행(author_id NULL)은 슈퍼유저만 고친다."""
     client, maker, _ = env
     collection, create, update, model = OWNED[feature]
     async with maker() as session:

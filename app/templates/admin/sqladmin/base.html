@@ -1,5 +1,5 @@
-{#- sqladmin 0.32 원본(sqladmin_original/base.html)을 그대로 상속하고 head_tail 블록 하나만 덧붙인다
-    (admin-session-hardening ADR-004). 원본 대비 바뀐 부분:
+{#- sqladmin 0.32 원본(sqladmin_original/base.html)을 그대로 상속하고 head_tail 블록 하나만 덧붙인다.
+    원본 대비 바뀐 부분:
       (a) <meta name="csrf-token"> — 세션에 묶인 CSRF 토큰
       (b) 인라인 스크립트 — 같은 출처 POST 폼 제출에 hidden csrf_token, fetch/XHR 에 X-CSRF-Token 헤더,
           로그아웃 링크(GET) 클릭을 토큰을 실은 POST 폼 제출로 바꾼다.

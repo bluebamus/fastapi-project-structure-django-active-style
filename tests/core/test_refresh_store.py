@@ -1,4 +1,4 @@
-"""`RefreshTokenStore` — 등록·한 번만 소비·family 폐기·사용자 폐기 (service-hardening F1, ADR-012)."""
+"""`RefreshTokenStore` — 등록·한 번만 소비·family 폐기·사용자 폐기."""
 
 import pytest
 from fakeredis import FakeAsyncRedis

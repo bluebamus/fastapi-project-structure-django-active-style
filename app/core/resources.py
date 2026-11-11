@@ -1,4 +1,4 @@
-"""애플리케이션 자원의 수명주기 관리 (계획서 §8, ADR-001·ADR-007).
+"""애플리케이션 자원의 수명주기 관리.
 
 ## 왜 이 파일이 필요한가
 
@@ -167,7 +167,7 @@ class ResourceManager:
                 )
             except Exception as error:
                 # 정리 실패는 기록하고 넘어간다. 여기서 멈추면 뒤의 자원이 전부 샌다.
-                # 예외 원문은 남기지 않는다(C-4) — 타입과 자원 이름이면 추적에 충분하다.
+                # 예외 원문은 남기지 않는다 — 타입과 자원 이름이면 추적에 충분하다.
                 failures.append(resource.name)
                 logger.warning(
                     "[resources] '%s' 정리 실패 error_type=%s — 다음으로 넘어갑니다.",
@@ -239,7 +239,7 @@ async def manage_application_resources(
         resources.register("background-tasks", access_log_tasks.drain, budget=5.0)
 
         if app_settings.DEBUG:
-            # 전환 절차는 README의 "스키마 관리 — 자동 생성에서 Alembic 으로"를 본다.
+            # 전환 절차는 docs/DEVELOPMENT.md 의 "마이그레이션" 절을 본다.
             # 먼저 `alembic upgrade head`를 적용하면 create_all(checkfirst)은 no-op이다.
             # 운영 전환 뒤에는 DEBUG=false로 이 개발용 경로 자체를 닫는다.
             await create_db_tables()

@@ -1,4 +1,4 @@
-"""`PasswordHasher` — Argon2 해시·검증·옛 bcrypt 해시 이전 (service-hardening F1, ADR-010)."""
+"""`PasswordHasher` — Argon2 해시·검증·옛 bcrypt 해시 이전."""
 
 import bcrypt
 import pytest

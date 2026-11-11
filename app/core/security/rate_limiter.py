@@ -1,4 +1,4 @@
-"""Redis 고정 창 rate limit (service-hardening ADR-013).
+"""Redis 고정 창 rate limit.
 
 ``INCR`` 와 첫 hit 의 ``EXPIRE NX`` 를 한 트랜잭션(MULTI)으로 보낸다 — 둘 사이에 프로세스가
 죽어 TTL 없는 카운터가 남으면 그 키는 영구 차단된다.

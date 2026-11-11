@@ -107,7 +107,7 @@ async def test_create_rejects_empty_title(client):
 
 
 async def test_patch_null_on_required_field_returns_422(client):
-    """NOT NULL 컬럼의 명시적 null 은 422 다 — DB 까지 가서 409 "충돌" 이 되지 않는다 (F-011)."""
+    """NOT NULL 컬럼의 명시적 null 은 422 다 — DB 까지 가서 409 "충돌" 이 되지 않는다."""
     created = await client.post("/api/v1/blog/posts", json={"title": "t", "content": "c"})
     post_id = created.json()["id"]
 
@@ -119,7 +119,7 @@ async def test_patch_null_on_required_field_returns_422(client):
 
 
 async def test_patch_cannot_change_author(client):
-    """작성자는 서버가 정한다(service-hardening F2) — PATCH 본문의 author 는 반영되지 않는다.
+    """작성자는 서버가 정한다 — PATCH 본문의 author 는 반영되지 않는다.
 
     이전 계약은 author 를 null 로 지울 수 있었다. 작성자 표시를 클라이언트가 바꾸면
     소유권(author_id)과 표시가 어긋나므로 Update 스키마에서 뺐다.

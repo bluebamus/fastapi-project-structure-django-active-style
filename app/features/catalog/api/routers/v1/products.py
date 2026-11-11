@@ -6,7 +6,7 @@ view 는 HTTP 역할만 한다: 파라미터 수신 → Service 호출 → 응�
 다시 읽으려다 lazy I/O 가 발생하고, 그 I/O 가 실패하면 이미 커밋된 트랜잭션 위에서
 500 이 난다 — 클라이언트는 실패로 보지만 데이터는 저장된 상태가 된다.
 
-조회는 read-only Dependency, 변경은 writer Dependency 를 쓴다(계획서 §7).
+조회는 read-only Dependency, 변경은 writer Dependency 를 쓴다.
 """
 
 from typing import Any

@@ -1,4 +1,4 @@
-"""테스트용 세션 override 가 운영 Dependency 의 표시를 보존한다 (service-hardening F-014).
+"""테스트용 세션 override 가 운영 Dependency 의 표시를 보존한다.
 
 예전 override 는 표시 없는 세션을 yield 해서, 조회 핸들러가 몰래 쓰면 운영에서는
 `ReadOnlyRoutingError` 로 죽을 요청이 테스트에서는 200 으로 통과했다. 여기서는

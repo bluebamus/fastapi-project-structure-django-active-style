@@ -1,4 +1,4 @@
-"""로그 비밀정보 마스킹 (C-5, residual-risk R-007).
+"""로그 비밀정보 마스킹.
 
 지금은 SQLAlchemy `echo=False` 라 SQL 이 로그로 나가지 않는다. 그건 **설정**에
 기댄 차단이라 누가 echo 를 켜는 순간 무너진다. 구조적으로 막기 위해 로깅 파이프라인
@@ -81,7 +81,7 @@ def test_message_without_secret_is_untouched():
 
 
 def test_secret_inside_one_arg_is_masked_in_place():
-    """비밀값이 인자 하나 안에 있으면 그 인자만 가리고 args 모양은 지킨다 (R-804).
+    """비밀값이 인자 하나 안에 있으면 그 인자만 가리고 args 모양은 지킨다.
 
     uvicorn 의 AccessFormatter 는 접속 줄의 args 5개를 풀어 요청 라인을 만든다 — args 를 비우면
     `?token=` 이 든 요청마다 logging 오류가 나고 그 줄이 사라진다.
@@ -112,7 +112,7 @@ def test_filter_is_wired_into_logging_config():
     """dictConfig 에 실제로 물려 있어야 의미가 있다."""
     from app.utils.logs import config as log_config
 
-    # 모든 경로가 root 의 핸들러 한 벌(build_dictconfig)을 쓴다 (logging-overhaul L1).
+    # 모든 경로가 root 의 핸들러 한 벌(build_dictconfig)을 쓴다.
     cfg = log_config.build_dictconfig(logfile="worker.log")
     assert cfg["filters"]["redact"]["()"].endswith("RedactingFilter")
     for name, handler in cfg["handlers"].items():
@@ -121,7 +121,7 @@ def test_filter_is_wired_into_logging_config():
 
 
 # =============================================================================
-# traceback·stack 마스킹 (log-redaction-fixes ADR-002)
+# traceback·stack 마스킹
 #
 # 예외 메시지·체인(`raise ... from`)·stack_info 에 실린 비밀값이 **실제 핸들러 경로**마다
 # 가려지는지 본다. 각 경로는 프로젝트가 쓰는 dictConfig 를 그대로 적용해 만든다.
@@ -268,7 +268,7 @@ def test_masking_holds_with_user_log_formats(monkeypatch, tmp_path):
 
 
 def test_uvicorn_lines_through_root_mask_traceback():
-    """`python main.py` 경로 — uvicorn 로거는 설정 없이 root 핸들러로 간다 (logging-overhaul L1)."""
+    """`python main.py` 경로 — uvicorn 로거는 설정 없이 root 핸들러로 간다."""
     from app.utils.logs import config as logs_config
 
     with _isolated_loggers("uvicorn", "uvicorn.error", "uvicorn.access"):
@@ -316,7 +316,7 @@ def test_celery_worker_handlers_get_the_filter():
         probe.addHandler(logging.StreamHandler(io.StringIO()))  # Celery 가 붙이는 핸들러 자리
         on_setup_logger(logger=probe)
         on_setup_logger(logger=probe)  # 멱등
-        # 자기 핸들러는 걷히고 root(마스킹)로 전파된다 (logging-overhaul L1).
+        # 자기 핸들러는 걷히고 root(마스킹)로 전파된다.
         assert probe.handlers == [] and probe.propagate is True
         _emit(probe)
 
@@ -324,7 +324,7 @@ def test_celery_worker_handlers_get_the_filter():
 
 
 # =============================================================================
-# uvicorn 접속 줄 (R-804)
+# uvicorn 접속 줄
 #
 # uvicorn 은 접속 줄을 `'%s - "%s %s HTTP/%s" %d'` + args 5개로 남기고, 요청 라인 필드
 # (client_addr·request_line·status_code)는 포매터가 args 를 풀어 만든다. 두 경로 모두 실제

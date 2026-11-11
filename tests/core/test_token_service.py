@@ -1,4 +1,4 @@
-"""`TokenService` — claims·만료·iss/aud·필수 claim·종류 혼동·nbf (service-hardening F1, ADR-011)."""
+"""`TokenService` — claims·만료·iss/aud·필수 claim·종류 혼동·nbf."""
 
 from datetime import UTC, datetime, timedelta
 
@@ -66,7 +66,7 @@ def test_refresh_token_carries_family_and_returns_jti(tokens):
 
 @pytest.mark.parametrize("is_superuser", [True, False])
 def test_access_token_carries_superuser_claim(tokens, is_superuser):
-    """``su`` 는 인가 판정(Principal.is_superuser)의 근거다 (service-hardening F2, ADR-022 ②)."""
+    """``su`` 는 인가 판정(Principal.is_superuser)의 근거다 (ADR-022 ②)."""
     claims = tokens.decode(tokens.issue_access("u1", "alice", is_superuser), ACCESS)
     assert claims["su"] is is_superuser
 

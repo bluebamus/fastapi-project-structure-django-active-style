@@ -1,4 +1,4 @@
-"""/admin 관리 세션 — Redis 서버 세션 (admin-session-hardening ADR-001·ADR-002).
+"""/admin 관리 세션 — Redis 서버 세션.
 
 쿠키에는 무작위 세션 ID(``secrets.token_urlsafe(32)``)만 있고, 내용은 Redis 에 둔다.
 로그아웃·강등·비활성화·삭제 시 서버에서 즉시 지우므로 복사해 둔 쿠키도 그 순간 죽는다.

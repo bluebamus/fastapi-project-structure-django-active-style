@@ -1,4 +1,4 @@
-"""파일 로깅을 event loop 밖으로 밀어내는 bounded queue (계획서 §8, ADR-003).
+"""파일 로깅을 event loop 밖으로 밀어내는 bounded queue.
 
 ## 왜 필요한가
 

@@ -27,7 +27,7 @@ class ProductUpdate(PatchSchema):
     """상품 부분 수정 입력.
 
     모든 필드가 선택이다. 아무것도 넘기지 않은 PATCH 는 오류가 아니라 존재 확인 후
-    no-op 이다(계획서 §4).
+    no-op 이다.
     """
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"price": "99.00"}]})

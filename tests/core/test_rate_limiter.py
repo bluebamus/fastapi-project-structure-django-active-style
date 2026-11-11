@@ -1,4 +1,4 @@
-"""`RateLimiter` — 허용·거부·Retry-After·창 만료·초기화 (service-hardening F1, ADR-013)."""
+"""`RateLimiter` — 허용·거부·Retry-After·창 만료·초기화."""
 
 import asyncio
 

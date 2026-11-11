@@ -1,4 +1,4 @@
-"""`scripts/new_app.py` 가 registry 규약을 만족하는 앱을 만드는지 고정한다 (FR-06).
+"""`scripts/new_app.py` 가 registry 규약을 만족하는 앱을 만드는지 고정한다.
 
 Django `startapp` 대응물이다. 생성 결과가 규약에서 한 글자라도 어긋나면
 (라우터 변수명, 디렉터리 이름) 자동 발견이 **조용히** 건너뛴다 — 그래서 생성
@@ -50,7 +50,7 @@ def test_creates_all_required_packages(root):
 
 
 def test_does_not_create_central_declaration_file(root):
-    """디렉터리 존재가 곧 등록 선언이다 — 앱별 config.py 를 만들지 않는다 (CR-06)."""
+    """디렉터리 존재가 곧 등록 선언이다 — 앱별 config.py 를 만들지 않는다."""
     scaffold("widget", root=root)
 
     assert not (root / "app/features/widget/config.py").exists()
@@ -113,7 +113,7 @@ def test_generated_router_module_is_importable_python(root):
 
 
 def test_scaffold_does_not_teach_deprecated_session_names(tmp_path):
-    """생성기 템플릿이 폐기된 Dependency 이름을 퍼뜨리지 않는다 (INV-10).
+    """생성기 템플릿이 폐기된 Dependency 이름을 퍼뜨리지 않는다.
 
     scripts/ 는 `test_session_dependency_names.py` 의 AST 스캔 범위(app/·tests/) 밖이라
     여기서 따로 막는다 — 실제로 한 번 빠져나갔다.
@@ -131,7 +131,7 @@ def test_scaffold_does_not_teach_deprecated_session_names(tmp_path):
 
 
 def test_scaffold_does_not_teach_commit_in_dependency(tmp_path):
-    """`yield` 뒤 commit 은 응답 전송 후에 실행돼 커밋 실패가 201 로 둔갑한다 (ADR-004)."""
+    """`yield` 뒤 commit 은 응답 전송 후에 실행돼 커밋 실패가 201 로 둔갑한다."""
     scaffold("widget", tmp_path, with_admin=True)
 
     deps = (tmp_path / "app/features/widget/dependencies/widget_dependencies.py").read_text(
@@ -174,7 +174,7 @@ def _load_generated_v1(root, name):
 
 
 def test_generated_example_view_declares_access_and_passes_the_guard(root):
-    """생성된 예시 뷰를 include 해도 기동 시 접근 정책 검사를 통과한다 (access-policy ADR-003).
+    """생성된 예시 뷰를 include 해도 기동 시 접근 정책 검사를 통과한다.
 
     템플릿이 선언을 빠뜨리면 사용자가 예시를 include 하는 순간 서버가 기동하지 않는다.
     """

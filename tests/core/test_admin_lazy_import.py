@@ -1,4 +1,4 @@
-"""`ADMIN_DISABLED=true` 면 sqladmin/admin 모듈을 아예 올리지 않는다 (계획서 §8).
+"""`ADMIN_DISABLED=true` 면 sqladmin/admin 모듈을 아예 올리지 않는다.
 
 lazy import 는 main.py 의 `if not app_settings.ADMIN_DISABLED:` 안에서 이뤄진다. 이 계약이 깨지면
 Admin 을 끈 배포에서도 sqladmin 과 전 도메인 ModelView 가 메모리에 상주한다.

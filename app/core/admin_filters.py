@@ -1,9 +1,9 @@
-"""관리 화면(sqladmin) 공용 필터 (security-ops-hardening ADR-004).
+"""관리 화면(sqladmin) 공용 필터.
 
 sqladmin 0.32 의 ``OperationColumnFilter`` 는 ``UTCDateTime``(TypeDecorator)을 날짜형으로 보지
 못해 입력 문자열을 그대로 바인딩하고, ``UTCDateTime`` 이 naive·문자열을 거부해 목록이 500 이 났다.
 ``LocalDateFilter`` 는 업무 시간대(``TIME_ZONE``)의 날짜 하나 또는 기간(시작일~종료일, 양 끝 포함)을
-UTC aware 범위로 바꿔 질의한다(기간 연산: admin-session-hardening ADR-005).
+UTC aware 범위로 바꿔 질의한다.
 
 이 모듈은 sqladmin 을 import 한다 — 기능의 ``admin.py``(ADMIN_DISABLED=false 일 때만 로드)에서만
 가져온다.

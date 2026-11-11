@@ -131,7 +131,7 @@ def _is_locking_select(clause: Any) -> bool:
     """``select(...).with_for_update()`` 처럼 행 잠금을 잡는 ORM/Core SELECT 인가.
 
     잠금 조회는 읽기처럼 생겼지만 primary 의 행을 지키려고 쓰는 것이다. replica 로 가면
-    잠금이 엉뚱한 서버에 걸려 아무것도 보호하지 못한다(service-hardening F-004).
+    잠금이 엉뚱한 서버에 걸려 아무것도 보호하지 못한다.
     text SQL 의 ``FOR UPDATE`` 는 ``_LOCKING_READ`` 가 따로 잡는다.
     """
     return isinstance(clause, Select) and clause._for_update_arg is not None
@@ -191,7 +191,7 @@ def make_routing_session_class(router: DatabaseRouter) -> type[Session]:
                 on_replica = info.get(_READER_PINNED) is not None and not info.get(_WRITER_PINNED)
                 if not (info.get(_READ_ONLY) and on_replica and _is_connection_error(exc)):
                     raise
-                # replica 에 닿지 못한 읽기는 primary 로 한 번 다시 실행한다(integration-e2e F-005).
+                # replica 에 닿지 못한 읽기는 primary 로 한 번 다시 실행한다.
                 # 읽기 전용 세션이라 버릴 쓰기가 없다 — 실패한 트랜잭션을 걷고 이 세션을 writer 에 고정한다.
                 logger.warning(
                     "[database] replica 연결 오류(%s %s) — 이 읽기를 primary 로 한 번 다시 실행합니다",
@@ -241,7 +241,7 @@ def create_routing_sessionmaker(
 
 
 # =============================================================================
-# read-only 계약의 중앙 집행 (ledger F-003)
+# read-only 계약의 중앙 집행
 # =============================================================================
 # 예전에는 차단이 `RoutingSession.get_bind()` 안에만 있었다. 그래서 라우터가 꺼진
 # 구성(`DB_ROUTER_ENABLED=false`, 단일 서버 기본값)과 background 세션 팩토리에서는
@@ -361,7 +361,6 @@ def _text_is_readable(sql: str) -> bool:
     두면 DB 를 바꿀 때 판단이 함께 틀어진다.
 
     fail-closed: 따옴표가 닫히지 않거나 괄호가 맞지 않아 스캔이 무너지면 거부한다.
-    판정을 넓히거나 좁히는 절차는 `docs/guides/DEVELOPMENT.md` §6.5 에 있다.
     """
     stripped = _SQL_COMMENT.sub(" ", sql).strip()
     head, separator, tail = stripped.partition(";")

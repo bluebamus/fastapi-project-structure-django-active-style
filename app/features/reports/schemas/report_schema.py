@@ -3,7 +3,7 @@
 Raw 결과는 ORM 객체가 아니라 `RowMapping` 이다. 그래서 `from_attributes=True` 에
 기대지 않고 `dict(row)` 를 명시적으로 검증한다 — SQL 의 컬럼 alias 와 DTO 필드 이름이
 어긋나면 그 자리에서 실패해야 한다. alias 를 조용히 흘려보내면 응답에 필드가 빠진
-채로 200 이 나간다 (RAW-REP-005).
+채로 200 이 나간다.
 """
 
 from datetime import date

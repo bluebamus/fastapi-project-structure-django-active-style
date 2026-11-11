@@ -99,7 +99,7 @@ def test_development_appends_milliseconds_after_date_format(monkeypatch, tmp_pat
 
 
 def test_uvicorn_lines_follow_console_and_date_format(monkeypatch, tmp_path):
-    """`python main.py` 경로 — uvicorn 로거는 설정 없이 root(앱 콘솔 형식)로 전파된다 (logging-overhaul L1).
+    """`python main.py` 경로 — uvicorn 로거는 설정 없이 root(앱 콘솔 형식)로 전파된다.
 
     예전에는 접속 줄만 전용 형식을 썼다. 이제 접속 줄도 같은 형식이고 {message} 가 요청 줄이다.
     """

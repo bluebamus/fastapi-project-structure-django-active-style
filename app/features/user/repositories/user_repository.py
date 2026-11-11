@@ -18,7 +18,7 @@ class UserRepository(BaseRepository[User, str]):
         """사용자명으로 단건 조회한다.
 
         공통 Base 의 filter 기반 조회에 기대지 않고 이 기능 Repository 가 직접
-        소유한다 — 어떤 컬럼으로 무엇을 찾는지가 여기 드러나야 한다(계획서 §4).
+        소유한다 — 어떤 컬럼으로 무엇을 찾는지가 여기 드러나야 한다.
         """
         stmt = select(User).where(User.username == username)
         result = await self.session.execute(stmt)

@@ -1,6 +1,6 @@
 """Auth 의존성 — 협력 객체 provider · 서비스 조립 · rate limit · 현재 사용자 해석.
 
-모든 협력 객체는 여기 provider 가 만들고 `Depends` 로 생성자에 넘긴다(service-hardening C-1).
+모든 협력 객체는 여기 provider 가 만들고 `Depends` 로 생성자에 넘긴다.
 테스트는 `app.dependency_overrides` 로 provider 를 바꾼다 — Redis 는 `get_redis` 하나만
 바꾸면 refresh 저장소·rate limiter 가 모두 따라온다.
 """
@@ -32,7 +32,7 @@ from app.features.user.models.models import User
 from app.features.user.repositories.user_repository import UserRepository
 from config import jwt_settings, middleware_settings
 
-# 해시기·토큰·refresh 저장소 provider 는 user 기능도 쓰므로 core 에 있다(ADR-023).
+# 해시기·토큰·refresh 저장소 provider 는 user 기능도 쓰므로 core 에 있다.
 # 여기서 다시 내보내 기존 import 경로(`...auth_dependencies import get_token_service`)를 유지한다.
 __all__ = [
     "get_auth_service",
@@ -67,7 +67,7 @@ async def get_auth_service(
 
     이전에는 `yield` 이후 커밋했으나, FastAPI 상위 버전에서 yield dependency 의
     종료 코드가 **응답 전송 후에** 실행되도록 바뀌어 커밋 실패가 201 로 둔갑했다.
-    커밋을 핸들러 본문으로 옮겨 응답 생성 전에 끝나도록 보장한다(P1-3).
+    커밋을 핸들러 본문으로 옮겨 응답 생성 전에 끝나도록 보장한다.
     """
     return AuthService(session, hasher, tokens, refresh_store)
 
@@ -118,14 +118,14 @@ async def get_current_user(
 ) -> User:
     """현재 사용자 **엔티티**를 반환한다(실패 시 401). `/me` 처럼 엔티티가 필요한 곳에서만 쓴다.
 
-    토큰 검증은 core ``get_current_principal`` 하나를 거친다(C-8). 그 위에 DB 조회로
-    삭제·비활성 사용자를 걸러 낸다 — 다른 보호 경로는 DB 를 보지 않는 주체만 쓴다(ADR-014).
+    토큰 검증은 core ``get_current_principal`` 하나를 거친다. 그 위에 DB 조회로
+    삭제·비활성 사용자를 걸러 낸다 — 다른 보호 경로는 DB 를 보지 않는 주체만 쓴다.
 
     인증은 읽기 전용이므로 커밋하는 ``get_auth_service`` 를 거치지 않고 read-only 세션의
     리포지토리로 조회한다. 인증+쓰기 의존성을 함께 쓰는 엔드포인트에서 한 세션에 커밋
     주체가 둘이 되는 위험이 없다(검수 W2/REQ-009).
 
-    조회는 replica 가 아니라 **primary** 에서 한다(integration-e2e ADR-011) — 복제 지연 때 유효한 토큰이
+    조회는 replica 가 아니라 **primary** 에서 한다 — 복제 지연 때 유효한 토큰이
     401 이 되지 않고, 비활성화·삭제가 다음 요청에 바로 반영된다. 이 세션은 요청 안에서 같은
     read-only 의존성을 쓰는 다른 조회와 공유되므로(FastAPI 의존성 캐시) 그 조회도 primary 로 간다 —
     지금은 ``/me`` 만 이 의존성을 쓴다.

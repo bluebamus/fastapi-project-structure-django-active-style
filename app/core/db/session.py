@@ -227,7 +227,7 @@ async def create_db_tables() -> None:
     Note:
         모델 발견은 **이 함수가 하지 않는다**. main.py 가 만든 동일 ``AppRegistry``
         인스턴스가 이미 ``discover()`` + ``import_models()`` 로 ``Base.metadata`` 를
-        채워둔 상태를 그대로 재사용한다(INV-5). 여기서 두 번째 스캔을 돌리면
+        채워둔 상태를 그대로 재사용한다. 여기서 두 번째 스캔을 돌리면
         런타임과 Alembic 이 서로 다른 앱 목록을 볼 수 있고, 그 어긋남은 나중에
         "테이블이 안 생김" 으로만 드러나 원인을 찾기 어렵다.
 
@@ -281,7 +281,7 @@ async def get_routed_db_session() -> AsyncGenerator[AsyncSession]:
             # 예외 **메시지**는 기본 로그에 남기지 않는다 — DB 예외의 str() 에는 실행된
             # SQL 이 그대로 들어 있고(바인드 값은 hide_parameters 로 숨김), 이 로거 이름("database")은
             # SQLNoiseFilter 의 NOISY_PREFIXES 에 걸리지 않아 그대로 통과한다.
-            # 값이 키워드 형태가 아니라 RedactingFilter 도 지우지 못한다(C-4).
+            # 값이 키워드 형태가 아니라 RedactingFilter 도 지우지 못한다.
             # 추적이 필요한 debug 모드에서는 아래 debug 레코드가 전문을 남긴다.
             logger.error(
                 "[get_routed_db_session] ROLLBACK - error: %s, duration: %.1fms",
@@ -381,7 +381,7 @@ async def get_background_db_session() -> AsyncGenerator[AsyncSession]:
             # 예외 **메시지**는 기본 로그에 남기지 않는다 — DB 예외의 str() 에는 실행된
             # SQL 이 그대로 들어 있고(바인드 값은 hide_parameters 로 숨김), 이 로거 이름("database")은
             # SQLNoiseFilter 의 NOISY_PREFIXES 에 걸리지 않아 그대로 통과한다.
-            # 값이 키워드 형태가 아니라 RedactingFilter 도 지우지 못한다(C-4).
+            # 값이 키워드 형태가 아니라 RedactingFilter 도 지우지 못한다.
             # 추적이 필요한 debug 모드에서는 아래 debug 레코드가 전문을 남긴다.
             logger.error(
                 "[get_background_db_session] ROLLBACK - error: %s, duration: %.1fms",

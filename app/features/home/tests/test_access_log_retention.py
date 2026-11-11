@@ -1,4 +1,4 @@
-"""접속 로그 보존 정리 (security-ops-hardening ADR-002).
+"""접속 로그 보존 정리.
 
 in-memory SQLite 로 서비스 → 리포지토리 → DELETE 를 실제로 돌린다. 시계는 주입한다.
 """

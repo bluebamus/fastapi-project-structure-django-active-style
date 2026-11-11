@@ -1,4 +1,4 @@
-"""Celery prefork 워커의 자원 생명주기 (계획서 §8, ADR-005).
+"""Celery prefork 워커의 자원 생명주기.
 
 ## 지원 범위 — prefork 만
 
@@ -12,8 +12,7 @@ gevent/eventlet 은 그린스레드 모델이라 `run_async()` 의 asyncio 루�
 Celery 는 4.0 부터 Windows 를 공식 지원하지 않는다. `solo` 는 fork 를 하지 않으므로
 아래에서 다루는 커넥션 상속 문제 자체가 없다(신호도 오지 않는다 — 정상이다).
 
-이 저장소의 Celery 는 태스크 하나짜리 **구조 예시**이며, 검증 범위도 그 수준이다
-(residual-risk R-101).
+이 저장소의 Celery 는 태스크 하나짜리 **구조 예시**이며, 검증 범위도 그 수준이다.
 
 ## fork 가 왜 위험한가
 

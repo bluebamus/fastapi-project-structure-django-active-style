@@ -1,4 +1,4 @@
-"""Home 기능의 Celery 태스크 (registry 가 발견하는 선택 모듈 — ADR-009).
+"""Home 기능의 Celery 태스크 (registry 가 발견하는 선택 모듈).
 
 워커는 `AppRegistry().task_modules()` 로 이 모듈을 include 한다. 이 앱 디렉터리를
 지우면 태스크도 함께 사라지고 워커는 그대로 뜬다.

@@ -1,4 +1,4 @@
-"""PATCH 의 명시적 null 은 nullable 컬럼에만 허용된다 (F-011, ADR-005).
+"""PATCH 의 명시적 null 은 nullable 컬럼에만 허용된다.
 
 `X | None = None` 은 "보내지 않아도 된다" 는 뜻이다. 이걸 "null 로 지울 수 있다" 로
 받아 주면 NOT NULL 컬럼에 None 이 들어가 DB 무결성 오류가 되고, 응답은 409 "충돌" 이었다.

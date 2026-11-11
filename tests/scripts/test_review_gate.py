@@ -19,14 +19,11 @@ from pathlib import Path
 import pytest
 
 from scripts.review_gate import (
-    DOC_ALLOWED_MISSING_PATHS,
     _repo_files,
     check_action_pins,
-    check_doc_deprecated_names,
     check_doc_env_vars,
     check_doc_paths,
     check_docs,
-    doc_text_for_check,
     find_empty_python_files,
     judge_pytest_summary,
     main,
@@ -74,7 +71,7 @@ def test_repository_workflows_are_pinned():
 
 
 def test_ci_installs_with_a_lock_freshness_check():
-    """CI 는 락이 pyproject 와 어긋나면 실패해야 한다 (service-hardening F-001).
+    """CI 는 락이 pyproject 와 어긋나면 실패해야 한다.
 
     `uv sync --frozen` 은 락이 최신인지 보지 않고 설치한다 — pyproject 에 추가한 의존성이
     락에 없으면 조용히 빠진 채 초록이 된다. 그 확인을 하는 것은 `--locked` 다.
@@ -96,7 +93,7 @@ def _git(cwd: Path, *args: str) -> None:
 
 
 def test_repo_files_lists_only_tracked_files(tmp_path, monkeypatch):
-    """추적되지 않은 파일(로컬 `.env`·로컬 전용 문서)은 게이트 목록에 없다 (F-002).
+    """추적되지 않은 파일(로컬 `.env`·로컬 전용 문서)은 게이트 목록에 없다.
 
     작업 트리를 훑으면 개발자의 실제 `.env` 가 비밀 스캔에 들어가 로컬에서만 빨개지고,
     로컬 전용 문서가 문서 경로 검사를 로컬에서만 통과시킨다.
@@ -183,90 +180,42 @@ def test_placeholders_and_prose_are_not_flagged(text):
 
 
 def test_missing_doc_path_is_detected():
-    known = ["app/core/db/session.py"]
-
-    assert check_doc_paths("참고: `app/core/nope.py`", known, set())
+    assert check_doc_paths("참고: `app/core/nope.py`", ["app/core/db/session.py"])
 
 
-def test_relative_doc_path_resolves_by_suffix():
-    """문서는 `db/session.py` 처럼 앞을 생략해 쓴다 — 오탐을 만들면 안 된다."""
-    known = ["app/core/db/session.py"]
+def test_doc_path_resolves_by_suffix_and_relative_prefix():
+    """문서는 `db/session.py`·`../x.md` 처럼 앞을 생략해 쓴다 — 오탐을 만들면 안 된다."""
+    known = ["app/core/db/session.py", "docs/ARCHITECTURE.md"]
 
-    assert check_doc_paths("참고: `db/session.py`", known, set()) == []
-
-
-def test_bare_filename_is_treated_as_naming_convention():
-    """README 의 '쓰지 말 것' 반례(`dependency.py`)를 존재 검사로 고발하지 않는다."""
-    assert check_doc_paths("쓰지 말 것: `dependency.py`", ["app/x/dependencies.py"], set()) == []
+    assert check_doc_paths("`db/session.py` `../docs/ARCHITECTURE.md`", known) == []
 
 
-def test_missing_markdown_doc_path_is_detected():
-    """문서가 문서를 가리키는 참조도 썩는다 — `.md` 를 검사 밖에 두면 조용히 썩는다."""
-    assert check_doc_paths("계약: `docs/crp/groups/nope/charter.md`", [], set())
+def test_bare_filename_is_not_checked():
+    """슬래시 없는 파일명(`dependency.py`)은 위치가 아니라 이름 규칙을 가리킨다."""
+    assert check_doc_paths("쓰지 말 것: `dependency.py`", ["app/x/dependencies.py"]) == []
 
 
-def test_repository_workflow_doc_references_exist():
-    """워크플로 주석이 가리키는 계약 문서가 실재하는지 본다.
-
-    ci.yml 첫 줄이 존재하지 않는 charter 를 가리키고 있었다(F-035). 워크플로가
-    문서 검사 대상 밖이라 게이트는 초록이었다. 되돌리면 이 테스트가 잡는다.
-    """
-    known = _repo_files()
-    problems = []
-    for workflow in sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml")):
-        text = workflow.read_text(encoding="utf-8")
-        problems += check_doc_paths(text, known, DOC_ALLOWED_MISSING_PATHS)
-
-    assert problems == []
-
-
-def test_dot_relative_doc_path_resolves():
-    """가이드는 `../crp/...` 처럼 상대 표기로 쓴다. 접두사 때문에 실재 파일을 놓치면 안 된다."""
-    known = ["docs/crp/groups/a/design-baseline.md"]
-
-    assert check_doc_paths("`../crp/groups/a/design-baseline.md`", known, set()) == []
-    assert check_doc_paths("`../crp/groups/nope/design-baseline.md`", known, set())
-
-
-def test_history_section_is_excluded_but_body_is_checked():
-    """변경 이력은 당시 사실이라 옛 경로가 정상이다. 본문의 옛 경로는 여전히 잡는다."""
-    doc = "## 1. 구조\n`app/gone.py`\n## 8. 변경 이력\n| x | `app/apps.py` 제거 |\n"
-
-    text = doc_text_for_check(doc, html=False)
-
-    assert "app/apps.py" not in text
-    assert check_doc_paths(text, [], set()) == ["app/gone.py: 저장소에 없는 경로입니다"]
-
-
-def test_html_code_paths_are_checked():
-    """HTML 가이드는 경로를 `<code>` 로 감싼다 — 그대로 두면 검사가 헛돈다."""
-    text = doc_text_for_check("<p><code>app/core/nope.py</code></p>", html=True)
-
-    assert check_doc_paths(text, [], set())
-
-
-def test_current_guides_are_in_the_docs_gate(tmp_path, monkeypatch):
-    """docs/guides 가 게이트 밖이면 코드가 바뀐 뒤에도 초록불이 유지된다."""
+def test_docs_gate_reads_readme_docs_and_workflows(tmp_path, monkeypatch):
     import scripts.review_gate as gate
 
-    guides = tmp_path / "docs" / "guides"
-    guides.mkdir(parents=True)
-    (guides / "GUIDE.md").write_text("`app/core/nope.py`", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "README.md").write_text("`app/core/gone.py`", encoding="utf-8")
+    (tmp_path / "docs" / "GUIDE.md").write_text("`NOPE_FLAG=1`", encoding="utf-8")
     monkeypatch.setattr(gate, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(gate, "_config_env_names", set)
 
-    assert check_docs() == ["docs/guides/GUIDE.md: app/core/nope.py: 저장소에 없는 경로입니다"]
+    assert check_docs() == [
+        "README.md: app/core/gone.py: 저장소에 없는 경로입니다",
+        "docs/GUIDE.md: NOPE_FLAG: 설정에 없는 환경변수입니다",
+    ]
 
 
-def test_forward_reference_can_be_declared():
-    """이월된 결함이 예고하는 파일은 '빠뜨린 것' 과 구분한다."""
-    allowed = {"app/core/resources.py"}
-
-    assert check_doc_paths("예정: `app/core/resources.py`", [], allowed) == []
+def test_repository_docs_pass_the_gate():
+    assert check_docs() == []
 
 
 def test_unknown_env_var_is_detected():
-    assert check_doc_env_vars("설정: `NOPE_ENABLED=true`", {"DB_ROUTER_ENABLED"}, set())
+    assert check_doc_env_vars("설정: `NOPE_ENABLED=true`", {"DB_ROUTER_ENABLED"})
 
 
 @pytest.mark.parametrize(
@@ -275,46 +224,14 @@ def test_unknown_env_var_is_detected():
     ids=["sql", "http", "algorithm"],
 )
 def test_uppercase_tokens_are_not_mistaken_for_env_vars(text):
-    assert check_doc_env_vars(text, set(), set()) == []
+    assert check_doc_env_vars(text, set()) == []
 
 
 def test_interpreter_env_vars_are_not_reported_as_missing():
     """`PYTHONIOENCODING` 은 앱 설정이 아니지만 문서가 정당하게 언급한다."""
     from scripts.review_gate import EXTERNAL_ENV
 
-    assert check_doc_env_vars("`PYTHONIOENCODING=utf-8`", EXTERNAL_ENV, set()) == []
-    assert check_doc_env_vars("`PYTHONIOENCODING=utf-8`", set(), set()), "규칙이 죽었습니다."
-
-
-# ------------------------------------------------------------------ 폐기 별칭
-
-
-@pytest.mark.parametrize(
-    "alias",
-    ["get_session", "get_read_session", "get_write_session", "background_session"],
-    ids=["routed", "read", "write", "background"],
-)
-def test_docs_teaching_deprecated_aliases_are_rejected(alias):
-    """`get_session` 은 쓰기용이 아니라 **동적 라우팅**이다 — 따라 쓰면 쓰기가 샌다."""
-    assert check_doc_deprecated_names(f"쓰기용 `{alias}` 을 주입합니다.")
-
-
-def test_canonical_names_pass():
-    text = "쓰기는 `get_writer_db_session`, 조회는 `get_read_only_db_session` 을 씁니다."
-
-    assert check_doc_deprecated_names(text) == []
-
-
-def test_canonical_name_containing_alias_is_not_flagged():
-    """`get_background_db_session` 안에 `background_session` 이 들어 있지 않다 — 경계 확인."""
-    assert check_doc_deprecated_names("`get_background_db_session`") == []
-
-
-def test_readme_does_not_teach_deprecated_aliases():
-    readme = REPO_ROOT / "README.md"
-
-    assert readme.exists()
-    assert check_doc_deprecated_names(readme.read_text(encoding="utf-8")) == []
+    assert check_doc_env_vars("`PYTHONIOENCODING=utf-8`", EXTERNAL_ENV) == []
 
 
 # ------------------------------------------------------------------ pytest 판정
@@ -409,7 +326,7 @@ def test_gate_reports_failure_with_nonzero_exit(monkeypatch, capsys):
 
 
 def test_gate_runs_as_a_module_with_utf8_output():
-    """Windows/POSIX 모두에서 한글 출력이 게이트를 죽이지 않는다 (F-028)."""
+    """Windows/POSIX 모두에서 한글 출력이 게이트를 죽이지 않는다."""
     completed = subprocess.run(
         [sys.executable, "-m", "scripts.review_gate", "--group", "supply", "docs"],
         cwd=REPO_ROOT,

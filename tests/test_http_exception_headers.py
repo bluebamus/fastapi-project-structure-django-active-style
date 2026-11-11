@@ -1,4 +1,4 @@
-"""HTTP 예외가 실어 온 헤더는 응답에 그대로 실린다 (log-redaction-fixes ADR-004).
+"""HTTP 예외가 실어 온 헤더는 응답에 그대로 실린다.
 
 전역 `StarletteHTTPException` 핸들러가 본문을 프로젝트 형식(`ErrorResponse`)으로 바꾸면서
 `exc.headers` 를 버리면 405 의 `Allow`(RFC 9110 §15.5.6 필수), 401 의 `WWW-Authenticate`

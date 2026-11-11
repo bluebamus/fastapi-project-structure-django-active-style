@@ -1,11 +1,11 @@
-"""Catalog CRUD 엔드포인트 테스트 (Phase 7).
+"""Catalog CRUD 엔드포인트 테스트.
 
 이 기능은 Phase 3~6 에서 만든 Base 를 **신규 기능에 처음 적용한** 자리다. 그래서
 여기서 보는 것은 CRUD 동작만이 아니라, 그 Base 계약이 실전에서 그대로 성립하는가다:
 
-- `main.py` 를 고치지 않고 자동 발견·마운트되는가 (C-1)
+- `main.py` 를 고치지 않고 자동 발견·마운트되는가
 - 조회는 read-only Dependency 를 쓰는가 — 쓰기용 재사용이면 이 테스트가 못 잡으므로
-  read-only 세션이 실제로 쓰기를 거부하는지 별도로 확인한다 (INV-4)
+  read-only 세션이 실제로 쓰기를 거부하는지 별도로 확인한다
 - update 가 제공된 필드만 반영하고 빈 PATCH 를 no-op 으로 처리하는가 (Phase 4 계약)
 
 view→dependency→service→repository→DB 전 경로를 in-memory sqlite 로 검증한다.
@@ -60,7 +60,7 @@ async def _create(client, **overrides) -> dict:
 
 
 def test_catalog_is_auto_registered():
-    """디렉터리 컨벤션만으로 catalog 라우터가 발견·마운트된다 (C-1)."""
+    """디렉터리 컨벤션만으로 catalog 라우터가 발견·마운트된다."""
     paths = set(app.openapi()["paths"])
 
     assert "/api/v1/catalog/products" in paths
@@ -208,7 +208,7 @@ def test_write_handlers_validate_response_before_commit():
 
 @pytest.mark.parametrize("field", ["name", "price", "is_active"])
 async def test_patch_null_on_not_null_column_returns_422(client, field):
-    """NOT NULL 컬럼의 명시적 null 은 422 다 — 예전에는 무결성 오류가 409 "충돌" 이었다 (F-011)."""
+    """NOT NULL 컬럼의 명시적 null 은 422 다 — 예전에는 무결성 오류가 409 "충돌" 이었다."""
     created = await _create(client)
 
     response = await client.patch(f"/api/v1/catalog/products/{created['id']}", json={field: None})

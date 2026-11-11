@@ -1,7 +1,7 @@
-"""Raw SQL primitive (계획서 §5).
+"""Raw SQL primitive.
 
-ORM 계층과 **독립적인** 데이터 접근 경로다. `CRUDBase` 와 상속 관계를 갖지 않으며
-(C-7), 세션·예외·로깅 정책만 공유한다. 만능 Base 로 합치면 두 접근의 계약이
+ORM 계층과 **독립적인** 데이터 접근 경로다. `CRUDBase` 와 상속 관계를 갖지 않으며,
+세션·예외·로깅 정책만 공유한다. 만능 Base 로 합치면 두 접근의 계약이
 서로를 오염시킨다 — ORM 의 identity map 과 Raw 의 결과 의미는 애초에 다른 규칙이다.
 
 ## 결과 의미를 못박는 이유
@@ -32,7 +32,7 @@ Raw 계층의 사고는 대부분 "결과를 어떻게 줄였는가" 에서 난�
 - multi-statement 는 거부한다. 드라이버가 허용하는 경우 한 번의 호출로 의도하지 않은
   문장이 함께 실행된다.
 
-트랜잭션 경계는 여기서 소유하지 않는다 — commit 은 쓰기 View 가 한 번 수행한다(ADR-004).
+트랜잭션 경계는 여기서 소유하지 않는다 — commit 은 쓰기 View 가 한 번 수행한다.
 """
 
 from __future__ import annotations
@@ -100,7 +100,7 @@ def _validate(statement: Any) -> TextClause:
 
 
 class RawCRUDBase:
-    """Raw SQL 실행 primitive. ORM Base 와 상속 관계가 없다 (C-7)."""
+    """Raw SQL 실행 primitive. ORM Base 와 상속 관계가 없다."""
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session

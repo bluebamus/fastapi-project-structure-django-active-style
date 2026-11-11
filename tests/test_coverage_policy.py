@@ -1,4 +1,4 @@
-"""커버리지 하한 정책 (log-redaction-fixes ADR-007 — 사용자 결정).
+"""커버리지 하한 정책 (사용자 결정).
 
 기본 하한은 0(측정·리포트만)이고, 정본은 pyproject 의 `[tool.coverage.report] fail_under`
 하나다. CI·로컬 게이트 명령줄에 `--cov-fail-under` 를 두면 값이 두 곳으로 갈라지므로 금지하고,

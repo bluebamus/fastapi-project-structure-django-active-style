@@ -1,4 +1,4 @@
-"""BaseRepository 최소 공개 API 의 동작 계약 (계획서 §4, Phase 4).
+"""BaseRepository 최소 공개 API 의 동작 계약.
 
 공개 표면을 8개로 줄이면서 각 메서드의 계약도 함께 못박는다.
 
@@ -6,7 +6,7 @@
 - Base 가 임의로 id 를 주입하지 않는다 — PK 생성은 모델(mixin default)이 소유한다.
 - update/delete 는 bulk DML 이 아니라 단일 엔티티를 먼저 조회한다.
 - update 는 unknown 필드와 PK 변경을 거부하고, 빈 PATCH 는 존재 확인 후 no-op 이다.
-- 예외 detail 에 드라이버 오류 원문을 담지 않는다 (C-5).
+- 예외 detail 에 드라이버 오류 원문을 담지 않는다.
 """
 
 import pytest
@@ -172,7 +172,7 @@ def test_public_surface_is_the_agreed_eight():
 
 
 async def test_exception_detail_hides_driver_error(repo):
-    """무결성 오류 응답에 드라이버 원문을 담지 않는다 (C-5).
+    """무결성 오류 응답에 드라이버 원문을 담지 않는다.
 
     users.username 의 unique 제약을 쓴다 — PK 중복은 identity map 충돌 경로를 타서
     실제 드라이버 오류 경로와 다르다.
@@ -193,7 +193,7 @@ async def test_exception_detail_hides_driver_error(repo):
 
 
 def test_crud_base_exposes_only_the_agreed_primitives():
-    """CRUDBase 는 get/add/delete/flush/refresh primitive 만 제공한다 (계획서 §4)."""
+    """CRUDBase 는 get/add/delete/flush/refresh primitive 만 제공한다."""
     from app.core.repositories.crud_base import CRUDBase
 
     expected = {"_get", "_add", "_delete", "_flush", "_refresh", "_pk"}

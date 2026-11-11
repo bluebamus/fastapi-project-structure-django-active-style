@@ -1,4 +1,4 @@
-"""Redis 클라이언트 주입 provider (ADR-008).
+"""Redis 클라이언트 주입 provider.
 
 Redis 는 필수 자원이다. 클라이언트는 lifespan(`manage_application_resources`)이 만들고
 닫으며 `app.state.redis` 에 둔다. 요청 쪽은 이 모듈의 `get_redis` 하나로 받는다 —
@@ -48,7 +48,7 @@ class RedisVersionError(RuntimeError):
 async def check_redis_version(redis: Redis) -> None:
     """``INFO server`` 의 ``redis_version`` 이 최소 버전 이상인지 본다(lifespan 이 연결 직후 부른다).
 
-    낮으면 기동을 멈춘다 — Redis 는 필수 자원이고(C-4), 낮은 버전에서는 기동은 되지만
+    낮으면 기동을 멈춘다 — Redis 는 필수 자원이고, 낮은 버전에서는 기동은 되지만
     로그인 rate limit(`EXPIRE NX`)이 첫 요청에서 ``ResponseError`` 로 500 이 된다.
     관리형 Redis 처럼 INFO 가 막혀 있으면(명령 거부·이름 변경) 확인할 방법이 없으므로
     WARNING 만 남기고 계속한다. 연결 오류 등 그 밖의 예외는 그대로 올린다.
@@ -90,7 +90,7 @@ def get_redis(request: Request) -> Redis:
     """lifespan 이 소유한 Redis 클라이언트를 돌려준다.
 
     없으면(기동 전·종료 후, lifespan 없이 띄운 앱) 503 이다. Redis 는 필수라
-    "없으면 건너뛴다" 는 경로를 만들지 않는다(C-4).
+    "없으면 건너뛴다" 는 경로를 만들지 않는다.
 
     Raises:
         ServiceUnavailableException: 클라이언트가 준비되지 않았다.

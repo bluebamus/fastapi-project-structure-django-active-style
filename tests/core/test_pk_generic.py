@@ -1,4 +1,4 @@
-"""PK 타입 보존과 `pk_attr` 계약 (ledger F-002, 계획서 §4).
+"""PK 타입 보존과 `pk_attr` 계약.
 
 `CRUDBase._get()` 이 `session.get(self.model, str(id))` 로 PK 를 문자열로 강제
 변환하고 있었다. 이 프로젝트의 모델이 마침 문자열 UUID PK 라서 드러나지 않았을 뿐,

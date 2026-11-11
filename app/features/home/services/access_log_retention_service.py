@@ -1,4 +1,4 @@
-"""접속 로그 보존 정책 (security-ops-hardening ADR-002).
+"""접속 로그 보존 정책.
 
 ``ACCESS_LOG_RETENTION_DAYS`` 일보다 오래된 접속 로그를 배치로 나눠 지운다. 실행은
 ``app/features/home/tasks.py`` 의 Celery 태스크가 beat 스케줄(매일 03:30, ``TIME_ZONE``)로 한다.

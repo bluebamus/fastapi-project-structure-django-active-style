@@ -106,7 +106,7 @@ async def test_dml_statement_is_served_by_writer():
 
 
 async def test_locking_select_is_served_by_writer():
-    """잠금 조회(`with_for_update`)는 writer 로 간다 (service-hardening F-004).
+    """잠금 조회(`with_for_update`)는 writer 로 간다.
 
     replica 에 잠금을 걸면 primary 의 행을 아무것도 보호하지 못한다.
     """

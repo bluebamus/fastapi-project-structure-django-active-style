@@ -1,4 +1,4 @@
-"""Redis 최소 버전 확인 (log-redaction-fixes ADR-005).
+"""Redis 최소 버전 확인.
 
 최소 버전은 코드가 보내는 명령에서 나온다 — `EXPIRE ... NX`(rate limit) 가 7.0 이라 7.0 이다.
 낮은 Redis 에서는 기동은 되지만 첫 로그인 시도가 `ResponseError` 로 500 이 되므로, lifespan 이

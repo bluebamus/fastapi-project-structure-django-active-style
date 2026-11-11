@@ -1,4 +1,4 @@
-"""인증·인가 provider — 모든 기능이 core 하나만 의존해 같은 규칙을 쓴다 (ADR-014).
+"""인증·인가 provider — 모든 기능이 core 하나만 의존해 같은 규칙을 쓴다.
 
 라우트는 이렇게 보호한다(접근 수준 선언·기동 시 기본 거부는 ``access.py``):
 
@@ -7,7 +7,7 @@
     @router.post(..., dependencies=[SuperuserRequired])          # 주체를 쓰지 않는 관리 경로
 
 소유권(소유자 또는 슈퍼유저)은 서비스가 ``OwnershipPolicy`` 를 생성자로 받아 판정한다.
-테스트는 ``app.dependency_overrides`` 로 provider 를 바꾼다(C-1).
+테스트는 ``app.dependency_overrides`` 로 provider 를 바꾼다.
 """
 
 from functools import lru_cache
@@ -27,7 +27,7 @@ from app.core.security.tokens import ACCESS, TokenService
 from config import app_settings, jwt_settings, session_settings
 
 # 로그인 엔드포인트(auth 기능)에서 access token 을 발급받는다. 경로 문자열만 알 뿐
-# auth 기능을 import 하지 않는다(C-2). auto_error=False — 토큰이 없을 때도 FastAPI 기본
+# auth 기능을 import 하지 않는다. auto_error=False — 토큰이 없을 때도 FastAPI 기본
 # HTTPException 대신 이 저장소의 오류 형식(UnauthorizedException)으로 401 을 낸다.
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 

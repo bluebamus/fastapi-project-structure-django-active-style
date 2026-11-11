@@ -1,4 +1,4 @@
-"""Raw SQL primitive 의 결과 의미 계약 (계획서 §5, Phase 6).
+"""Raw SQL primitive 의 결과 의미 계약.
 
 Raw 계층에서 사고는 대부분 "결과를 어떻게 줄였는가" 에서 난다. `first()` 로 복수
 행을 조용히 묵인하거나, scalar 가 여러 행을 버리거나, rowcount 를 bool 로 축약하면
@@ -14,7 +14,7 @@ Raw 계층에서 사고는 대부분 "결과를 어떻게 줄였는가" 에서 �
 `fetch_scalar` 가 "0행" 과 "NULL 값" 을 구분하지 못하는 것은 **의도된 계약**이다.
 구분이 필요하면 `fetch_one` 을 쓴다.
 
-ORM Base 와는 상속 관계가 없다(C-7). 세션·예외·로깅 정책만 공유한다.
+ORM Base 와는 상속 관계가 없다. 세션·예외·로깅 정책만 공유한다.
 """
 
 import pytest
@@ -133,7 +133,7 @@ async def test_execute_returns_zero_when_nothing_matched(raw):
 
 
 async def test_execute_does_not_commit(raw):
-    """트랜잭션 경계는 쓰기 View 가 소유한다 (ADR-004)."""
+    """트랜잭션 경계는 쓰기 View 가 소유한다."""
     await raw.execute(text("DELETE FROM widgets WHERE id = :id"), {"id": 1})
     await raw.session.rollback()
 
@@ -203,7 +203,7 @@ def test_identifier_allowlist_rejects_unknown_value():
 
 
 def test_raw_base_does_not_inherit_orm_base():
-    """ORM Base 와 Raw Base 는 상속 관계를 갖지 않는다 (C-7)."""
+    """ORM Base 와 Raw Base 는 상속 관계를 갖지 않는다."""
     from app.core.repositories.crud_base import CRUDBase
 
     assert not issubclass(RawCRUDBase, CRUDBase)

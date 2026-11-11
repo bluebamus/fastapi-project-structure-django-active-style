@@ -1,7 +1,7 @@
-"""Redis 주입 provider `get_redis` (service-hardening 단계 E, ADR-008).
+"""Redis 주입 provider `get_redis` (service-hardening 단계 E).
 
 클라이언트는 lifespan 이 소유하고, 요청 쪽은 provider 하나로 받는다. 클라이언트가
-없으면(기동 전·종료 후) 조용히 None 을 건네지 않고 503 이다 — Redis 는 필수다(C-4).
+없으면(기동 전·종료 후) 조용히 None 을 건네지 않고 503 이다 — Redis 는 필수다.
 """
 
 from types import SimpleNamespace

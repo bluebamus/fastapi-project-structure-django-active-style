@@ -5,10 +5,10 @@
 전 도메인을 한 파일로 덮는다. 새 도메인이 추가돼도 자동으로 검사 대상이 된다.
 
 지키려는 규칙:
-    1. 조회 라우트는 쓰기용 서비스 의존성을 쓰지 않는다      (P4-1)
-    2. 조회 라우트는 쓰기 세션(`get_writer_db_session`)을 쓰지 않는다   (P4-3)
+    1. 조회 라우트는 쓰기용 서비스 의존성을 쓰지 않는다
+    2. 조회 라우트는 쓰기 세션(`get_writer_db_session`)을 쓰지 않는다
     3. 쓰기 라우트는 쓰기용 서비스 의존성을 쓴다             (P4-1 역방향)
-    4. 쓰기 라우트는 핸들러 본문에서 커밋한다                (P1-3)
+    4. 쓰기 라우트는 핸들러 본문에서 커밋한다
 
 2번이 따로 필요한 이유: 커밋만 안 하면 될 것 같지만, 쓰기 세션을 그대로 쓰면
 조회가 여전히 writer 로 간다. `DB_ROUTER_ENABLED` 를 켜도 replica 로 분산되지
@@ -16,7 +16,7 @@
 
 4번이 따로 필요한 이유: 커밋은 의존성 teardown 이 아니라 핸들러 본문에서 해야
 한다. FastAPI 상위 버전은 yield dependency 의 종료 코드를 **응답 전송 후에**
-실행하므로, teardown 에서 커밋하면 실패해도 클라이언트는 201 을 받는다(P1-3).
+실행하므로, teardown 에서 커밋하면 실패해도 클라이언트는 201 을 받는다.
 """
 
 import inspect
@@ -54,7 +54,7 @@ _WRITER_SESSION_BY_DESIGN: dict[str, str] = {}
 
 # 쓰기 메서드지만 실제로 DB에 쓰지 않는 라우트. 커밋할 것이 없다.
 _WRITE_METHOD_BUT_READ_ONLY: dict[str, str] = {
-    # login 은 옛 bcrypt 해시를 Argon2 로 바꿔 저장할 수 있어 커밋한다(service-hardening F1).
+    # login 은 옛 bcrypt 해시를 Argon2 로 바꿔 저장할 수 있어 커밋한다.
     "refresh": "refresh 토큰 회전은 Redis 에서 jti 를 소비할 뿐이다 — DB 변경 없음",
     "logout": "refresh family 폐기는 Redis 에 표시만 한다 — DB 변경 없음",
 }
@@ -165,7 +165,7 @@ def test_write_routes_use_write_dependencies():
 
 
 def test_write_routes_commit_inside_handler():
-    """쓰기 라우트는 핸들러 본문에서 커밋한다 (P1-3).
+    """쓰기 라우트는 핸들러 본문에서 커밋한다.
 
     의존성 teardown 커밋은 FastAPI 상위 버전에서 응답 전송 후에 실행되어, 커밋이
     실패해도 클라이언트가 성공 응답을 받는다. 커밋은 반드시 핸들러 안에 있어야 한다.
