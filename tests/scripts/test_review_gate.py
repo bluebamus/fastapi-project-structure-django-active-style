@@ -28,6 +28,7 @@ from scripts.review_gate import (
     check_docs,
     check_image_digests,
     doc_text_for_check,
+    find_empty_python_files,
     judge_pytest_summary,
     main,
     scan_secrets,
@@ -392,6 +393,24 @@ def test_colored_clean_summary_is_not_a_false_positive():
 def test_zero_counts_are_not_flagged():
     """`0 skipped` 는 문제가 아니다 — 숫자를 보지 않으면 여기서 오탐이 난다."""
     assert judge_pytest_summary("575 passed, 0 skipped", allow_deselected=False) == []
+
+
+# ------------------------------------------------------------------ 빈 파일
+
+
+def test_empty_modules_are_detected_but_package_markers_are_not(tmp_path):
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "pkg" / "empty.py").write_text("", encoding="utf-8")
+    (tmp_path / "pkg" / "full.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "notes.md").write_text("", encoding="utf-8")
+    paths = ["pkg/__init__.py", "pkg/empty.py", "pkg/full.py", "notes.md"]
+
+    assert find_empty_python_files(paths, tmp_path) == ["pkg/empty.py"]
+
+
+def test_repository_has_no_empty_modules():
+    assert find_empty_python_files(_repo_files(), REPO_ROOT) == []
 
 
 # ------------------------------------------------------------------ 게이트 자체

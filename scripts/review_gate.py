@@ -454,6 +454,25 @@ def check_docs() -> list[str]:
     return problems
 
 
+def find_empty_python_files(paths: list[str], root: pathlib.Path) -> list[str]:
+    """내용 없는 ``.py`` — ``__init__.py`` 는 패키지 표식이라 비어 있어도 된다."""
+    return [
+        path
+        for path in paths
+        if path.endswith(".py")
+        and path.rsplit("/", 1)[-1] != "__init__.py"
+        and (root / path).stat().st_size == 0
+    ]
+
+
+def check_files() -> list[str]:
+    # 빈 test_db.py 는 테스트가 있는 것처럼 보이게 한다 — 2026-11-11 에 자리채움 12개를 지우며 재발을 막는다.
+    return [
+        f"{path}: 내용 없는 .py — 쓰지 않으면 지운다"
+        for path in find_empty_python_files(_repo_files(), REPO_ROOT)
+    ]
+
+
 def check_dependencies() -> list[str]:
     code, output = _run([*_PY, "pip_audit", "--strict", "--progress-spinner", "off"])
     if code != 0:
@@ -464,6 +483,7 @@ def check_dependencies() -> list[str]:
 ANALYSIS_GROUPS = {
     "supply": check_supply_chain,
     "docs": check_docs,
+    "files": check_files,
     "deps": check_dependencies,
 }
 
