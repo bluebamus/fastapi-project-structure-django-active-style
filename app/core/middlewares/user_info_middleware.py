@@ -192,7 +192,7 @@ class UserInfoMiddleware(BaseHTTPMiddleware):
             # 로그 저장 실패가 요청 처리에 영향을 주지 않도록 함.
             # 예외 **메시지**와 트레이스백은 기본 로그에 남기지 않는다 — 저장 실패는
             # 대개 DB 예외라 str() 에 SQL 이 실려 있고(바인드 값은 hide_parameters 로 숨김), 이 로거 이름
-            # ("user_info_middleware")은 SQLNoiseFilter 를 그대로 통과한다(C-4).
+            # ("user_info_middleware")은 SQLNoiseFilter 를 그대로 통과한다.
             logger.error("접속 로그 저장 실패: %s", type(e).__name__)
             # DEBUG=true(유효 로그 레벨 DEBUG)에서만 SQL·트레이스백 전문을 남긴다(바인드 값은 hide_parameters).
             logger.debug("접속 로그 저장 실패 상세", exc_info=True)
@@ -257,7 +257,7 @@ class UserInfoMiddleware(BaseHTTPMiddleware):
         )
 
         # 백그라운드에서 로그 저장 (요청 처리를 블로킹하지 않음).
-        # 상한 초과 시 드롭·집계되고, 앱 종료 시 lifespan 이 drain 한다(W1).
+        # 상한 초과 시 드롭·집계되고, 앱 종료 시 lifespan 이 drain 한다.
         access_log_tasks.spawn(self._save_access_log(request_info))
 
 

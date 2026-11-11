@@ -7,7 +7,7 @@ Django 스타일 앱 자동 등록: ``AppRegistry`` 가 ``app/features/*`` 를 �
 이 파일이 계속 담당하는 것: 애플리케이션의 주요 설정(미들웨어·예외 핸들러·문서·
 lifespan·Admin 활성화 분기).
 
-앱 규약과 한계는 ``app/core/registry.py`` 와 README 참고.
+앱 규약과 한계는 ``app/core/registry.py`` 와 docs/ARCHITECTURE.md 참고.
 """
 
 import asyncio
@@ -49,7 +49,7 @@ logger = get_logger("main")
 #
 # `app/features/*` 를 스캔해 앱 목록을 **한 번** 만들고, 아래 조립 과정 전체가
 # 이 목록 하나를 재사용한다(라우터·모델·Admin). 기능을 추가·제거할 때 이 파일을
-# 고칠 필요가 없다 (FR-01, FR-08, CR-03).
+# 고칠 필요가 없다.
 #
 # 여기서 발견·초기화를 호출하는 위치가 중요하다. install_hooks() 가 각 앱의
 # apps.ready() 를 실행하는데(예: home 의 access-log sink 등록), 그 등록은 미들웨어
@@ -57,7 +57,7 @@ logger = get_logger("main")
 # =============================================================================
 registry = AppRegistry()
 registry.discover()
-# 발견과 초기화를 분리한다. discover() 는 부작용이 없고(C-5), 부팅 시 한 번
+# 발견과 초기화를 분리한다. discover() 는 부작용이 없고, 부팅 시 한 번
 # 해야 하는 앱별 결선은 여기서 **명시적으로** 요청한다.
 registry.install_hooks()
 registry.import_models()
@@ -180,7 +180,7 @@ def _register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(RedisTimeoutError)
     async def redis_unavailable_handler(request: Request, exc: Exception) -> JSONResponse:
         """
-        Redis 연결 장애 핸들러 (integration-e2e F-004)
+        Redis 연결 장애 핸들러
 
         Redis 는 필수 자원이다(rate limit·refresh 저장소·관리 세션 폐기). 연결이 안 되면 요청은 거부하되
         (fail-closed) 500 이 아니라 503 으로 끝낸다. 여기서 처리해야 응답 뒤에 예외가 다시 올라가지 않는다 —
@@ -225,7 +225,7 @@ def _register_exception_handlers(app: FastAPI) -> None:
             },
         )
         # 예외 본문은 응답에 싣지 않는다. DEBUG 에서만 노출하는 방식도 쓰지 않는다 —
-        # 개발 환경의 예외 메시지에도 DSN·쿼리·입력값이 그대로 실려 온다(C-5).
+        # 개발 환경의 예외 메시지에도 DSN·쿼리·입력값이 그대로 실려 온다.
         # 상세는 위 로그(스택 트레이스 포함)에서 본다.
         return JSONResponse(
             status_code=500,
@@ -289,16 +289,16 @@ def _add_health_and_docs(app: FastAPI) -> None:
         responses={503: {"model": ErrorResponse, "description": "의존 자원이 준비되지 않음"}},
     )
     async def readiness_check(request: Request) -> HealthResponse | JSONResponse:
-        """writer DB 와 Redis 를 동시에 한 번씩 확인해 준비 상태를 답한다(ADR-008).
+        """writer DB 와 Redis 를 동시에 한 번씩 확인해 준비 상태를 답한다.
 
         writer 를 쓰는 이유는 replica 가 살아 있어도 primary 가 죽으면 쓰기 트래픽을
-        받을 수 없기 때문이다. Redis 는 필수 자원이라(C-4) 같은 무게로 본다. 왕복과
+        받을 수 없기 때문이다. Redis 는 필수 자원이라 같은 무게로 본다. 왕복과
         timeout(각 2초)은 ping_writer_db()·ping_redis() 가 맡는다 — 같은 점검을 여기서
         한 번 더 적으면 대상·상한이 두 곳으로 갈라진다. 동시에 돌려 최악 지연을
         합이 아니라 상한 하나로 묶는다.
 
         하나라도 실패하면 예외를 올리지 않고 503 으로 낮춘다. 오류 응답에는 예외
-        메시지·DSN·SQL 을 담지 않으며(C-5) 로그에도 예외 타입만 남긴다.
+        메시지·DSN·SQL 을 담지 않으며 로그에도 예외 타입만 남긴다.
         """
         results = await asyncio.gather(
             ping_writer_db(), ping_redis(request), return_exceptions=True
@@ -364,7 +364,7 @@ def _openapi_with_actual_422() -> dict[str, Any]:
     """FastAPI 가 붙이는 422 ``HTTPValidationError`` 문서를 실제 본문(``ErrorResponse``)으로 바꾼다.
 
     검증 오류는 위 ``validation_exception_handler`` 가 ``ErrorResponse``(VALIDATION_ERROR,
-    detail[field·message·type])로 낸다. 문서만 바꾸고 응답은 그대로다(integration-e2e ADR-009).
+    detail[field·message·type])로 낸다. 문서만 바꾸고 응답은 그대로다.
     """
     if app.openapi_schema is None:
         schema = _default_openapi()
@@ -410,7 +410,7 @@ async def answer_unhandled_exception(
 
     Starlette ``ServerErrorMiddleware`` 는 ``Exception`` 처리기로 응답한 뒤 예외를 다시 던진다 — uvicorn 이
     traceback 을 한 번 더 남기고 keep-alive 연결을 닫는다. 여기서 끝내면 로그는 처리기의 ``[UnhandledException]``
-    한 번, 연결은 유지, 응답(500 ``INTERNAL_SERVER_ERROR``)은 그대로다(integration-e2e ADR-013).
+    한 번, 연결은 유지, 응답(500 ``INTERNAL_SERVER_ERROR``)은 그대로다.
 
     가장 나중에 등록해 사용자 미들웨어 중 가장 바깥에 둔다 — 다른 미들웨어 안에서 난 예외도 받는다.
     ``DEBUG=true`` 면 지금처럼 다시 던진다. 응답 본문을 보내는 중의 예외는 ``call_next`` 밖에서 나므로 여기 오지 않는다.
@@ -426,7 +426,7 @@ async def answer_unhandled_exception(
 
 
 # 라우터 취합 — 발견된 앱의 `<name>_router` 를 registry 가 /api 에 마운트한다.
-# 새 라우터 때문에 이 파일을 고치지 않는다 (FR-02, FR-08).
+# 새 라우터 때문에 이 파일을 고치지 않는다.
 _mounted = registry.install_routers(app)
 logger.info("라우터 include 완료: %d개", _mounted)
 
@@ -442,7 +442,7 @@ if not app_settings.ADMIN_DISABLED:
     admin = register_admin(app, engine, registry)
     logger.info("SQLAdmin 관리자 페이지 활성화 (슈퍼유저 로그인 필요): /admin")
 else:
-    # 끈 상태에서는 관리 경로를 로그에도 싣지 않는다(admin-login ADR-007).
+    # 끈 상태에서는 관리 경로를 로그에도 싣지 않는다.
     logger.info("관리 화면 비활성화 (ADMIN_DISABLED=true)")
 
 # 기본 거부 — 조립이 끝난 앱의 모든 API 뷰가 접근 수준(Public·PublicWrite·LoginRequired·

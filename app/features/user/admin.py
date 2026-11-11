@@ -86,7 +86,7 @@ class UserAdmin(ModelView, model=User):
     ]
 
     # 필터는 sqladmin 0.32 의 필터 클래스로 준다 — 모델 컬럼을 그대로 넣으면 목록 페이지가
-    # 500 이다(`parameter_name` 없음, admin-login F-006). 문자열·숫자는 OperationColumnFilter,
+    # 500 이다(`parameter_name` 없음). 문자열·숫자는 OperationColumnFilter,
     # bool 은 BooleanFilter. created_at(UTCDateTime)은 core 의 LocalDateFilter — 업무 시간대
     # (TIME_ZONE) 날짜를 UTC 범위로 바꿔 질의한다(기본 연산 필터는 문자열을 그대로 바인딩해 500).
     column_filters = [
@@ -142,13 +142,13 @@ class UserAdmin(ModelView, model=User):
     }
 
     # =========================================================================
-    # 접근 즉시 폐기 (admin-session-hardening ADR-008 — ADR-007 대체)
+    # 접근 즉시 폐기
     # =========================================================================
     # 관리 화면에서 비활성화·슈퍼유저 해제·삭제하면 그 사용자의 /admin 세션과 API refresh 토큰을
     # 전부 끊는다(다른 브라우저 포함, 자기 자신이면 지금 세션도). 일반 수정은 유지. 판정 규칙은
     # 비밀번호 해시 변경도 포함하지만 폼에 해시가 없어 화면에서는 일어나지 않는다.
     # 판정 ``revocation_for``·폐기 ``revoke_user_access`` 는 API ``UserService`` 와 같은 함수다 — 이 저장소
-    # 안에서 관리 화면 경로 = API 경로(ADR-010).
+    # 안에서 관리 화면 경로 = API 경로.
     # 커밋 **전** 훅(on_model_change·on_model_delete)에서 부른다 — sqladmin 0.32 는 이 훅을 세션 안,
     # commit 앞에서 부르므로 Redis 오류가 나면 예외가 commit 을 건너뛰고(롤백) sqladmin 이 오류를
     # 폼·목록에 그린다. "DB 는 비활성화됨 + 세션은 살아 있음" 이 남지 않는다.

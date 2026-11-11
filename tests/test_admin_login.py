@@ -1,4 +1,4 @@
-"""/admin 로그인 (admin-login REQ-001, ADR-002~ADR-005).
+"""/admin 로그인 (admin-login REQ-001).
 
 SQLite 파일 DB + fakeredis 로 새 FastAPI 앱에 ``create_admin_interface`` 를 붙여 실제 HTTP 흐름을
 돈다. 백엔드의 협력 객체(세션 팩토리·Redis)만 바꿔 넣고, 해시기·템플릿·sqladmin 은 운영 그대로다.
@@ -284,7 +284,7 @@ async def test_login_replaces_any_existing_session_content(env):
 
 
 # =============================================================================
-# 로그인 폼 CSRF (security-ops-hardening ADR-003) — synchronizer token
+# 로그인 폼 CSRF — synchronizer token
 # =============================================================================
 async def _post_login(client, **data):
     return await client.post(
@@ -602,7 +602,7 @@ def test_leftover_flag_in_environment_does_not_break_settings(monkeypatch):
 
 
 # =============================================================================
-# 세션 사용 범위 — 관리 세션은 /admin 전용이다 (admin-login ADR-008)
+# 세션 사용 범위 — 관리 세션은 /admin 전용이다
 # =============================================================================
 SID = "planted-session-id-for-scope-tests"
 
@@ -657,7 +657,7 @@ async def test_admin_session_cookie_is_never_set_outside_admin():
 
 
 # =============================================================================
-# 등록된 모든 관리 화면 — 로그인한 슈퍼유저의 목록·필터·상세 (admin-login F-006)
+# 등록된 모든 관리 화면 — 로그인한 슈퍼유저의 목록·필터·상세
 # =============================================================================
 def _filter_params(view) -> list[dict[str, str]]:
     """뷰의 필터마다 쿼리 — bool 은 true, 날짜 필터는 연산 4종(기간 포함) + 잘못된 입력 1건,

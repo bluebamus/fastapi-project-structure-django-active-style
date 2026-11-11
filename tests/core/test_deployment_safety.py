@@ -3,7 +3,7 @@
 - 비밀값(placeholder·짧은 키·같은 JWT 키·예시 비밀번호)은 test 를 뺀 **모든 ENV** 에서 거부한다.
   기본값·예시 값 그대로는 개발 환경에서도 `.env` 를 채우라는 신호다.
 - staging/production 은 추가로 DEBUG·와일드카드 CORS·SQL echo·LOG_LEVEL=DEBUG 를 거부한다.
-- /admin 은 슈퍼유저 로그인이 필요하다(admin-login ADR-002). 그래서 관리 화면을 켠 배포
+- /admin 은 슈퍼유저 로그인이 필요하다. 그래서 관리 화면을 켠 배포
   (ADMIN_DISABLED=false)는 위반이 아니고, 예전 "무인증 허용" 확인 플래그는 없앴다 — `.env` 에
   남아 있어도 기동한다.
 - 예전 `ADMIN` 은 `ADMIN_DISABLED` 로 바뀌었다. 남아 있으면 기동을 멈춘다(`validate_renamed_settings`).
@@ -160,7 +160,7 @@ def test_error_lists_every_problem_at_once(monkeypatch):
 
 
 def test_error_message_does_not_leak_secret_values(monkeypatch):
-    """오류 메시지에 secret 값 자체를 담지 않는다 (C-5)."""
+    """오류 메시지에 secret 값 자체를 담지 않는다."""
     _install(monkeypatch, env="production", secrets={"session": "change-this-super-sensitive"})
     with pytest.raises(RuntimeError) as excinfo:
         config_module.validate_deployment_safety()
@@ -200,7 +200,7 @@ def test_sql_echo_off_passes_in_production(monkeypatch):
 
 
 # ------------------------------------------------------------------ debug 로그
-# 롤백 로그의 SQL·바인딩 값 전문은 DEBUG 레코드로만 나간다(C-4). 그래서 유효
+# 롤백 로그의 SQL·바인딩 값 전문은 DEBUG 레코드로만 나간다. 그래서 유효
 # 로그 레벨을 DEBUG 로 올리는 두 경로(DEBUG=true, LOG_LEVEL=DEBUG)를 모두 막아야
 # 한다. DEBUG=true 는 test_debug_true_is_rejected 가 이미 지킨다.
 
@@ -392,7 +392,7 @@ def test_placeholder_password_is_rejected_in_development(monkeypatch, key, value
 
 
 def test_password_error_message_does_not_leak_values(monkeypatch):
-    """오류 메시지에 비밀번호 값 자체를 담지 않는다 (C-5)."""
+    """오류 메시지에 비밀번호 값 자체를 담지 않는다."""
     _install(monkeypatch, env="production", passwords={"mysql": "change-this-db-p4ssw0rd"})
 
     with pytest.raises(RuntimeError) as excinfo:
@@ -530,7 +530,7 @@ def test_deployed_admin_starts_with_login_required(tmp_path):
 
 
 # =============================================================================
-# 이름이 바뀐 설정 — ADMIN → ADMIN_DISABLED (admin-login ADR-006)
+# 이름이 바뀐 설정 — ADMIN → ADMIN_DISABLED
 # =============================================================================
 @pytest.mark.parametrize("name", ["ADMIN", "admin"])
 def test_leftover_admin_in_environ_is_rejected(tmp_path, name):

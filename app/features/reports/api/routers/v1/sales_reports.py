@@ -6,7 +6,7 @@ View 는 HTTP 역할만 한다: 파라미터 수신 → Service 호출 → 응�
 SQL 도 여기 없다.
 
 모든 엔드포인트가 슈퍼유저 전용이다 — 라우터 의존성 `require_superuser` 가 핸들러 전에
-판정한다(service-hardening ADR-016).
+판정한다.
 """
 
 from datetime import date

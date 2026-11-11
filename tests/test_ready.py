@@ -1,4 +1,4 @@
-"""`/ready` readiness 엔드포인트 (Phase 1, service-hardening 단계 E).
+"""`/ready` readiness 엔드포인트 (service-hardening 단계 E).
 
 `/health` 는 프로세스가 살아있는지만 답한다(liveness). `/ready` 는 의존 자원인
 DB 와 Redis 까지 확인해 트래픽을 받아도 되는지 답한다(readiness). DB 가 죽었을 때 200 을
@@ -8,7 +8,7 @@ DB 왕복 자체는 `app/core/db/session.py` 의 `ping_writer_db()` **하나**�
 엔드포인트가 `SELECT 1` 을 직접 들고 있으면 "어느 엔진을 · 몇 초 안에 본다" 는
 결정이 두 곳으로 갈라지고, 한쪽만 고치는 사고가 난다.
 
-오류 응답에 DSN·SQL·예외 메시지를 담지 않는다 (C-5).
+오류 응답에 DSN·SQL·예외 메시지를 담지 않는다.
 """
 
 import asyncio
@@ -98,7 +98,7 @@ async def test_ready_returns_503_when_db_unreachable(client, unreachable_db):
 
 
 async def test_ready_error_does_not_leak_dsn_or_credentials(client, unreachable_db):
-    """503 응답 본문에 DSN·자격증명·예외 메시지가 없어야 한다 (C-5)."""
+    """503 응답 본문에 DSN·자격증명·예외 메시지가 없어야 한다."""
     body = (await client.get("/ready")).text
 
     for leaked in ("sup3rs3cret", "aiomysql", "root", "3306"):
@@ -207,7 +207,7 @@ async def test_ping_writer_db_times_out(monkeypatch):
 
 
 async def test_ready_pings_both_db_and_redis(client, reachable_db, reachable_redis):
-    """Redis 는 필수다(ADR-008) — 200 은 Redis 왕복까지 성공했다는 뜻이어야 한다."""
+    """Redis 는 필수다 — 200 은 Redis 왕복까지 성공했다는 뜻이어야 한다."""
     response = await client.get("/ready")
 
     assert response.status_code == 200

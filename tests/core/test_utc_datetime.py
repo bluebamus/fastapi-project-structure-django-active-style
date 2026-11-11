@@ -1,4 +1,4 @@
-"""시각은 UTC·마이크로초로 저장하고 UTC aware 로 돌려준다 (service-hardening D1·D4, ADR-007).
+"""시각은 UTC·마이크로초로 저장하고 UTC aware 로 돌려준다 (service-hardening D1·D4).
 
 `DateTime(timezone=True)` 는 MySQL 에서 오프셋과 소수 초를 잃었다. 여기서는 그 대체인
 `UTCDateTime` 의 bind/result 규칙, SQLite 왕복, 모델 기본값, Alembic 렌더, API 응답의 오프셋을

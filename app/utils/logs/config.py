@@ -5,7 +5,7 @@ ENV(development/test/staging/production)에 따라 레벨·핸들러·타임존�
 - test: 콘솔, 간결, 파일 off, 로컬 TZ
 - staging/production: 콘솔 + 회전 파일 + 에러 파일, INFO, UTC
 
-Django 와 같은 점 / 다른 점 (ADR-019 — 이 설계를 유지하기로 확정했다):
+Django 와 같은 점 / 다른 점 (이 설계를 유지하기로 확정했다):
     같다   — 설정이 한 곳에 모인다. Django 의 ``settings.LOGGING`` 자리를
              ``build_dictconfig()`` 가 맡고, ``configure_logging()`` 이 1회 적용한다.
     다르다 — **앱별 로거를 등록하지 않는다.** 아래 dict 에 ``loggers`` 키가 없고
@@ -20,7 +20,7 @@ Django 와 같은 점 / 다른 점 (ADR-019 — 이 설계를 유지하기로 �
     판별은 등록 누락이라는 실패 모드 자체를 없앤다. 로거 이름을 잘못 줘도(복사·붙여넣기)
     ``app=`` 라벨은 항상 맞다.
 
-앱별·라이브러리별 레벨 (logging-overhaul L4 — 위 포기 항목을 사용자 결정으로 대체):
+앱별·라이브러리별 레벨 (위 포기 항목을 사용자 결정으로 대체):
     ``loggers`` 키를 더하지 않고 **헤더(app=) 이름 기준 필터**로 준다 — ``LOG_APP_LEVELS="blog=DEBUG,
     sqlalchemy=WARNING"`` → ``filters.AppLevelFilter``(모든 핸들러, ContextFilter 바로 뒤). root 레벨은
     LOG_LEVEL 과 헤더별 레벨의 최솟값으로 내린다. 라이브러리 헤더는 로거 이름에서 나온다(``_app_from_path``).
@@ -38,7 +38,7 @@ from config import LogSettings, app_settings, log_settings
 # 실제로 쓰는 값은 LOG_CONSOLE_FORMAT·LOG_FILE_FORMAT 이다 — 이 상수는 그 기본값이다.
 LOG_FORMAT: str = LogSettings.model_fields["LOG_CONSOLE_FORMAT"].default
 
-# 프로세스 종류 → (본 로그, 에러 로그) 파일 이름 (logging-overhaul L5, ADR-001).
+# 프로세스 종류 → (본 로그, 에러 로그) 파일 이름.
 # 에러 파일도 프로세스별로 나눈다 — 웹과 워커가 한 파일을 함께 회전시키지 않게.
 LOG_FILES = {
     "app": ("app.log", "error.log"),
@@ -50,7 +50,7 @@ def process_from_argv(argv: list[str]) -> str:
     """진입점으로 프로세스 종류를 정한다 — ``celery`` CLI·``python -m celery`` 면 celery, 그 밖은 app.
 
     로깅 신호(on_setup_logger)를 기다리면 그 전에 찍힌 기동 초기 줄(설정 로드·라우팅 구성)이 웹 파일로
-    간다(integration-e2e F-006). 모듈 import 가 아니라 argv 로 정하므로 웹이 Celery 모듈을 import 해도
+    간다. 모듈 import 가 아니라 argv 로 정하므로 웹이 Celery 모듈을 import 해도
     웹 줄은 그대로 app.log 다.
     """
     if not argv:
@@ -113,7 +113,7 @@ def _formatter(fmt: str, *, use_utc: bool, with_ms: bool = False) -> dict:
 
 
 def build_dictconfig(logfile: str | None = None) -> dict:
-    """root 구성 — 모든 실행 경로가 이 핸들러 한 벌을 쓴다(logging-overhaul L1).
+    """root 구성 — 모든 실행 경로가 이 핸들러 한 벌을 쓴다.
 
     Args:
         logfile: Celery ``--logfile``. 주면 파일 형식·필터로 root 에 직접 붙인다(ENV 무관).
@@ -154,7 +154,7 @@ def build_dictconfig(logfile: str | None = None) -> dict:
         # 파일 핸들러를 root 에 **직접 붙이지 않는다.** 붙이면 로그를 남기는 코루틴이
         # 파일 쓰기와 로테이션을 직접 수행해 event loop 가 그만큼 멈춘다.
         # queue handler 가 레코드를 큐에 넣고(빠름), listener 가 별도 스레드에서
-        # 실제 파일 I/O 를 한다 (ADR-003).
+        # 실제 파일 I/O 를 한다.
         handlers["queue"] = {
             "class": "app.utils.logs.queue_logging.BoundedQueueHandler",
             "queue": {"()": "app.utils.logs.queue_logging.make_log_queue"},

@@ -6,5 +6,5 @@
 import-time 부수효과도 두지 않는다. 부팅 시 한 번 해야 하는 결선(access-log sink
 등록)은 ``apps.py`` 의 ``ready()`` 로 옮겼고, ``AppRegistry.install_hooks()`` 가
 명시적으로 호출한다. import 만으로 상태가 바뀌면 테스트 결과가 실행 순서에
-좌우된다(design-baseline ADR-006).
+좌우된다.
 """

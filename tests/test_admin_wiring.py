@@ -9,7 +9,7 @@
     2. 모델을 가진 기능은 빠짐없이 자기 ``admin.py`` 를 갖는다
     3. 부팅된 앱의 SQLAdmin 에 그대로 등록됐고 ``/admin`` 이 마운트됐다
     4. ADMIN_DISABLED=true 일 때 관리 계층이 **로드조차 되지 않는다** (SEC-01)
-    5. 중앙 취합 목록이 코드에 남아 있지 않다 (FR-08)
+    5. 중앙 취합 목록이 코드에 남아 있지 않다
 
 1번이 핵심이다. 자동 취합은 편하지만 조용하다 — 앱 하나가 발견에서 빠지면 그 앱의
 관리 화면만 사라지고 ``/admin`` 은 멀쩡히 뜬다. 그래서 기대 목록을 registry 가 아닌
@@ -142,7 +142,7 @@ def test_registry_views_cover_expected_models() -> None:
 
 
 def test_no_central_admin_list_remains() -> None:
-    """중앙 취합 목록(ADMIN_VIEWS)이 코드에 남아 있지 않다 (FR-08).
+    """중앙 취합 목록(ADMIN_VIEWS)이 코드에 남아 있지 않다.
 
     남아 있으면 "새 앱은 자동, 옛 앱은 수동" 인 반쪽 상태가 된다.
     """
@@ -334,7 +334,7 @@ def test_register_admin_creates_then_installs_and_returns_same_admin(monkeypatch
 
 
 def test_register_admin_reuses_the_given_registry() -> None:
-    """register_admin 은 넘겨받은 registry 만 쓰고 스스로 발견하지 않는다 (NFR-05)."""
+    """register_admin 은 넘겨받은 registry 만 쓰고 스스로 발견하지 않는다."""
     from app.features.admin import register_admin
 
     empty = AppRegistry()  # discover() 를 부르지 않은 빈 레지스트리

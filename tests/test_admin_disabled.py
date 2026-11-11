@@ -1,4 +1,4 @@
-"""ADMIN_DISABLED=true — 관리 화면의 흔적이 앱 어디에도 없다 (admin-login ADR-007).
+"""ADMIN_DISABLED=true — 관리 화면의 흔적이 앱 어디에도 없다.
 
 깨끗한 서브프로세스에서 ``ADMIN_DISABLED=true``·``DEBUG=true``(문서 노출) 로 ``main`` 을 띄우고,
 알려진 공개 경로를 돌며 상태·본문·헤더를 모은다. 같은 프로세스는 이미 관리 화면을 켠 ``main`` 을

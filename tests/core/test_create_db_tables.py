@@ -1,4 +1,4 @@
-"""`create_db_tables()` 의 발견 재사용 계약 (INV-5, ledger F-001).
+"""`create_db_tables()` 의 발견 재사용 계약.
 
 DEBUG 기동 경로가 모델을 **다시 발견**하면 런타임과 Alembic 이 서로 다른 앱 목록을
 볼 수 있다. main.py 가 이미 `AppRegistry.discover()` + `import_models()` 로 채워둔
@@ -71,7 +71,7 @@ def discover_spy(monkeypatch, prepared_metadata):
 
 
 async def test_create_db_tables_does_not_rediscover(fake_engine, discover_spy):
-    """테이블 생성은 새 발견을 유발하지 않는다 (F-001)."""
+    """테이블 생성은 새 발견을 유발하지 않는다."""
     await session_module.create_db_tables()
 
     assert discover_spy == [], (

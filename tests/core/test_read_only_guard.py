@@ -1,4 +1,4 @@
-"""read-only 세션의 쓰기 차단은 `DB_ROUTER_ENABLED` 와 무관하다 (ledger F-003).
+"""read-only 세션의 쓰기 차단은 `DB_ROUTER_ENABLED` 와 무관하다.
 
 지금까지 차단은 `RoutingSession.get_bind()` 안에만 있었다. 그래서 라우터가 꺼진
 구성(단일 서버 기본값)과 background 세션 팩토리에서는 `mark_read_only()` 를 불러도
@@ -175,7 +175,7 @@ async def test_unknown_or_locking_statements_are_denied_by_default(read_only, sq
     ids=["for-update", "for-share", "nowait", "skip-locked"],
 )
 async def test_orm_locking_select_is_blocked(read_only, lock):
-    """ORM 잠금 조회도 text 의 `FOR UPDATE` 와 같이 거부한다 (service-hardening F-004).
+    """ORM 잠금 조회도 text 의 `FOR UPDATE` 와 같이 거부한다.
 
     예전에는 `Select` 면 무조건 통과시켜, 같은 의미의 text SQL 은 막히는데 ORM
     `with_for_update()` 만 read-only 가드를 지나갔다.

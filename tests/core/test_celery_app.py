@@ -11,7 +11,7 @@ def test_celery_app_configured():
 
 
 def test_celery_include_comes_from_the_registry():
-    """워커 include 는 registry 가 발견한 기능별 tasks 모듈이다(ADR-009)."""
+    """워커 include 는 registry 가 발견한 기능별 tasks 모듈이다."""
     from app.celery.app import celery_app
     from app.core.registry import AppRegistry
 
@@ -41,7 +41,7 @@ def test_celery_package_does_not_import_features():
 
 
 def test_celery_keeps_internal_times_in_utc():
-    """ETA·만료·결과 시각은 UTC 로 다룬다(ADR-007). TIME_ZONE 은 beat 표시용으로만 남는다."""
+    """ETA·만료·결과 시각은 UTC 로 다룬다. TIME_ZONE 은 beat 표시용으로만 남는다."""
     from app.celery.app import celery_app
     from config import timezone_settings
 

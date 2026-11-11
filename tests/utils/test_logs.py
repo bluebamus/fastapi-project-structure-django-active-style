@@ -132,7 +132,7 @@ def _build_with(monkeypatch, tmp_path, **overrides):
 def test_production_adds_rotating_file_handlers(monkeypatch, tmp_path):
     """production 에서는 콘솔에 더해 회전 파일·에러 파일 핸들러가 붙고 UTC 를 쓴다.
 
-    단, 파일 핸들러는 root 에 **직접 붙지 않는다** — queue 를 경유한다(INV-5).
+    단, 파일 핸들러는 root 에 **직접 붙지 않는다** — queue 를 경유한다.
     아래 `test_file_handlers_are_behind_a_queue` 가 그 이유를 다룬다.
     """
     cfg = _build_with(monkeypatch, tmp_path, env="production", LOG_FILE_ENABLED=True)
@@ -143,7 +143,7 @@ def test_production_adds_rotating_file_handlers(monkeypatch, tmp_path):
 
     for name in ("file", "error_file"):
         handler = cfg["handlers"][name]
-        # 날짜 + 크기 + 보관일수 (logging-overhaul L6)
+        # 날짜 + 크기 + 보관일수
         assert handler["()"] == "app.utils.logs.handlers.DailyRotatingFileHandler"
         assert handler["retention_days"] == logs_config.log_settings.LOG_RETENTION_DAYS
         assert handler["max_bytes"] == logs_config.log_settings.LOG_MAX_SIZE_MB * 1024 * 1024

@@ -115,7 +115,7 @@ class AppLevelFilter(logging.Filter):
 
 
 # =============================================================================
-# 비밀정보 마스킹 (C-5)
+# 비밀정보 마스킹
 # =============================================================================
 # SQLAlchemy `echo=False` 는 SQL 로그를 막지만 그건 설정에 기댄 차단이라, 누가
 # echo 를 켜거나 드라이버가 예외에 DSN 을 실어 보내면 무너진다. 파이프라인 끝에서
@@ -200,7 +200,7 @@ class RedactingFilter(logging.Filter):
             return True
         if redact(message) != message:
             # 비밀값이 인자 하나 안에 있으면 그 인자만 가려 args 모양을 지킨다 — uvicorn AccessFormatter 는
-            # 접속 줄의 args 5개를 풀어 요청 라인을 만든다(R-804). 틀과 인자에 걸쳐 있어
+            # 접속 줄의 args 5개를 풀어 요청 라인을 만든다. 틀과 인자에 걸쳐 있어
             # (`password=%s`) 인자만으로 못 가리면 전개한 문자열을 가리고 args 를 비운다.
             if isinstance(record.args, tuple):
                 record.args = tuple(redact(a) if isinstance(a, str) else a for a in record.args)
@@ -218,7 +218,7 @@ class RedactingFilter(logging.Filter):
 
 
 class SQLNoiseFilter(logging.Filter):
-    """SQL·드라이버 로거의 DEBUG·INFO 를 차단한다 (계획서 §8, ADR-004).
+    """SQL·드라이버 로거의 DEBUG·INFO 를 차단한다.
 
     ## 왜 레벨이 아니라 필터인가
 

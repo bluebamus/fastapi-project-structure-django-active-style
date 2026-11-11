@@ -1,4 +1,4 @@
-"""core 인가 부품 단위 시험 — `OwnershipPolicy`·`get_current_principal`·`require_superuser` (ADR-014~016)."""
+"""core 인가 부품 단위 시험 — `OwnershipPolicy`·`get_current_principal`·`require_superuser`."""
 
 from types import SimpleNamespace
 

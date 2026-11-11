@@ -3,7 +3,7 @@ User v1 API 엔드포인트 — 사용자 CRUD.
 
 view 는 HTTP 역할만 한다: 파라미터 수신 → 의존성으로 주입된 Service 호출 → 응답 변환.
 권한: 목록·생성·삭제는 슈퍼유저 전용(라우트 의존성 `require_superuser`), 단건 조회·수정은
-본인 또는 슈퍼유저(서비스의 `OwnershipPolicy`)다(service-hardening ADR-016).
+본인 또는 슈퍼유저(서비스의 `OwnershipPolicy`)다.
 업무 규칙은 Service 가, 트랜잭션 경계는 쓰기 핸들러 본문이 맡는다: 응답 DTO 를 먼저
 검증하고 그다음 `await service.commit()` 을 한 번 부른다(catalog 와 같은 순서 —
 검증이 실패해도 커밋된 데이터 위에 500 이 나가지 않는다).

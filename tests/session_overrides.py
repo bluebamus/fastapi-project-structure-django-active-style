@@ -3,7 +3,7 @@
 예전에는 테스트 파일마다 `async with maker() as session: yield session` 을 직접 써서
 `get_read_only_db_session`·`get_writer_db_session` 을 모두 **표시 없는 세션**으로 바꿨다.
 그러면 운영 Dependency 가 거는 `mark_read_only()`·`using_writer()` 가 테스트에서 빠져,
-조회 핸들러가 몰래 쓰는 회귀가 테스트를 그대로 통과한다(service-hardening F-014).
+조회 핸들러가 몰래 쓰는 회귀가 테스트를 그대로 통과한다.
 
 여기서 만든 override 는 운영 Dependency 와 같은 표시를 건다. 테스트 파일은 세션을
 직접 yield 하지 않고 이 모듈만 쓴다 — `tests/core/test_session_overrides.py` 가

@@ -1,4 +1,4 @@
-"""registry 의 Celery 태스크 모듈 발견 (service-hardening 단계 E, ADR-009).
+"""registry 의 Celery 태스크 모듈 발견 (service-hardening 단계 E).
 
 `tasks.py` 는 다른 구성요소와 같은 **선택 모듈**이다 — 있으면 워커 include 에 들어가고,
 없으면 빠진다. 앱 디렉터리를 지우면 그 앱의 태스크도 함께 사라져야 하고, 남은 앱으로

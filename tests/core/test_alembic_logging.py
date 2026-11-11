@@ -1,4 +1,4 @@
-"""Alembic 실행이 앱 로거를 죽이지 않는다 (C-5 부속, Phase 1).
+"""Alembic 실행이 앱 로거를 죽이지 않는다 (C-5 부속).
 
 `logging.config.fileConfig()` 는 기본값이 `disable_existing_loggers=True` 라,
 migration 이 한 번 돌면 이미 만들어진 앱 로거들이 조용히 꺼진다. 그러면 그 이후의

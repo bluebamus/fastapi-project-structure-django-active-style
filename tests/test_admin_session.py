@@ -1,4 +1,4 @@
-"""/admin 관리 세션(Redis 서버 세션)·CSRF·기간 필터 (admin-session-hardening ADR-001~ADR-005).
+"""/admin 관리 세션(Redis 서버 세션)·CSRF·기간 필터.
 
 ``tests/test_admin_login.py`` 의 조립(SQLite 파일 DB + fakeredis + 운영 ``create_admin_interface``)을
 그대로 쓴다. 실제 DB·Redis 서버에 접속하지 않는다.
@@ -562,7 +562,7 @@ async def test_range_filter_template_renders_two_dates_and_quick_links(env):
 
 # =============================================================================
 # 관리 화면 직접 수정·삭제의 즉시 폐기 — 커밋 전, 세션 + refresh
-# (admin-session-hardening ADR-008 — ADR-007 대체, R-705 해소)
+# (ADR-007 대체, R-705 해소)
 # =============================================================================
 async def _target_with_two_browsers(env):
     """운영자 root 로그인 + 대상 target 이 두 브라우저로 로그인하고 API refresh family 하나를 가진 상태."""
@@ -623,7 +623,7 @@ async def _db_user(maker, user_id: str):
 async def test_admin_ui_edit_revokes_sessions_and_refresh_of_that_user(
     env, change, refresh_revoked
 ):
-    """비활성화·강등 모두 관리 세션 + refresh 폐기 — API UserService 와 같은 규칙(ADR-010)."""
+    """비활성화·강등 모두 관리 세션 + refresh 폐기 — API UserService 와 같은 규칙."""
     client, maker, redis, *_ = env
     target_id, browsers = await _target_with_two_browsers(env)
 
@@ -792,7 +792,7 @@ async def test_save_does_not_resurrect_a_revoked_session():
 
 
 # =============================================================================
-# CSRF 본문 버퍼링 상한 (integration-e2e ADR-012) — 본문 10 MiB 초과 413, 필드 1 MiB 초과 400
+# CSRF 본문 버퍼링 상한 — 본문 10 MiB 초과 413, 필드 1 MiB 초과 400
 # =============================================================================
 _MiB = 1024 * 1024
 

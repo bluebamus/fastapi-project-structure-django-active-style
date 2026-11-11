@@ -6,7 +6,7 @@ view 는 HTTP 역할만 한다: 파라미터 수신 → 의존성으로 주입�
 미들웨어 → HomeAccessLogSink 가 별도 background 세션으로 한다.
 
 모든 엔드포인트가 슈퍼유저 전용이다 — 라우터 의존성 `require_superuser` 가 핸들러 전에
-판정한다(service-hardening ADR-016).
+판정한다.
 """
 
 from typing import Any

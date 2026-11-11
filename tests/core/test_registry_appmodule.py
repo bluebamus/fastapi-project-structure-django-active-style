@@ -1,4 +1,4 @@
-"""앱 하나의 구성요소 로딩 규칙 — 라우터·모델·Admin 은 모두 선택이다 (FR-07, BC-06)."""
+"""앱 하나의 구성요소 로딩 규칙 — 라우터·모델·Admin 은 모두 선택이다 (BC-06)."""
 
 from fastapi import APIRouter
 

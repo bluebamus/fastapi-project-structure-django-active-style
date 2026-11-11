@@ -1,21 +1,21 @@
 """매출 리포트 Raw Repository.
 
-집계 전용 ORM 모델을 만들지 않고 Raw SQL 로 계산한다 (SCN-RAW-001). 이유는
+집계 전용 ORM 모델을 만들지 않고 Raw SQL 로 계산한다. 이유는
 `GROUP BY` 결과가 엔티티가 아니기 때문이다 — 식별자도 수명주기도 없는 행을 ORM
 모델로 만들면 매핑만 늘고 얻는 것이 없다.
 
 ## SQL 은 여기가 소유한다
 
 문장은 모듈 상수다. 요청 값으로 SQL 을 조립하지 않으며 외부 값은 named bind 로만
-들어온다 (RAW-REP-003). Service 는 기간 규칙만 알고 컬럼 alias 는 모른다.
+들어온다. Service 는 기간 규칙만 알고 컬럼 alias 는 모른다.
 
 ## MySQL 방언
 
-`DATE()`, `CONVERT_TZ()` 는 MySQL 문법이다 (RAW-REP-006). SQLite 로 이 SQL 을 검증하지
+`DATE()`, `CONVERT_TZ()` 는 MySQL 문법이다. SQLite 로 이 SQL 을 검증하지
 않으며, 테스트 편의를 위해 운영 SQL 을 문자열 치환하지도 않는다. 이 SQL 자체는 자동 테스트
 범위 밖이다 — 실제 MySQL 에서 확인한다.
 
-## 기간 경계와 시간대 (ADR-007)
+## 기간 경계와 시간대
 
 `created_at` 은 UTC 로 저장된 순간이고, 리포트의 "날짜" 는 설정 `TIME_ZONE` 의 영업일이다.
 그래서 Service 가 지역 날짜 범위를 UTC 순간의 반열린 구간 `[start_at, end_at)` 으로 바꿔 넘기고

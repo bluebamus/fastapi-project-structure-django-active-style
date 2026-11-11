@@ -1,4 +1,4 @@
-"""Redis 연결 장애는 503 으로 끝난다 — 응답 뒤 예외를 다시 올리지 않는다 (integration-e2e F-004, 사용자 결정).
+"""Redis 연결 장애는 503 으로 끝난다 — 응답 뒤 예외를 다시 올리지 않는다 (사용자 결정).
 
 Redis 를 필수로 쓰는 API(로그인·가입 rate limit, refresh 저장소: login·refresh·logout, 사용자 비활성화·강등·삭제의
 refresh·관리 세션 폐기)는 연결 오류를 그대로 올렸다. 전역 ``Exception`` 핸들러가 500 을 보낸 뒤 Starlette 가

@@ -8,7 +8,7 @@
   증가해 백그라운드 풀(pool_timeout) 대기가 누적된다.
 - **Drain**: 앱 종료(lifespan shutdown)에서 in-flight 태스크를 정리한다.
 
-## drain 이 왜 이 순서인가 (계획서 §8, ADR-002)
+## drain 이 왜 이 순서인가
 
 이전 구현은 timeout 후 미완료 태스크를 **경고만 하고 버렸다**. 버린 태스크는
 사라지지 않는다 — 여전히 살아서 다음 순간 ``dispose_engine()`` 이 닫아버린
@@ -130,7 +130,7 @@ class BackgroundTaskRunner:
         """완료된 태스크의 예외를 읽어 "never retrieved" 경고를 없앤다.
 
         예외 **원문은 남기지 않는다**. 백그라운드 태스크는 DB 를 만지므로 예외에
-        DSN·쿼리 조각이 실려올 수 있다(C-4). 타입이면 추적에 충분하다.
+        DSN·쿼리 조각이 실려올 수 있다. 타입이면 추적에 충분하다.
         """
         for task in tasks:
             if task.cancelled():

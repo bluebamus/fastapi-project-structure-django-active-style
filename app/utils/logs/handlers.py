@@ -1,4 +1,4 @@
-"""날짜 + 크기로 교체하고 보관 일수가 지난 파일을 지우는 파일 핸들러 (logging-overhaul L6, ADR-002).
+"""날짜 + 크기로 교체하고 보관 일수가 지난 파일을 지우는 파일 핸들러.
 
 - 매일 **UTC 자정**에 ``app.log`` → ``app.log.2026-10-19`` (파일 로그는 staging/production 에만 있고
   그 줄의 시각도 UTC 다 — 파일 이름의 날짜와 줄의 날짜가 같아진다).
@@ -8,7 +8,7 @@
   정확히 N일 전은 남는다. ``0`` 이면 지우지 않는다.
 
 한 파일을 **한 프로세스**가 쓴다는 전제다. 여러 프로세스가 같은 파일을 회전시키면 안전하지 않다
-(uvicorn ``--workers`` 2 이상, Celery prefork 동시성 2 이상) — README "로깅" 의 다중 워커 주의를 따른다.
+(uvicorn ``--workers`` 2 이상, Celery prefork 동시성 2 이상) — docs/ARCHITECTURE.md "로깅" 의 다중 워커 주의를 따른다.
 """
 
 from __future__ import annotations

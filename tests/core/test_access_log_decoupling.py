@@ -44,7 +44,7 @@ async def test_sink_registration_roundtrip():
 
 
 async def test_sink_failure_log_has_no_sql_or_bindings(caplog):
-    """저장 실패 로그가 SQL·바인딩 값을 흘리지 않는다 (C-4, ADR-008).
+    """저장 실패 로그가 SQL·바인딩 값을 흘리지 않는다.
 
     sink 저장은 DB 쓰기다. 실패하면 예외 str() 에 SQL 과 바인딩된 값이 실려 오는데,
     이 로거 이름("user_info_middleware")은 SQLNoiseFilter 를 그대로 통과한다.

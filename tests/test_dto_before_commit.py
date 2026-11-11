@@ -1,4 +1,4 @@
-"""쓰기 핸들러는 응답 DTO 를 검증한 **뒤에** commit 한다 (docs-learnability ADR-007).
+"""쓰기 핸들러는 응답 DTO 를 검증한 **뒤에** commit 한다.
 
 commit 뒤에 DTO 를 검증하면, 검증(또는 그 안의 적재되지 않은 속성 접근)이 실패했을 때
 클라이언트는 500 을 받는데 데이터는 이미 저장돼 있다. catalog 가 먼저 이 순서를
@@ -134,7 +134,7 @@ async def env():
     fake_redis = FakeAsyncRedis()
     app.dependency_overrides[get_redis] = lambda: fake_redis
     transport = ASGITransport(app=app, raise_app_exceptions=False)
-    # 쓰기 경로는 인증·권한이 걸려 있다(service-hardening F2) — 모든 경로를 통과하는 슈퍼유저로 부른다.
+    # 쓰기 경로는 인증·권한이 걸려 있다 — 모든 경로를 통과하는 슈퍼유저로 부른다.
     async with AsyncClient(
         transport=transport, base_url="http://test", headers=superuser_headers()
     ) as client:

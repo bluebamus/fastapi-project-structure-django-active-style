@@ -1,11 +1,11 @@
 """Catalog 기능 의존성 (인터페이스 집합체).
 
 Dependency 는 **조립만 한다** — commit 하지 않고 Service 메서드를 미리 실행하지도
-않는다. 커밋은 쓰기 핸들러 본문이 `await service.commit()` 으로 수행한다(ADR-004).
+않는다. 커밋은 쓰기 핸들러 본문이 `await service.commit()` 으로 수행한다.
 
 조회는 read-only, 변경은 writer Dependency 를 쓴다. 쓰기용을 조회에 재사용하면
 조회마다 불필요한 COMMIT 왕복이 생기고 한 세션에 커밋 주체가 둘이 될 수 있다.
-read-only 세션은 `DB_ROUTER_ENABLED` 와 무관하게 쓰기를 거부한다(INV-4).
+read-only 세션은 `DB_ROUTER_ENABLED` 와 무관하게 쓰기를 거부한다.
 """
 
 from fastapi import Depends

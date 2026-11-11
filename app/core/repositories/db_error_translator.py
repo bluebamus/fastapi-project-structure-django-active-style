@@ -4,7 +4,7 @@
 NOT NULL 위반·없는 참조 같은 **클라이언트 입력 오류**가 "충돌" 로 보이고, 실제 원인을
 응답만 보고는 알 수 없다.
 
-응답 메시지·detail 에는 예외 원문(SQL 조각·바인딩 값)을 싣지 않는다(C-5) — 모델 이름만 남긴다.
+응답 메시지·detail 에는 예외 원문(SQL 조각·바인딩 값)을 싣지 않는다 — 모델 이름만 남긴다.
 """
 
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError

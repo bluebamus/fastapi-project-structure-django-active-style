@@ -65,7 +65,7 @@ class TimezoneSettings(BaseSettings):
         return datetime.now(self.tz)
 
     def utc_now(self) -> datetime:
-        """현재 시각(UTC aware). DB 에 저장하는 시각은 모두 여기서 만든다(ADR-007)."""
+        """현재 시각(UTC aware). DB 에 저장하는 시각은 모두 여기서 만든다."""
         return datetime.now(UTC)
 
     def local_dates_to_utc(self, start: date, end: date) -> tuple[datetime, datetime]:
@@ -178,15 +178,15 @@ class AppSettings(BaseSettings):
     # 관리 화면(SQLAdmin, /admin)을 완전히 끈다 (DEBUG 와 독립적으로 동작).
     # false(기본): /admin 마운트  /  true: /admin 자체가 없음(404) — sqladmin·관리 세션
     # 미들웨어·인증 백엔드를 만들지 않고, 앱이 내보내는 어떤 응답·기동 로그에도 관리 경로가
-    # 나오지 않는다(admin-login ADR-007). 관리 화면을 쓰지 않는 배포는 true 로 둔다.
+    # 나오지 않는다. 관리 화면을 쓰지 않는 배포는 true 로 둔다.
     #
     # 기본값 false(켜짐)는 의도다 — 이 저장소는 개발을 우선 고려한 레퍼런스 구조라, 받자마자
     # /admin 으로 DB 를 들여다볼 수 있어야 한다(결정: 2026-08-12).
     #
-    # /admin 은 **활성 슈퍼유저 로그인**이 필요하다(admin-login ADR-002 — 이전의 "인증 없음"
+    # /admin 은 **활성 슈퍼유저 로그인**이 필요하다(이전의 "인증 없음"
     # 결정을 대체한다). 계정은 `scripts/create_superuser.py` 로 만들고, 세션 쿠키
-    # (`admin_session`, Path=/admin)에는 세션 ID 만 있고 내용은 Redis 에 있다(키 = SESSION_SECRET_KEY HMAC,
-    # admin-session-hardening ADR-001). 그래서 배포 환경에서도
+    # (`admin_session`, Path=/admin)에는 세션 ID 만 있고 내용은 Redis 에 있다(키 = SESSION_SECRET_KEY HMAC).
+    # 그래서 배포 환경에서도
     # 켠 채 기동할 수 있다. 예전의 "무인증 허용" 확인 플래그는 없앴다(extra="ignore" 라
     # `.env` 에 남아도 무시된다). 예전 `ADMIN`(true=켬)은 이 설정으로 바뀌었고, 남아 있으면
     # 의미가 뒤집힌 채 무시되므로 `validate_renamed_settings()` 가 기동을 멈춘다.
@@ -399,7 +399,7 @@ class DatabaseSettings(BaseSettings):
         문자열로 이어 붙이지 않고 ``URL.create`` 로 만든다. 비밀번호의 ``@ / : # %`` 는
         렌더링 때 인코딩되고, 호스트는 IP·도메인 모두 가능하며 IPv6 는 렌더링 때 대괄호가
         씌워진다. f-string 조립은 이런 비밀번호에서 접속 정보 파싱을 깨는데, 그 실패는
-        운영 비밀번호에서만 드러난다(service-hardening F-003). 로그에는
+        운영 비밀번호에서만 드러난다. 로그에는
         ``render_as_string(hide_password=True)`` 로 남긴다.
         """
         return URL.create(
@@ -744,7 +744,7 @@ class LogSettings(BaseSettings):
             logging.Formatter(value, style="{").format(record)
         except (ValueError, KeyError, IndexError, AttributeError, TypeError) as error:
             raise ValueError(f"로그 형식을 렌더할 수 없습니다 ({error!r}): {value!r}") from error
-        # 모든 줄에 시간·레벨·출처·모듈·클래스·함수·메시지가 나와야 한다(logging-overhaul L3).
+        # 모든 줄에 시간·레벨·출처·모듈·클래스·함수·메시지가 나와야 한다.
         fields = {name for _, name, _, _ in string.Formatter().parse(value) if name}
         missing = [name for name in LOG_REQUIRED_FIELDS if name not in fields]
         if missing:
@@ -928,7 +928,7 @@ class RedisSettings(BaseSettings):
         """Redis 연결 URL
 
         비밀번호는 퍼센트 인코딩한다 — 그대로 넣으면 ``@ / : #`` 가 URL 구분자로 읽혀
-        호스트·포트가 엉뚱하게 파싱된다(service-hardening F-003). redis-py 는 파싱할 때
+        호스트·포트가 엉뚱하게 파싱된다. redis-py 는 파싱할 때
         다시 디코딩한다.
         """
         if self.REDIS_PASSWORD:
@@ -964,7 +964,7 @@ class JWTSettings(BaseSettings):
         description="Refresh Token 서명 키",
     )
     # Access Token 만료 (분). access 는 만료 전 즉시 폐기 수단이 없으므로 짧게 둔다
-    # (service-hardening ADR-011·R-201 — 폐기는 refresh family 로 한다).
+    # (폐기는 refresh family 로 한다).
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
         default=15,
         gt=0,
@@ -976,7 +976,7 @@ class JWTSettings(BaseSettings):
         description="Refresh Token 만료 시간(일)",
     )
     # JWT 서명 알고리즘. 대칭 키(HS 계열)만 허용한다 — 자유 문자열이면 `none` 이나
-    # 키 형식이 다른 비대칭 알고리즘이 설정 실수로 들어온다(F-021).
+    # 키 형식이 다른 비대칭 알고리즘이 설정 실수로 들어온다.
     JWT_ALGORITHM: Literal["HS256", "HS384", "HS512"] = Field(
         default="HS256",
         description="JWT 서명 알고리즘(HS256/HS384/HS512)",
@@ -1000,7 +1000,7 @@ class JWTSettings(BaseSettings):
         description="JWT 시각 검증 허용 오차(초)",
     )
 
-    # 로그인·가입 rate limit (Redis 고정 창 — service-hardening ADR-013).
+    # 로그인·가입 rate limit (Redis 고정 창).
     # 로그인은 "IP + 사용자명" 과 "IP" 두 기준으로 센다. 앞쪽은 한 계정에 대한 추측,
     # 뒤쪽은 한 IP 가 여러 계정을 훑는 시도(credential stuffing)를 막는다.
     AUTH_LOGIN_MAX_ATTEMPTS: int = Field(
@@ -1038,8 +1038,8 @@ class SessionSettings(BaseSettings):
 
     Note:
         API 인증은 JWT(Bearer) 기반이다. 쿠키 세션은 `/admin` 로그인만 쓴다 —
-        `SESSION_SECRET_KEY` 가 그 관리 세션(쿠키 `admin_session`, Path=/admin)의 Redis 키 HMAC 키다
-        (admin-login ADR-003). `SESSION_COOKIE_NAME` 은 접속 로그 미들웨어가 session_id 를
+        `SESSION_SECRET_KEY` 가 그 관리 세션(쿠키 `admin_session`, Path=/admin)의 Redis 키 HMAC 키다.
+        `SESSION_COOKIE_NAME` 은 접속 로그 미들웨어가 session_id 를
         읽을 쿠키 이름이며 `/admin` 세션 쿠키와는 별개다. 설정 자체는 `.env` 에
         있으므로 config 가 로드해 둔다(설정의 단일 출처 유지).
     """
@@ -1057,7 +1057,7 @@ class SessionSettings(BaseSettings):
     )
 
     # 세션 키 (운영 환경에서 반드시 교체). /admin 관리 세션의 Redis 키를 만든다 —
-    # admin:sess:{HMAC-SHA256(SESSION_SECRET_KEY, 세션 ID)} (admin-session-hardening ADR-001).
+    # admin:sess:{HMAC-SHA256(SESSION_SECRET_KEY, 세션 ID)}.
     # 바꾸면 기존 /admin 로그인 세션이 모두 끊긴다(새 키로는 옛 Redis 키를 찾지 못한다).
     SESSION_SECRET_KEY: str = Field(
         default="change-this-session-secret-key",
@@ -1187,7 +1187,7 @@ def log_secret_values() -> list[str]:
 # 보고 `.env` 를 고친다. 비밀값 검사는 test 를 뺀 모든 ENV, 운영 조합 검사는
 # staging/production 에만 적용한다.
 #
-# /admin 은 슈퍼유저 로그인이 필요하므로(admin-login ADR-002) 관리 화면을 켠 배포
+# /admin 은 슈퍼유저 로그인이 필요하므로 관리 화면을 켠 배포
 # (ADMIN_DISABLED=false)도 위반이 아니다. 개발·테스트 환경은 편의 기본값(관리 화면 켬,
 # DEBUG=true)을 그대로 둔다.
 def is_placeholder_secret(value: str) -> bool:
@@ -1254,7 +1254,7 @@ def validate_renamed_settings(
 
     예전 ``ADMIN``(true=켬)은 ``ADMIN_DISABLED``(true=끔)로 바뀌었다. Settings 는
     ``extra="ignore"`` 라 남은 ``ADMIN=false`` 를 조용히 버리고 관리 화면을 **켠다** — 끄려던
-    의도가 뒤집히므로 무시하지 않는다(admin-login ADR-006). test 는 검사하지 않는다(다른 검사와
+    의도가 뒤집히므로 무시하지 않는다. test 는 검사하지 않는다(다른 검사와
     같다 — pytest 가 ENV=test 를 준다). 메시지에는 값을 담지 않는다.
 
     Raises:
@@ -1310,7 +1310,7 @@ def validate_deployment_safety() -> None:
         ("MYSQL_PASSWORD", db_settings.MYSQL_PASSWORD),
     ):
         if is_placeholder_secret(value):
-            # 값 자체는 절대 메시지에 담지 않는다 (C-5).
+            # 값 자체는 절대 메시지에 담지 않는다.
             problems.append(f"{name} 이 기본 placeholder 입니다. 실제 키로 교체하세요.")
         elif name != "MYSQL_PASSWORD" and len(value.strip()) < SECRET_KEY_MIN_LENGTH:
             problems.append(f"{name} 이 {SECRET_KEY_MIN_LENGTH}자보다 짧습니다. 새로 생성하세요.")

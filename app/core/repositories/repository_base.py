@@ -175,7 +175,7 @@ class BaseRepository(CRUDBase[ModelType, PrimaryKeyType], Generic[ModelType, Pri
         """DB 오류를 안전한 context 만으로 기록한다.
 
         예외 원문에는 SQL 조각과 파라미터 값이 그대로 실려 온다. 응답은 물론
-        로그에도 남기지 않고 연산·모델·예외 타입만 남긴다 (C-5).
+        로그에도 남기지 않고 연산·모델·예외 타입만 남긴다.
         """
         logger.error(
             "[%s] 데이터베이스 오류 model=%s error_type=%s",
@@ -272,7 +272,7 @@ class BaseRepository(CRUDBase[ModelType, PrimaryKeyType], Generic[ModelType, Pri
         정렬은 ``created_at DESC, <PK> DESC`` 다(모델에 ``created_at`` 이 없으면 PK 만).
         정렬 없는 offset 페이지네이션은 DB 가 고른 임의 순서라 페이지 사이에서 행이
         중복·누락되고, ``created_at`` 하나만으로는 같은 시각의 행끼리 순서가 정해지지
-        않는다 — PK 가 마지막 동률을 끊는다(service-hardening F-005). 다른 순서가 필요하면
+        않는다 — PK 가 마지막 동률을 끊는다. 다른 순서가 필요하면
         기능 Repository 에 ``order_by`` 를 명시한 메서드를 둔다.
 
         Args:

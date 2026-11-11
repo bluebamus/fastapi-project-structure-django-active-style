@@ -23,7 +23,7 @@ class User(UUIDPrimaryKeyMixin, CreatedAtMixin, UpdatedAtMixin, Base):
         username: 사용자명(고유)
         email: 이메일
         is_active: 활성 여부
-        is_superuser: 슈퍼유저 여부(관리 경로 접근·타인 리소스 수정 — ADR-016)
+        is_superuser: 슈퍼유저 여부(관리 경로 접근·타인 리소스 수정)
         created_at: 생성 시각
         updated_at: 수정 시각
     """

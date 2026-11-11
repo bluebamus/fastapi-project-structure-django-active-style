@@ -60,7 +60,7 @@ async def test_create_and_get_post(client):
 
     got = await client.get(f"/api/v1/sns/posts/{post_id}")
     assert got.status_code == 200
-    # 본문의 author("park")는 무시되고 서버가 로그인 주체로 채운다(service-hardening F2).
+    # 본문의 author("park")는 무시되고 서버가 로그인 주체로 채운다.
     assert got.json()["author"] == "alice"
     assert got.json()["author_id"] == USER_ID
 

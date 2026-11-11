@@ -4,7 +4,7 @@
 Repository 에 위임하는 얇은 계층이다 — 비어 있는 것이 정상이며, 규칙이 생기면 여기에
 쌓인다(View 나 Repository 로 새어나가지 않게).
 
-commit 은 여기서 하지 않는다. 트랜잭션 경계는 쓰기 View 가 응답 직전에 한 번 닫는다(ADR-004).
+commit 은 여기서 하지 않는다. 트랜잭션 경계는 쓰기 View 가 응답 직전에 한 번 닫는다.
 """
 
 from collections.abc import Sequence

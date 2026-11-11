@@ -99,7 +99,7 @@ class CRUDBase(Generic[ModelType, PrimaryKeyType]):
     async def _flush(self) -> None:
         """보류 중인 변경을 DB 로 내보낸다 (내부용).
 
-        commit 하지 않는다 — 트랜잭션 경계는 쓰기 View 가 소유한다(ADR-004).
+        commit 하지 않는다 — 트랜잭션 경계는 쓰기 View 가 소유한다.
         """
         await self.session.flush()
 

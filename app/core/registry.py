@@ -261,7 +261,7 @@ class AppRegistry:
         기계마다 달라진다.
 
         **이 메서드는 부작용이 없다.** 앱이 무엇인지 알아내기만 하고 아무것도
-        초기화하지 않는다(C-5). 초기화가 필요하면 `install_hooks()` 를 따로 부른다 —
+        초기화하지 않는다. 초기화가 필요하면 `install_hooks()` 를 따로 부른다 —
         "무엇을 import 하면 무엇이 일어나는가" 를 추적할 수 있어야 하기 때문이다.
         이전에는 여기서 각 패키지를 import 해 `__init__.py` 의 import-time 부수효과를
         실행했는데, 그러면 테스트가 모듈을 import 하는 것만으로 sink 가 등록되어
@@ -286,7 +286,7 @@ class AppRegistry:
     def install_hooks(self) -> int:
         """발견된 각 앱의 `apps.ready()` 를 발견 순서대로 호출한다.
 
-        `discover()` 와 분리한 이유는 C-5(발견 단계 부작용 0)다. 초기화는
+        `discover()` 와 분리한 이유는 발견 단계에 부작용을 두지 않기 위해서다. 초기화는
         **부르는 쪽이 명시적으로** 요청해야 한다.
 
         Returns:
@@ -333,7 +333,7 @@ class AppRegistry:
         """발견된 앱 중 `tasks.py` 가 있는 앱의 태스크 모듈 경로(발견 순).
 
         Celery 워커의 include 목록이다. 앱 디렉터리를 지우면 그 앱의 태스크도 목록에서
-        함께 빠진다 — 중앙 목록을 고칠 일이 없다(ADR-009).
+        함께 빠진다 — 중앙 목록을 고칠 일이 없다.
         """
         return [module.tasks_module for module in self._apps if module.has_tasks()]
 

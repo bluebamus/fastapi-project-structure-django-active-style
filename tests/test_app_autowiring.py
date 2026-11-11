@@ -41,7 +41,7 @@ pytestmark = pytest.mark.filterwarnings("ignore:This declarative base already co
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-# 새 앱을 추가할 때 절대 손대지 않아야 하는 파일들 (FR-08).
+# 새 앱을 추가할 때 절대 손대지 않아야 하는 파일들.
 CENTRAL_FILES = (
     "main.py",
     "migrations/env.py",
@@ -130,7 +130,7 @@ def generated_app(tmp_path, monkeypatch):
 
 
 def test_generated_app_is_discovered(generated_app):
-    """디렉터리를 만든 것만으로 앱 목록에 들어온다 (FR-01, CR-02, CR-06)."""
+    """디렉터리를 만든 것만으로 앱 목록에 들어온다."""
     names = [m.name for m in AppRegistry().discover()]
 
     assert APP_NAME in names
@@ -164,7 +164,7 @@ def test_generated_app_model_reaches_metadata(generated_app):
     env_source = (_REPO_ROOT / "migrations" / "env.py").read_text(encoding="utf-8")
     assert "AppRegistry" in env_source and "import_models()" in env_source
 
-    # models_registry facade 도 같은 목록을 본다 (NFR-05).
+    # models_registry facade 도 같은 목록을 본다.
     from app.core.db.models_registry import iter_model_modules
 
     assert f"app.features.{APP_NAME}.models.models" in iter_model_modules()

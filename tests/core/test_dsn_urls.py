@@ -1,4 +1,4 @@
-"""DSN 조립 계약 테스트 (service-hardening F-003).
+"""DSN 조립 계약 테스트.
 
 DSN 을 f-string 으로 이어 붙이면 비밀번호의 ``@ / : # ?`` 가 URL 구분자로 읽혀 접속
 정보가 엉뚱하게 파싱되고, ``%`` 는 Alembic 의 ConfigParser 보간에서 ``ValueError`` 를 낸다.

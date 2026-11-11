@@ -1,7 +1,7 @@
 """Catalog 도메인 데이터베이스 모델.
 
 상품(Product) 엔티티를 정의한다. 공통 PK·시간 컬럼은 각자 복사하지 않고 프로젝트
-mixin 에서 받는다(INV-13) — 상품은 갱신되는 엔티티이므로 `UpdatedAtMixin` 도 함께 쓴다.
+mixin 에서 받는다 — 상품은 갱신되는 엔티티이므로 `UpdatedAtMixin` 도 함께 쓴다.
 """
 
 from decimal import Decimal

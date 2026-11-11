@@ -1,4 +1,4 @@
-"""중앙 Celery 앱 (ADR-009).
+"""중앙 Celery 앱.
 
 이 패키지는 Celery 앱 객체와 실행 기반(`task.run_async`·워커 생명주기)만 가진다.
 태스크는 각 기능의 선택 모듈 `app/features/<name>/tasks.py` 에 두고, 워커의 include
@@ -30,14 +30,14 @@ celery_app.conf.update(
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
-    # 내부 시각(ETA·만료·결과 date_done)은 UTC 로 다룬다 — DB 와 같은 정본(ADR-007).
+    # 내부 시각(ETA·만료·결과 date_done)은 UTC 로 다룬다 — DB 와 같은 정본.
     # timezone 은 beat crontab 을 지역 시각으로 해석·표시하는 데만 쓴다.
     timezone=timezone_settings.TIME_ZONE,
     enable_utc=True,
     beat_schedule={},
 )
 
-# prefork 자식 프로세스의 자원 생명주기를 연결한다 (ADR-005).
+# prefork 자식 프로세스의 자원 생명주기를 연결한다.
 # fork 로 상속된 커넥션 풀을 버리지 않으면 부모·자식이 같은 소켓을 공유해 MySQL
 # 패킷 순서가 엉킨다. solo/threads 풀에서는 이 신호가 오지 않으므로 no-op 이다.
 register_worker_signals()

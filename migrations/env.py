@@ -20,7 +20,7 @@ if config.config_file_name is not None:
 # 목록은 런타임과 **똑같은** AppRegistry 가 만든다 — 여기에 별도 스캔이나 명시
 # import 목록을 두면 런타임 테이블과 마이그레이션이 조용히 어긋난다. 그 어긋남은
 # "운영에 테이블이 없다" 로 배포 뒤에야 드러난다. 새 앱을 추가해도 이 파일은
-# 손대지 않는다 (FR-03, FR-08, NFR-05).
+# 손대지 않는다.
 # ---------------------------------------------------------------------------
 from app.core.db.session import ENGINE_SAFETY_OPTIONS, Base  # noqa: E402
 from app.core.models.types import render_alembic_type  # noqa: E402
@@ -41,7 +41,7 @@ target_metadata = Base.metadata
 #
 # set_main_option 은 ConfigParser 보간을 거친다 — 비밀번호의 `%`(렌더링 뒤 퍼센트
 # 인코딩의 `%` 포함)가 그대로 들어가면 ValueError 로 마이그레이션이 멈춘다. 그래서
-# `%%` 로 이스케이프해 넘긴다(service-hardening F-003).
+# `%%` 로 이스케이프해 넘긴다.
 # ---------------------------------------------------------------------------
 config.set_main_option(
     "sqlalchemy.url",

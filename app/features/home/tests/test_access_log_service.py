@@ -57,7 +57,7 @@ async def test_stats_counts_device_type(session):
 
 @pytest.mark.asyncio
 async def test_long_values_are_truncated_to_column_lengths(session):
-    """컬럼보다 긴 헤더 값은 잘려서 저장된다 (F-007, ADR-005).
+    """컬럼보다 긴 헤더 값은 잘려서 저장된다.
 
     SQLite 는 VARCHAR 길이를 강제하지 않으므로 저장된 값의 길이로 확인한다.
     상한은 모델 컬럼에서 읽는다 — 테스트도 숫자를 따로 적지 않는다.

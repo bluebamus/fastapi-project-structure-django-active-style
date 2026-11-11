@@ -1,4 +1,4 @@
-"""OpenAPI 공개 계약 검사 (DOC-001~005, Phase 9).
+"""OpenAPI 공개 계약 검사 (DOC-001~005).
 
 `test_route_inventory.py` 는 **어떤 경로가 있는가**를 골든으로 고정한다. 이 파일은
 **그 경로들이 문서로서 성립하는가**를 규칙으로 검사한다. 둘은 역할이 다르다 —
@@ -146,7 +146,7 @@ def test_every_parameter_has_a_description(operations):
 
 
 def test_component_keys_are_not_module_qualified(spec):
-    """`__` 이름은 공개 계약을 내부 디렉터리 구조에 묶는다 (F-004).
+    """`__` 이름은 공개 계약을 내부 디렉터리 구조에 묶는다.
 
     FastAPI 는 같은 클래스명이 둘 이상이면 component key 에 모듈 경로를 합성한다.
     클라이언트 생성기가 그 key 를 타입명으로 쓰므로, 파일을 옮기는 것만으로
@@ -218,7 +218,7 @@ def test_example_schemas_exist_for_both_orm_and_raw(spec):
 
 
 def test_declared_and_used_tags_match_exactly(operations):
-    """양방향 검사 — 한쪽만 보면 유령 태그가 쌓인다 (F-005)."""
+    """양방향 검사 — 한쪽만 보면 유령 태그가 쌓인다."""
     declared = {entry["name"] for entry in tags_metadata}
     used = {tag for _, _, operation in operations for tag in operation.get("tags", [])}
 
@@ -245,7 +245,7 @@ def test_tag_metadata_entries_are_well_formed():
         assert entry.get("description", "").strip(), f"설명 없는 tag: {entry['name']}"
 
 
-# ------------------------------------------------------------------ 422 문서 = 실제 형식 (integration-e2e ADR-009)
+# ------------------------------------------------------------------ 422 문서 = 실제 형식
 
 
 def _actual_422_body() -> dict:

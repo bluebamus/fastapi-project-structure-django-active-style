@@ -7,14 +7,14 @@
 취합은 **자동 발견**으로 한다:
     ``AppRegistry.install_admin(admin)`` 이 발견된 각 앱의 ``admin.py`` 에서
     ``admin_views`` 를 모아 등록한다. 이 파일에 중앙 목록(``ADMIN_VIEWS``)은 없다 —
-    새 기능의 관리 화면을 붙이려고 여기를 고칠 일이 없다는 뜻이다 (FR-04, FR-08).
+    새 기능의 관리 화면을 붙이려고 여기를 고칠 일이 없다는 뜻이다.
 
     과거 이 자리에 명시 import 목록이 있었던 이유는 "관용적 수집" 이 위험해서였다.
     ``getattr(module, "admin_views", [])`` 방식은 ``admin.py`` 가 0바이트 빈 파일이어도
     조용히 건너뛰어, ``/admin`` 은 정상 마운트된 채 등록 뷰만 빠진 상태를 아무도
     눈치채지 못하게 만든다(ADMIN-1). 지금은 registry 가 그 구멍을 막는다 —
     ``admin.py`` 가 **있는데** ``admin_views`` 가 없거나 ``ModelView`` 가 아니면
-    ``AppContractError`` 로 기동이 멈춘다(NFR-04). 파일이 아예 없을 때만 건너뛴다.
+    ``AppContractError`` 로 기동이 멈춘다. 파일이 아예 없을 때만 건너뛴다.
 
 기능 패키지 ``__init__.py`` 로는 재노출하지 않는다:
     수집은 ``app.features.<name>.admin`` **모듈**에서 직접 한다. 패키지가
@@ -46,15 +46,15 @@ Note:
     ADMIN_DISABLED=false(기본): /admin 마운트, ADMIN_DISABLED=true: /admin 자체가 없음(404) —
     이 모듈·sqladmin·관리 세션 미들웨어·인증 백엔드가 아예 만들어지지 않는다.
 
-인증 (admin-login ADR-002~ADR-005):
+인증:
     ``/admin`` 은 **활성 슈퍼유저 로그인**이 필요하다. 백엔드는
     ``app/features/auth/admin_auth.py`` 의 ``AdminAuthBackend`` 이고, 이 파일의
     ``create_admin_interface()`` 가 ``Admin(..., authentication_backend=...)`` 로 주입한다.
     첫 계정은 ``scripts/create_superuser.py`` 로 만든다. 세션은 Redis 서버 세션이다 — 쿠키
     (``admin_session``, ``Path=/admin``)에는 무작위 세션 ID 만 있고, Redis 키는
-    ``SESSION_SECRET_KEY`` HMAC 이다(admin-session-hardening ADR-001). 로그인 화면은
+    ``SESSION_SECRET_KEY`` HMAC 이다. 로그인 화면은
     ``app/templates/admin/sqladmin/login.html``(Bootstrap)이 sqladmin 기본 화면을 덮어쓰고,
-    그 밖의 화면은 ``sqladmin/base.html`` 덮어쓰기가 CSRF meta·스크립트를 싣는다(ADR-004).
+    그 밖의 화면은 ``sqladmin/base.html`` 덮어쓰기가 CSRF meta·스크립트를 싣는다.
     로그아웃은 POST 전용으로 바꾼다(``_make_logout_post_only`` — GET 은 405).
 
 보안 주의 (이 저장소 고유):
@@ -179,7 +179,7 @@ def register_admin(app: FastAPI, engine: AsyncEngine, registry: AppRegistry) -> 
         engine: SQLAlchemy async 엔진.
         registry: 이미 ``discover()`` 를 마친 레지스트리. 여기서 다시 발견하지
             않는다 — 라우터·모델과 **같은 앱 목록**을 써야 관리 화면만 다른
-            집합을 보는 일이 생기지 않는다 (NFR-05).
+            집합을 보는 일이 생기지 않는다.
 
     Returns:
         구성된 ``Admin`` 인스턴스(테스트에서 등록 뷰를 검사할 수 있도록 반환).

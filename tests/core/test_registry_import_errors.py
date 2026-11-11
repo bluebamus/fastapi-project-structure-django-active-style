@@ -1,4 +1,4 @@
-"""자동 발견이 "선택 파일 없음" 과 "파일 안의 import 오류" 를 구분하는지 고정한다 (NFR-03).
+"""자동 발견이 "선택 파일 없음" 과 "파일 안의 import 오류" 를 구분하는지 고정한다.
 
 `AppRegistry` 는 `admin.py` · `models` · `api/routers/router.py` 를 **선택 파일**로
 다뤄, 없으면 조용히 건너뛴다. 문제는 그 판정을 `ModuleNotFoundError` 하나로

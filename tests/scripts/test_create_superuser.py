@@ -1,4 +1,4 @@
-"""scripts/create_superuser.py — 슈퍼유저 생성·승격 (service-hardening F2, ADR-016).
+"""scripts/create_superuser.py — 슈퍼유저 생성·승격.
 
 실제 ``main()`` 을 SQLite 파일 DB 에 대고 부른다. 세션 팩토리만 바꿔 넣고, 해시기는 core
 provider 의 진짜 ``PasswordHasher``(Argon2)를 쓴다.
@@ -182,7 +182,7 @@ def test_rejects_invalid_input_without_writing(db, args, stdin):
 
 
 def test_script_reuses_core_providers():
-    """조립은 API 와 같은 부품이다 — 요청 밖 세션과 core 해시기 provider (ADR-016)."""
+    """조립은 API 와 같은 부품이다 — 요청 밖 세션과 core 해시기 provider."""
     from app.core.db.session import background_db_session
     from app.core.security.dependencies import get_password_hasher
 
@@ -208,7 +208,7 @@ def _alice(session_factory) -> None:
 
 def test_set_password_revokes_refresh_and_admin_sessions(db):
     """CLI 비밀번호 변경은 ``revocation_for`` 규칙대로 그 사용자의 refresh family 와 관리 세션을 끊는다
-    (integration-e2e ADR-010, P-002)."""
+    (P-002)."""
     from app.core.security.admin_session import AdminSessionStore
     from app.core.security.refresh_store import RefreshTokenStore
 

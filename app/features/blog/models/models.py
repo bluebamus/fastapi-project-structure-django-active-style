@@ -33,7 +33,7 @@ class Post(UUIDPrimaryKeyMixin, CreatedAtMixin, UpdatedAtMixin, Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     author: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    # 작성자 사용자 id — 서버가 인증 주체에서 채운다(ADR-015). 작성자 컬럼 도입 전의 행은 NULL 이고
+    # 작성자 사용자 id — 서버가 인증 주체에서 채운다. 작성자 컬럼 도입 전의 행은 NULL 이고
     # 슈퍼유저만 수정한다. 사용자 삭제 뒤에도 글은 남기므로 FK 를 걸지 않는다.
     author_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
 

@@ -1,8 +1,8 @@
-"""Raw Repository 의 로깅 계약 (계획서 §5, Phase 6).
+"""Raw Repository 의 로깅 계약.
 
 Raw 계층은 SQL 을 직접 다루므로 로그가 가장 새기 쉬운 지점이다. 그래서 남기는 것을
 **화이트리스트로 고정**한다: 질의 이름, 소요 시간, 성공/실패. SQL 본문과 파라미터는
-남기지 않는다 (C-5).
+남기지 않는다.
 
 질의 이름은 keyword-only 필수 인자다. 위치 인자로 두면 호출부에서 조용히 빠지거나
 파라미터와 섞여, 정작 문제가 생겼을 때 "어느 질의인지" 를 알 수 없게 된다.
@@ -23,7 +23,7 @@ SENTINEL_VALUE = "sup3rs3cret-sentinel"
 
 # 이 계층이 직접 남기는 로그만 본다. 드라이버(aiosqlite)와 SQLAlchemy 는 DEBUG 에서
 # SQL 과 파라미터를 스스로 찍는데, 그것을 막는 것은 이 Base 의 책임이 아니라
-# 로깅 파이프라인의 SQL noise filter 몫이다(ledger F-018, Phase 1-R2 로 이월).
+# 로깅 파이프라인의 SQL noise filter 몫이다(Phase 1-R2 로 이월).
 REPO_LOGGER = "raw_repository"
 
 
@@ -82,7 +82,7 @@ async def test_duration_is_logged(repo, caplog):
 
 
 async def test_sql_body_and_params_are_not_logged(repo, caplog):
-    """SQL 본문도 파라미터 값도 로그에 남기지 않는다 (C-5)."""
+    """SQL 본문도 파라미터 값도 로그에 남기지 않는다."""
     with caplog.at_level(logging.DEBUG):
         await repo.find_by_name(SENTINEL_VALUE)
 

@@ -1,4 +1,4 @@
-"""DB 컬럼 타입 — 시각은 UTC·마이크로초로 저장한다 (service-hardening ADR-007).
+"""DB 컬럼 타입 — 시각은 UTC·마이크로초로 저장한다.
 
 `DateTime(timezone=True)` 는 MySQL `DATETIME` 에 오프셋도 소수 초도 남기지 않는다. aware 값을
 넣으면 벽시계 숫자만 저장되고, 읽으면 naive 로 돌아온다 — `TIME_ZONE` 을 바꾸는 순간 기존 행과

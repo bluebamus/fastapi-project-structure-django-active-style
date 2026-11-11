@@ -3,7 +3,7 @@
 configure_logging() 이 환경별 dictConfig 를 root 로거에 1회 적용하고,
 get_logger() 는 그 설정을 공유하는 자식 로거를 돌려준다(핸들러는 root 에만).
 
-모든 실행 경로가 root 의 핸들러 한 벌(같은 포매터·필터)로 찍는다(logging-overhaul L1):
+모든 실행 경로가 root 의 핸들러 한 벌(같은 포매터·필터)로 찍는다:
     앱 로거            — root 로 전파
     python main.py     — uvicorn 에 log_config 를 주지 않는다 → uvicorn 로거가 root 로 전파
     uvicorn main:app   — CLI 가 먼저 붙인 핸들러를 adopt_external_handlers() 가 걷고 root 로 전파
@@ -44,8 +44,8 @@ def configure_logging(force: bool = False, logfile: str | None = None) -> None:
 
     파일 로깅이 켜진 환경에서는 queue listener 도 함께 시작한다. `python main.py` 와
     `uvicorn main:app` 은 진입 경로가 다르지만 둘 다 결국 `get_logger()` 를 거치므로,
-    bootstrap 을 여기 한 곳에 두면 **어느 경로로 들어와도 정확히 한 번** 일어난다
-    (계획서 §8). listener 시작은 그 자체로도 멱등이라 이중 방어가 된다.
+    bootstrap 을 여기 한 곳에 두면 **어느 경로로 들어와도 정확히 한 번** 일어난다.
+    listener 시작은 그 자체로도 멱등이라 이중 방어가 된다.
 
     Args:
         force: 이미 구성됐어도 다시 적용한다(이전 listener 는 멈춰 flush 한다).

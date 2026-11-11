@@ -1,15 +1,15 @@
-"""일별 매출 리포트 엔드포인트 테스트 (Phase 8).
+"""일별 매출 리포트 엔드포인트 테스트.
 
 이 기능은 Phase 6 의 Raw Base 를 **실전에 처음 적용한** 자리다. 그래서 보는 것은
 집계 숫자가 아니라 계약이다.
 
-- `main.py` 를 고치지 않고 자동 발견·마운트되는가 (C-1)
+- `main.py` 를 고치지 않고 자동 발견·마운트되는가
 - 조회가 read-only Dependency 를 쓰는가 — Raw 라는 이유로 쓰기 세션을 잡지 않는가
 - Raw 행이 DTO 경계에서 검증되는가 — SQL alias 가 어긋나면 200 이 아니라 실패인가
 - 기간 규칙이 Service 에 있는가 (SQL 도 View 도 아닌)
 
 **집계 SQL 자체는 여기서 검증하지 않는다.** `CONVERT_TZ()` 는 MySQL
-문법이고, SQLite 통과는 MySQL 방언의 승인 근거가 되지 못한다(RAW-REP-006). 그래서
+문법이고, SQLite 통과는 MySQL 방언의 승인 근거가 되지 못한다. 그래서
 MySQL 에 의존하는 **그 한 지점만** 대체한다. 운영 SQL 을 테스트 편의로 문자열 치환하지는 않는다.
 """
 
@@ -88,7 +88,7 @@ async def client(stub_daily_sales):
 
 
 def test_reports_is_auto_registered():
-    """디렉터리 컨벤션만으로 리포트 라우터가 발견·마운트된다 (C-1)."""
+    """디렉터리 컨벤션만으로 리포트 라우터가 발견·마운트된다."""
     assert "/api/v1/reports/sales/daily" in app.openapi()["paths"]
 
 
@@ -121,7 +121,7 @@ async def test_returns_aggregated_items(client):
 
 
 async def test_query_params_reach_repository_as_utc_bounds(client, stub_daily_sales, monkeypatch):
-    """View 가 파싱한 지역 날짜를 Service 가 UTC 반열린 구간과 오프셋으로 바꿔 넘긴다 (ADR-007)."""
+    """View 가 파싱한 지역 날짜를 Service 가 UTC 반열린 구간과 오프셋으로 바꿔 넘긴다."""
     monkeypatch.setattr(timezone_settings, "TIME_ZONE", "Asia/Seoul")
 
     await client.get(
@@ -209,7 +209,7 @@ async def test_service_rejects_reversed_period():
 
 
 def test_dto_rejects_mismatched_sql_alias():
-    """SQL alias 가 DTO 필드와 어긋나면 그 자리에서 실패한다 (RAW-REP-005)."""
+    """SQL alias 가 DTO 필드와 어긋나면 그 자리에서 실패한다."""
     with pytest.raises(ValidationError):
         DailySalesItem.model_validate({"date": "2026-08-01", "count": 1, "amount": "1.00"})
 
@@ -255,7 +255,7 @@ def test_openapi_exposes_the_raw_result_schema():
     ids=["367-days", "overflow-end", "before-1970", "year-1"],
 )
 async def test_service_rejects_out_of_bounds_period(start, end):
-    """과대 스캔·날짜 연산 overflow 는 SQL 까지 가기 전에 422 다 (F-012)."""
+    """과대 스캔·날짜 연산 overflow 는 SQL 까지 가기 전에 422 다."""
     service = ReportService.__new__(ReportService)
 
     with pytest.raises(InvalidDateRangeException) as caught:

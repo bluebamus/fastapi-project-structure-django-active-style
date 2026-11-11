@@ -1,6 +1,6 @@
 <!doctype html>
 {#
-  /admin 로그인 화면 — sqladmin 기본 login.html 을 덮어쓴다(admin-login ADR-005).
+  /admin 로그인 화면 — sqladmin 기본 login.html 을 덮어쓴다.
   Admin(templates_dir=app/templates/admin) 의 FileSystemLoader 가 패키지 템플릿보다 먼저 찾는다.
   base 를 확장하지 않는 독립 페이지다. Bootstrap 5.3.8 CSS 만 SRI 로 고정해 불러오고 JS 는 없다.
   버전을 올리면 integrity 를 실제 파일로 다시 계산하고 tests/test_admin_login.py 의 상수도 바꾼다.

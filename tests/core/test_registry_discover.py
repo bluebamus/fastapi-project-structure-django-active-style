@@ -1,4 +1,4 @@
-"""앱 발견 규칙을 고정한다 — 목록·순서·제외·멱등성 (FR-01, FR-05, NFR-01, NFR-02).
+"""앱 발견 규칙을 고정한다 — 목록·순서·제외·멱등성.
 
 발견이 틀리면 그 뒤의 결선은 전부 조용히 틀린다. 라우터가 안 붙고 테이블이
 안 생겨도 서버는 에러 없이 뜨기 때문에, 여기서 막지 못하면 배포 후에야 드러난다.
@@ -22,7 +22,7 @@ def test_discover_finds_direct_subpackages_alphabetically():
 
 
 def test_discover_excludes_underscore_packages():
-    """`_hidden` 은 존재하지만 발견되지 않는다 (NFR-02)."""
+    """`_hidden` 은 존재하지만 발견되지 않는다."""
     present = {info.name for info in pkgutil.iter_modules([_fake_path()])}
     assert "_hidden" in present, "픽스처가 사라졌다 — 제외 규칙을 검사할 수 없다"
 
@@ -31,7 +31,7 @@ def test_discover_excludes_underscore_packages():
 
 
 def test_discover_sorts_regardless_of_filesystem_order(monkeypatch):
-    """정렬은 우연이 아니라 명시적이어야 한다 (NFR-01).
+    """정렬은 우연이 아니라 명시적이어야 한다.
 
     `pkgutil.iter_modules` 가 역순으로 돌려줘도 결과는 알파벳순이어야 한다.
     이 가드가 없으면 "마침 파일시스템이 정렬된 순서로 주더라" 에 기대게 되고,
@@ -49,7 +49,7 @@ def test_discover_sorts_regardless_of_filesystem_order(monkeypatch):
 
 
 def test_discover_does_not_run_package_import_hooks():
-    """발견은 **부작용이 없다** — 앱이 무엇인지 알아내기만 한다 (ADR-006, C-5).
+    """발견은 **부작용이 없다** — 앱이 무엇인지 알아내기만 한다.
 
     이전 계약은 그 반대였다: discover 가 각 앱 패키지를 import 해
     `__init__.py` 의 import-time 부수효과를 실행했다. 그러면 "앱 목록만 알고

@@ -1,4 +1,4 @@
-"""refresh 토큰 회전·재사용 탐지 저장소 (service-hardening ADR-012).
+"""refresh 토큰 회전·재사용 탐지 저장소.
 
 키:
     auth:rt:{jti}             발급된(아직 쓰지 않은) refresh 토큰 → ``{"fam", "sub"}`` (TTL=refresh 만료)

@@ -1,4 +1,4 @@
-"""JWT 발급·검증 (service-hardening ADR-011).
+"""JWT 발급·검증.
 
 claims: ``sub, type, iat, nbf, exp, jti, iss, aud`` + access 는 ``username``·``su``(슈퍼유저 여부),
 refresh 는 ``fam``.

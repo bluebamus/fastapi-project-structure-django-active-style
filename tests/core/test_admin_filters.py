@@ -1,4 +1,4 @@
-"""관리 목록 created_at 날짜 필터 (security-ops-hardening ADR-004).
+"""관리 목록 created_at 날짜 필터.
 
 실제 ``UTCDateTime`` 컬럼(blog ``Post``)을 in-memory SQLite 에 만들고 필터가 만든 쿼리를 실행한다.
 """

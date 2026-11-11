@@ -4,7 +4,7 @@ user 도메인의 `User` 모델·`UserRepository` 에 대해 인증한다(자격
 auth 는 횡단 관심사라 user 식별 모델에 의존하는 것을 허용한다.
 
 협력 객체(해시·토큰·refresh 저장소)는 생성자로 받는다. 조립은
-``dependencies/auth_dependencies.py`` 의 provider 가 한다(service-hardening C-1).
+``dependencies/auth_dependencies.py`` 의 provider 가 한다.
 """
 
 import asyncio
@@ -32,7 +32,7 @@ async def verify_credentials(
     """사용자명/비밀번호를 검증해 활성 사용자를 돌려준다. 실패는 ``InvalidCredentialsException``.
 
     API 로그인(``AuthService.authenticate``)과 ``/admin`` 로그인(``AdminAuthBackend``)이 같은
-    규칙을 쓰도록 여기 하나만 둔다(admin-login ADR-002). 실패 사유(없는 사용자·틀린 비밀번호·
+    규칙을 쓰도록 여기 하나만 둔다. 실패 사유(없는 사용자·틀린 비밀번호·
     비활성)는 구분하지 않는다. 저장된 해시가 옛 형식(bcrypt)이면 새 해시로 UPDATE 해 둔다 —
     커밋은 호출자가 한다.
     """
@@ -101,7 +101,7 @@ class AuthService(BaseService):
     async def rotate(self, refresh_token: str) -> TokenResponse:
         """refresh 토큰을 소비하고 같은 family 로 새 쌍을 발급한다.
 
-        이미 소비된 토큰이 다시 오면 탈취로 보고 family 전체를 폐기한다(ADR-012).
+        이미 소비된 토큰이 다시 오면 탈취로 보고 family 전체를 폐기한다.
         """
         claims = self.tokens.decode(refresh_token, REFRESH)
         family: str = claims["fam"]

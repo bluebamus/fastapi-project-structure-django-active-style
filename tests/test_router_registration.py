@@ -1,4 +1,4 @@
-"""라우터 자동 등록 계약 (FR-02, FR-08, CR-02).
+"""라우터 자동 등록 계약.
 
 이전에는 "`main.py` 에서 `include_router` 한 줄을 빠뜨렸는가" 를 검사했다. 이제
 등록은 `AppRegistry` 가 하므로 빠뜨릴 한 줄이 없다. 대신 계약이 바뀌었다 —
@@ -60,7 +60,7 @@ def test_every_app_router_is_mounted(module):
 
 
 def test_no_central_router_list_remains():
-    """`main.py` 에 기능별 include_router 목록이 남아 있지 않다 (FR-08).
+    """`main.py` 에 기능별 include_router 목록이 남아 있지 않다.
 
     한 줄이라도 남으면 "새 앱은 자동, 옛 앱은 수동" 인 반쪽 상태가 되고, 그
     상태는 문서와 실제가 어긋나는 가장 흔한 원인이다.

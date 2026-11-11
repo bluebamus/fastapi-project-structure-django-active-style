@@ -1,4 +1,4 @@
-"""home 기능의 Celery 태스크 (app/features/home/tasks.py — ADR-009)."""
+"""home 기능의 Celery 태스크 (app/features/home/tasks.py)."""
 
 import asyncio
 from contextlib import asynccontextmanager
