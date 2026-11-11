@@ -255,8 +255,7 @@ async def get_routed_db_session() -> AsyncGenerator[AsyncSession]:
     구문을 보고 엔진을 고르는 세션 제너레이터 — **승인된 특수 경로 전용**
 
     기능 코드는 이 의존성을 쓰지 않습니다. 쓰기는 get_writer_db_session(),
-    조회는 get_read_only_db_session() 으로 의도를 미리 밝힙니다
-    (tests/core/test_session_dependency_names.py 가 강제합니다).
+    조회는 get_read_only_db_session() 으로 의도를 미리 밝힙니다.
     여기서 엔진을 구문으로 판정하면 쓰기 핸들러의 **첫 SELECT** 가 replica 로
     나가 복제 지연을 읽을 수 있습니다.
 

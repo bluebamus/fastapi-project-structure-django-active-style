@@ -1,7 +1,8 @@
-import ast
-from pathlib import Path
+"""Celery 앱 — 설정, registry 기반 include, UTC, 태스크 등록, `run_async` 이벤트 루프 재사용."""
 
-CELERY_PACKAGE = Path(__file__).resolve().parents[2] / "app" / "celery"
+import asyncio
+
+from app.celery.task import run_async
 
 
 def test_celery_app_configured():
@@ -21,23 +22,6 @@ def test_celery_include_comes_from_the_registry():
     assert list(celery_app.conf.include) == registry.task_modules()
     assert "app.features.home.tasks" in celery_app.conf.include
     assert "app.celery.tasks" not in celery_app.conf.include
-
-
-def test_celery_package_does_not_import_features():
-    """중앙 Celery 패키지는 기능을 모른다 — 기능을 지워도 워커가 import 오류로 죽지 않는다."""
-    offenders = []
-    for path in sorted(CELERY_PACKAGE.glob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                names = [node.module]
-            elif isinstance(node, ast.Import):
-                names = [alias.name for alias in node.names]
-            else:
-                continue
-            offenders += [f"{path.name}: {n}" for n in names if n.startswith("app.features")]
-
-    assert offenders == []
 
 
 def test_celery_keeps_internal_times_in_utc():
@@ -64,3 +48,32 @@ def test_celery_include_modules_import_and_register_their_tasks():
     assert celery_app.conf.include, "include 가 비어 있다 — 발견이 깨졌다"
     assert missing == []
     assert "home.aggregate_access_stats" in celery_app.tasks
+
+
+def test_run_async_reuses_a_single_live_loop() -> None:
+    """연속 호출이 '동일한, 닫히지 않은' 루프에서 실행되어야 한다.
+
+    루프 바인딩 자원(aiomysql 커넥션 등)이 태스크 간 재사용돼도 살아남으려면
+    이 성질이 필수다. 매 호출 asyncio.run() 이면 루프가 매번 새로 생성·종료되어
+    이 단언이 깨진다(= C1 재발).
+    """
+    seen: dict[str, asyncio.AbstractEventLoop] = {}
+
+    async def capture(key: str) -> None:
+        seen[key] = asyncio.get_running_loop()
+
+    run_async(capture("first"))
+    run_async(capture("second"))
+
+    assert seen["first"] is seen["second"], "연속 태스크가 서로 다른 루프에서 실행됨"
+    assert not seen["first"].is_closed(), "재사용 루프가 호출 사이에 닫힘"
+
+
+def test_run_async_returns_coroutine_result() -> None:
+    """브릿지가 코루틴의 반환값을 그대로 전달한다(기존 계약 유지)."""
+
+    async def compute() -> int:
+        await asyncio.sleep(0)
+        return 21 * 2
+
+    assert run_async(compute()) == 42

@@ -1,4 +1,4 @@
-"""설정 검사 fail-fast (ledger F-006 → 2026-10-07 확장).
+"""설정 — 기동 시 설정 검사(fail-fast), DSN 조립, CORS 조합, 지운 설정 무시.
 
 - 비밀값(placeholder·짧은 키·같은 JWT 키·예시 비밀번호)은 test 를 뺀 **모든 ENV** 에서 거부한다.
   기본값·예시 값 그대로는 개발 환경에서도 `.env` 를 채우라는 신호다.
@@ -10,14 +10,21 @@
 - `.env` 가 없으면 필수 값이 환경 변수로 와야 한다(`validate_env_source`).
 """
 
+import inspect
 import os
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+from alembic.config import Config
+from pydantic import ValidationError
+from pydantic_settings import BaseSettings
+from redis.connection import parse_url
+from sqlalchemy.engine import make_url
 
 import config as config_module
+from config import CORSSettings, DatabaseSettings, RedisSettings
 
 
 class _Stub:
@@ -168,8 +175,8 @@ def test_error_message_does_not_leak_secret_values(monkeypatch):
     assert "change-this-super-sensitive" not in str(excinfo.value)
 
 
-# ---------------------------------------------------------------- Phase 1-R2
-# INV-8 — SQL echo 는 운영에서 켤 수 없다.
+# ---------------------------------------------------------------- SQL echo
+# SQL echo 는 운영에서 켤 수 없다.
 
 
 @pytest.mark.parametrize("env", ["staging", "production"])
@@ -561,3 +568,163 @@ def test_import_fails_with_leftover_admin(tmp_path):
     result = _run("import config", env, tmp_path)
     assert result.returncode != 0
     assert "ADMIN_DISABLED" in result.stderr
+
+
+# 구분자(@ : / # ?)와 보간 문자(%)를 한 번에 담는다.
+NASTY_PASSWORD = "p@ss:w/rd%#?"  # noqa: S105 - 테스트 픽스처 값
+
+
+def _db(**overrides) -> DatabaseSettings:
+    return DatabaseSettings(_env_file=None, **overrides)
+
+
+def test_writer_url_round_trips_a_password_with_separators():
+    url = _db(MYSQL_PASSWORD=NASTY_PASSWORD, MYSQL_HOST="db.internal").MYSQL_WRITER_URL
+
+    parsed = make_url(url.render_as_string(hide_password=False))
+    assert parsed.password == NASTY_PASSWORD
+    assert (parsed.host, parsed.port, parsed.database) == ("db.internal", 3306, "fastapi_db")
+
+
+def test_replica_url_round_trips_a_password_with_separators():
+    settings = _db(
+        DB_ROUTER_ENABLED=True,
+        DB_REPLICATION_ENABLED=True,
+        MYSQL_REPLICA_HOSTS=["[2001:db8::10]:3307"],
+        MYSQL_REPLICA_PASSWORD=NASTY_PASSWORD,
+    )
+
+    (url,) = settings.MYSQL_REPLICA_URLS
+    parsed = make_url(url.render_as_string(hide_password=False))
+    assert parsed.password == NASTY_PASSWORD
+    assert (parsed.host, parsed.port) == ("2001:db8::10", 3307)
+
+
+def test_ipv6_primary_host_round_trips():
+    url = _db(MYSQL_HOST="::1").MYSQL_URL
+
+    assert url.render_as_string(hide_password=False).startswith(
+        "mysql+aiomysql://root:@[::1]:3306/"
+    )
+    assert make_url(url.render_as_string(hide_password=False)).host == "::1"
+
+
+def test_alembic_url_switches_only_the_driver():
+    settings = _db(MYSQL_PASSWORD=NASTY_PASSWORD)
+
+    alembic_url = settings.ALEMBIC_URL
+    assert alembic_url.drivername == "mysql+pymysql"
+    assert alembic_url.set(drivername="mysql+aiomysql") == settings.MYSQL_WRITER_URL
+
+
+def test_alembic_override_is_parsed_as_a_url():
+    url = _db(ALEMBIC_DATABASE_URL="sqlite:///./local.db").ALEMBIC_URL
+
+    assert url.drivername == "sqlite"
+    assert url.database == "./local.db"
+
+
+def test_alembic_config_survives_percent_in_the_password():
+    """env.py 가 넘기는 값은 ConfigParser 보간을 통과해 원래 비밀번호로 돌아와야 한다."""
+    url = _db(MYSQL_PASSWORD=NASTY_PASSWORD).ALEMBIC_URL
+    config = Config()
+
+    # migrations/env.py 와 같은 변환이다.
+    config.set_main_option(
+        "sqlalchemy.url", url.render_as_string(hide_password=False).replace("%", "%%")
+    )
+
+    assert make_url(config.get_main_option("sqlalchemy.url")).password == NASTY_PASSWORD
+
+
+def test_describe_routing_hides_the_password_but_keeps_the_location():
+    summary = _db(MYSQL_PASSWORD=NASTY_PASSWORD, MYSQL_HOST="db.internal").describe_routing()
+
+    assert NASTY_PASSWORD not in summary["writer"]
+    assert "p%40ss" not in summary["writer"]  # 인코딩된 형태로도 새지 않는다
+    assert summary["writer"] == "mysql+aiomysql://root:***@db.internal:3306/fastapi_db"
+
+
+def test_redis_url_round_trips_a_password_with_separators(monkeypatch):
+    # 기본 포트를 본다 — 테스트 대상 Redis 를 가리키는 REDIS_PORT(W0·CI)가 결과를 바꾸지 않게.
+    monkeypatch.delenv("REDIS_PORT", raising=False)
+    settings = RedisSettings(
+        _env_file=None, REDIS_HOST="cache.internal", REDIS_PASSWORD=NASTY_PASSWORD
+    )
+
+    kwargs = parse_url(settings.REDIS_URL)
+    assert kwargs["password"] == NASTY_PASSWORD
+    assert (kwargs["host"], kwargs["port"], kwargs["db"]) == ("cache.internal", 6379, 0)
+
+
+def test_redis_url_without_password_has_no_credentials():
+    kwargs = parse_url(RedisSettings(_env_file=None).REDIS_URL)
+
+    assert "password" not in kwargs
+
+
+def test_wildcard_origin_with_credentials_is_rejected():
+    """['*'] + credentials=True 조합은 ValidationError 로 거부된다."""
+    with pytest.raises(ValidationError):
+        CORSSettings(CORS_ALLOW_ORIGINS=["*"], CORS_ALLOW_CREDENTIALS=True)
+
+
+def test_wildcard_origin_without_credentials_is_allowed():
+    """['*'] + credentials=False 는 안전한 조합이므로 허용된다."""
+    settings = CORSSettings(CORS_ALLOW_ORIGINS=["*"], CORS_ALLOW_CREDENTIALS=False)
+    assert settings.CORS_ALLOW_ORIGINS == ["*"]
+    assert settings.CORS_ALLOW_CREDENTIALS is False
+
+
+def test_specific_origin_with_credentials_is_allowed():
+    """구체 Origin + credentials=True 는 유효한 조합이므로 허용된다."""
+    settings = CORSSettings(
+        CORS_ALLOW_ORIGINS=["https://example.com"],
+        CORS_ALLOW_CREDENTIALS=True,
+    )
+    assert settings.CORS_ALLOW_CREDENTIALS is True
+
+
+# =============================================================================
+# 3. 설정 필드는 어딘가에서 읽힌다
+# =============================================================================
+# 읽는 코드가 없는 설정은 "있는 기능처럼 보이는 빈 손잡이"다 — SMTP_*·UPLOAD_*·
+# SESSION_EXPIRE_SECONDS 가 그렇게 남아 있다가 지워졌다. 다시 생기지 않게 막는다.
+#
+# 읽는 방식은 속성 접근(`settings.X`, config.py 안의 `self.X` 포함)과 `getattr(settings, "X")` 두 가지다.
+# 한계: config.py 의 validator 만 읽는 필드도 "읽힘" 으로 센다.
+REMOVED_SETTINGS = {
+    "SMTP_SERVER": "smtp.example.com",
+    "SMTP_PASSWORD": "your-app-password",
+    "SMTP_TLS": "true",
+    "SMTP_SSL": "true",  # 예전 validator 는 TLS+SSL 동시 활성을 거부했다 — 이제 무시돼야 한다
+    "UPLOAD_DIR": "uploads",
+    "UPLOAD_ALLOWED_EXTENSIONS": "not-json",
+    "SESSION_EXPIRE_SECONDS": "not-an-int",
+    "API_VERSION": "v2",  # config-cleanup-2 — URL prefix 는 코드에 고정("/v1/...")
+    # logging-overhaul — 파일 이름은 프로세스 종류가, 보관은 LOG_RETENTION_DAYS 가 정한다
+    "LOG_BACKUP_COUNT": "not-an-int",
+    "LOG_APP_FILENAME": "{date}_app.log",
+    "LOG_ERROR_FILENAME": "{date}_error.log",
+}
+
+
+def test_removed_settings_are_ignored_when_left_in_environment(monkeypatch):
+    """지운 설정이 `.env`·환경 변수에 남아 있어도 기동은 깨지지 않고 속성도 생기지 않는다.
+
+    레거시 `ADMIN` 과 달리 거부하지 않는다 — 효과 없는 값일 뿐 보안 위험이 아니다(extra="ignore").
+    """
+    for key, value in REMOVED_SETTINGS.items():
+        monkeypatch.setenv(key, value)
+
+    classes = [
+        obj
+        for obj in vars(config_module).values()
+        if inspect.isclass(obj) and issubclass(obj, BaseSettings) and obj is not BaseSettings
+    ]
+    assert len(classes) >= 9
+    for cls in classes:
+        assert cls.model_config.get("extra") == "ignore", cls.__name__
+        instance = cls(_env_file=None)
+        for key in REMOVED_SETTINGS:
+            assert not hasattr(instance, key), f"{cls.__name__}.{key}"

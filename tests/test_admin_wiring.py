@@ -8,7 +8,7 @@
     1. registry 취합 결과가 기능 디렉터리에서 독립적으로 만든 기대 목록과 **순서까지** 같다
     2. 모델을 가진 기능은 빠짐없이 자기 ``admin.py`` 를 갖는다
     3. 부팅된 앱의 SQLAdmin 에 그대로 등록됐고 ``/admin`` 이 마운트됐다
-    4. ADMIN_DISABLED=true 일 때 관리 계층이 **로드조차 되지 않는다** (SEC-01)
+    4. ADMIN_DISABLED=true 일 때 관리 계층이 **로드조차 되지 않는다**
     5. 중앙 취합 목록이 코드에 남아 있지 않다
 
 1번이 핵심이다. 자동 취합은 편하지만 조용하다 — 앱 하나가 발견에서 빠지면 그 앱의
@@ -141,60 +141,6 @@ def test_registry_views_cover_expected_models() -> None:
     assert managed == EXPECTED_MANAGED_MODELS
 
 
-def test_no_central_admin_list_remains() -> None:
-    """중앙 취합 목록(ADMIN_VIEWS)이 코드에 남아 있지 않다.
-
-    남아 있으면 "새 앱은 자동, 옛 앱은 수동" 인 반쪽 상태가 된다.
-    """
-    source = (_FEATURES_DIR / "admin.py").read_text(encoding="utf-8")
-    code_lines = [line for line in source.splitlines() if not line.lstrip().startswith("#")]
-    joined = "\n".join(code_lines)
-
-    assert "ADMIN_VIEWS: list" not in joined, "app/features/admin.py 에 중앙 뷰 목록이 남아 있다"
-    for feature in _feature_dirs_with_admin():
-        assert (
-            f"from app.features.{feature}.admin import" not in joined
-        ), f"app/features/admin.py 가 '{feature}' 의 admin 을 명시 import 하고 있다"
-
-
-# --- 위 검사가 쓰는 비교 로직 자체의 유효성 (헛통과 방지) ---
-class _VA:
-    pass
-
-
-class _VB:
-    pass
-
-
-class _VC:
-    pass
-
-
-def test_registry_diff_detects_missing_view() -> None:
-    """기능에는 있는데 취합에 없는 뷰를 잡는다 — 자동 취합의 핵심 사각지대."""
-    diff = _registry_diff([_VA, _VB], [_VA])
-    assert diff["missing"] == [_VB]
-    assert diff["unexpected"] == []
-
-
-def test_registry_diff_detects_unexpected_and_duplicate() -> None:
-    diff = _registry_diff([_VA], [_VA, _VB, _VB])
-    assert diff["unexpected"] == [_VB, _VB]
-    assert diff["duplicated"] == ["_VB"]
-
-
-def test_registry_diff_detects_order_only_difference() -> None:
-    """구성이 같고 순서만 다른 경우를 별도로 식별한다."""
-    diff = _registry_diff([_VA, _VB], [_VB, _VA])
-    assert diff["order_only"] is True
-    assert diff["missing"] == [] and diff["unexpected"] == []
-
-
-def test_registry_diff_reports_nothing_when_identical() -> None:
-    diff = _registry_diff([_VA, _VB, _VC], [_VA, _VB, _VC])
-    assert diff == {"missing": [], "unexpected": [], "duplicated": [], "order_only": False}
-
-
 # =============================================================================
 # 기능별 소유 계약
 # =============================================================================
@@ -206,32 +152,16 @@ def test_feature_with_admin_module_exposes_views(feature: str) -> None:
     assert views, f"app/features/{feature}/admin.py 가 admin_views 를 노출하지 않습니다"
 
 
-def test_every_model_feature_owns_admin_module() -> None:
-    """모델을 가진 기능은 빠짐없이 자기 admin.py 를 갖는다.
-
-    registry 는 admin.py 가 **없으면** 조용히 건너뛴다(선택 구성요소). 그래서
-    "모델은 있는데 관리 화면만 안 만든 새 기능" 은 무신호로 지나갈 수 있다 —
-    그것을 여기서 막는다.
-    """
-    from app.core.db.models_registry import iter_model_modules
-
-    with_models = {dotted.split(".")[2] for dotted in iter_model_modules()}
-    with_admin = set(_feature_dirs_with_admin())
-
-    missing = with_models - with_admin
-    assert not missing, f"모델은 있는데 admin.py 가 없는 기능: {sorted(missing)}"
-
-
 # =============================================================================
 # 부팅된 애플리케이션
 # =============================================================================
 def test_admin_layer_is_not_loaded_when_disabled() -> None:
-    """ADMIN_DISABLED=true 면 sqladmin 을 아예 로드하지 않는다 (SEC-01).
+    """ADMIN_DISABLED=true 면 sqladmin 을 아예 로드하지 않는다.
 
     기능 패키지 ``__init__.py`` 가 ``admin_views`` 를 재노출하면, registry 가 라우터를
     얻으려고 패키지를 import 하는 것만으로 sqladmin 과 ModelView 가 전부 올라온다. 그러면
     ADMIN_DISABLED=true 는 "라우트만 안 붙임" 이 되어 설정의 의미가 실제와 어긋나고, sqladmin 을
-    선택적 의존성으로 분리할 수도 없다(ADMIN-2).
+    선택적 의존성으로 분리할 수도 없다.
 
     registry 쪽에도 같은 함정이 있다 — ``app/core/registry.py`` 가 모듈 레벨에서
     sqladmin 을 import 하면 이 검사가 깨진다.

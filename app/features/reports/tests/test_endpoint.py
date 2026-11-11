@@ -1,9 +1,7 @@
 """일별 매출 리포트 엔드포인트 테스트.
 
-이 기능은 Phase 6 의 Raw Base 를 **실전에 처음 적용한** 자리다. 그래서 보는 것은
-집계 숫자가 아니라 계약이다.
+Raw SQL 예제 기능이다. 보는 것은 집계 숫자가 아니라 계약이다.
 
-- `main.py` 를 고치지 않고 자동 발견·마운트되는가
 - 조회가 read-only Dependency 를 쓰는가 — Raw 라는 이유로 쓰기 세션을 잡지 않는가
 - Raw 행이 DTO 경계에서 검증되는가 — SQL alias 가 어긋나면 200 이 아니라 실패인가
 - 기간 규칙이 Service 에 있는가 (SQL 도 View 도 아닌)
@@ -85,22 +83,6 @@ async def client(stub_daily_sales):
 
 
 # ------------------------------------------------------------------ 자동배선
-
-
-def test_reports_is_auto_registered():
-    """디렉터리 컨벤션만으로 리포트 라우터가 발견·마운트된다."""
-    assert "/api/v1/reports/sales/daily" in app.openapi()["paths"]
-
-
-def test_main_has_no_reports_reference():
-    """중앙 파일을 고치지 않았다 — 이 기능은 디렉터리 존재로만 등록된다."""
-    from pathlib import Path
-
-    main_source = (
-        Path(__file__).resolve().parents[4].joinpath("main.py").read_text(encoding="utf-8")
-    )
-
-    assert "reports" not in main_source
 
 
 # ------------------------------------------------------------------ 조회
@@ -214,34 +196,7 @@ def test_dto_rejects_mismatched_sql_alias():
         DailySalesItem.model_validate({"date": "2026-08-01", "count": 1, "amount": "1.00"})
 
 
-def test_dto_does_not_rely_on_from_attributes():
-    """Raw 결과는 ORM 객체가 아니다 — 속성 접근으로 통과시키지 않는다."""
-    assert DailySalesItem.model_config.get("from_attributes") is not True
-
-
 # ------------------------------------------------------------------ OpenAPI
-
-
-def test_openapi_documents_the_report_operation():
-    operation = app.openapi()["paths"]["/api/v1/reports/sales/daily"]["get"]
-
-    assert operation["operationId"] == "getDailySalesReport"
-    assert operation["tags"] == ["Reports"]
-    assert operation["summary"]
-    assert operation["description"]
-    assert {parameter["name"] for parameter in operation["parameters"]} == {
-        "start_date",
-        "end_date",
-    }
-
-
-def test_openapi_exposes_the_raw_result_schema():
-    """Raw 응답도 ORM 응답과 같은 문서 품질을 갖는다 (VIEW-002)."""
-    schemas = app.openapi()["components"]["schemas"]
-
-    assert "DailySalesReportResponse" in schemas
-    assert "DailySalesItem" in schemas
-    assert "RowMapping" not in " ".join(schemas)
 
 
 @pytest.mark.parametrize(

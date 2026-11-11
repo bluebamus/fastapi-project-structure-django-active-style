@@ -12,7 +12,7 @@
     과거 이 자리에 명시 import 목록이 있었던 이유는 "관용적 수집" 이 위험해서였다.
     ``getattr(module, "admin_views", [])`` 방식은 ``admin.py`` 가 0바이트 빈 파일이어도
     조용히 건너뛰어, ``/admin`` 은 정상 마운트된 채 등록 뷰만 빠진 상태를 아무도
-    눈치채지 못하게 만든다(ADMIN-1). 지금은 registry 가 그 구멍을 막는다 —
+    눈치채지 못하게 만든다. 지금은 registry 가 그 구멍을 막는다 —
     ``admin.py`` 가 **있는데** ``admin_views`` 가 없거나 ``ModelView`` 가 아니면
     ``AppContractError`` 로 기동이 멈춘다. 파일이 아예 없을 때만 건너뛴다.
 
@@ -20,7 +20,7 @@
     수집은 ``app.features.<name>.admin`` **모듈**에서 직접 한다. 패키지가
     ``admin_views`` 를 재노출하면 registry 가 라우터를 얻으려고 패키지를 import 하는
     것만으로 관리 화면이 딸려 와, ADMIN_DISABLED=true 인데도 sqladmin 과 ModelView 가 전부
-    메모리에 올라간다(ADMIN-2, 실측). 그러면 ADMIN_DISABLED=true 는 "라우트만 안 붙임" 이 되고,
+    메모리에 올라간다(실측). 그러면 ADMIN_DISABLED=true 는 "라우트만 안 붙임" 이 되고,
     sqladmin 을 선택적 의존성으로 분리할 수도 없다.
     회귀 가드: ``tests/test_admin_wiring.py`` 의 ADMIN_DISABLED=true 미로드 검사.
 

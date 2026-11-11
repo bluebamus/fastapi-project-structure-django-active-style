@@ -9,19 +9,9 @@
 3. 예외 발생 시 커밋 없이 롤백으로 끝난다
 4. 커밋 실패는 성공 응답으로 둔갑하지 않는다  <- 업그레이드 시 가장 먼저 깨질 지점
 
-4번이 실패하면 클라이언트가 201 을 받았는데 데이터는 없는 상태가 된다. 그 경우
-계획서 P1-3(쓰기 경로를 명시적 트랜잭션 컨텍스트로 전환)이 발동한다.
-
-측정 결과 (FastAPI 0.115.x, 2026-08-10): 4번 통과 — 커밋 실패가 응답 전송보다
-먼저 일어나 클라이언트는 5xx 를 받는다. 따라서 현재 핀에서 P1-3 은 불필요하다.
-
-상향 검토 결과 (FastAPI 0.141.1, 2026-08-10): **4번 실패** — 커밋 실패에도
-클라이언트가 201 을 받고 데이터는 저장되지 않는다. `yield` 이후 종료 코드가 응답
-전송 후에 실행되도록 바뀌었다. 즉 **FastAPI 를 올리려면 P1-3 이 선결 조건**이다.
-이 테스트가 정확히 그 판정을 위해 존재하고, P1-3 적용 뒤 현재는 통과한다(커밋은 핸들러 본문).
-
-1번은 최초 측정에서 실패해 xfail 로 고정했다가, P4-1(읽기 전용 의존성 분리)로
-해소되어 마커를 제거했다.
+4번이 실패하면 클라이언트가 201 을 받았는데 데이터는 없는 상태가 된다. FastAPI 0.141 부터
+yield dependency 의 종료 코드가 응답 전송 뒤에 돌기 때문에, 커밋은 dependency 가 아니라
+핸들러 본문에서 해야 한다.
 """
 
 import pytest_asyncio
@@ -89,7 +79,7 @@ async def tx_client():
 
 
 async def test_read_path_does_not_commit(tx_client):
-    """목록 조회는 쓰기가 없으므로 커밋할 이유가 없다 (P4-1 로 해소)."""
+    """목록 조회는 쓰기가 없으므로 커밋할 이유가 없다."""
     client, calls = tx_client
 
     resp = await client.get("/api/v1/blog/posts")
@@ -121,8 +111,7 @@ async def test_exception_path_rolls_back_without_commit(tx_client):
 async def test_commit_failure_is_not_reported_as_success(tx_client):
     """커밋이 실패했는데 클라이언트가 2xx 를 받으면 데이터 불일치다.
 
-    이 테스트가 빨간불이면 응답이 이미 전송된 뒤에 커밋이 실행된다는 뜻이고,
-    계획서 P1-3(명시적 트랜잭션 컨텍스트 전환)을 착수해야 한다.
+    이 테스트가 빨간불이면 응답이 이미 전송된 뒤에 커밋이 실행된다는 뜻이다.
     """
     client, calls = tx_client
     calls["fail_commit"] = True
@@ -132,5 +121,5 @@ async def test_commit_failure_is_not_reported_as_success(tx_client):
     assert calls["commit"] == 1, "커밋이 시도되지 않아 이 테스트가 무의미해졌다"
     assert resp.status_code >= 500, (
         f"커밋이 실패했는데 클라이언트는 {resp.status_code} 를 받았다 — "
-        "성공 응답 후 커밋 구조이므로 P1-3 전환이 필요하다"
+        "커밋을 핸들러 본문으로 옮겨야 한다"
     )

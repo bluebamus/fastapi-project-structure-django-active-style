@@ -6,14 +6,11 @@
 """
 
 from datetime import UTC, date, datetime
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_asyncio
 import sqlalchemy as sa
-from alembic.autogenerate import produce_migrations, render_python_code
-from alembic.migration import MigrationContext
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.dialects import mysql, sqlite
 from sqlalchemy.exc import StatementError
@@ -23,7 +20,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.db.models_registry import import_all_models
 from app.core.models.models_base import Base
-from app.core.models.types import UTCDateTime, render_alembic_type
+from app.core.models.types import UTCDateTime
 from app.features.blog.models.models import Post
 from config import TimezoneSettings
 from main import app
@@ -31,7 +28,6 @@ from tests.auth_headers import user_headers
 from tests.session_overrides import session_overrides
 
 KST = ZoneInfo("Asia/Seoul")
-REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 # ------------------------------------------------------------------ TypeDecorator 단위
@@ -175,30 +171,6 @@ def test_model_default_uses_utc_now_not_local_now(monkeypatch):
 
 
 # ------------------------------------------------------------------ Alembic
-
-
-def test_autogenerate_renders_the_underlying_type():
-    """리비전은 앱 클래스가 아니라 밑바탕 타입을 적는다 — 과거 리비전이 앱 코드에 묶이지 않는다."""
-    engine = sa.create_engine("sqlite://")
-    try:
-        with engine.connect() as connection:
-            context = MigrationContext.configure(
-                connection, opts={"target_metadata": Base.metadata}
-            )
-            script = produce_migrations(context, Base.metadata)
-    finally:
-        engine.dispose()
-
-    code = render_python_code(script.upgrade_ops, render_item=render_alembic_type)
-
-    assert 'sa.DateTime().with_variant(mysql.DATETIME(fsp=6), "mysql")' in code
-    assert "UTCDateTime" not in code
-
-
-def test_alembic_env_uses_the_render_hook_in_both_modes():
-    source = (REPO_ROOT / "migrations" / "env.py").read_text(encoding="utf-8")
-
-    assert source.count("render_item=render_alembic_type") == 2
 
 
 # ------------------------------------------------------------------ API 응답

@@ -1,10 +1,5 @@
-"""`scripts/new_app.py` 가 registry 규약을 만족하는 앱을 만드는지 고정한다.
-
-Django `startapp` 대응물이다. 생성 결과가 규약에서 한 글자라도 어긋나면
-(라우터 변수명, 디렉터리 이름) 자동 발견이 **조용히** 건너뛴다 — 그래서 생성
-결과의 형태를 여기서 못 박는다.
-
-안전성(이름 검증·경로 이탈·덮어쓰기)은 `test_new_app_safety.py` 가 담당한다.
+"""scripts/new_app.py — 생성 구조, 선택 admin, 생성 코드가 import·접근 정책 검사를 통과, 이름 검증·
+경로 이탈·덮어쓰기 거부.
 """
 
 import pytest
@@ -112,24 +107,6 @@ def test_generated_router_module_is_importable_python(root):
         py_compile.compile(str(base / rel), doraise=True)
 
 
-def test_scaffold_does_not_teach_deprecated_session_names(tmp_path):
-    """생성기 템플릿이 폐기된 Dependency 이름을 퍼뜨리지 않는다.
-
-    scripts/ 는 `test_session_dependency_names.py` 의 AST 스캔 범위(app/·tests/) 밖이라
-    여기서 따로 막는다 — 실제로 한 번 빠져나갔다.
-    """
-    scaffold("widget", tmp_path, with_admin=True)
-
-    deps = (tmp_path / "app/features/widget/dependencies/widget_dependencies.py").read_text(
-        encoding="utf-8"
-    )
-
-    for deprecated in ("get_session", "get_read_session", "get_write_session"):
-        assert deprecated not in deps, f"템플릿이 deprecated alias '{deprecated}' 를 가르칩니다."
-    assert "get_writer_db_session" in deps
-    assert "get_read_only_db_session" in deps
-
-
 def test_scaffold_does_not_teach_commit_in_dependency(tmp_path):
     """`yield` 뒤 commit 은 응답 전송 후에 실행돼 커밋 실패가 201 로 둔갑한다."""
     scaffold("widget", tmp_path, with_admin=True)
@@ -193,3 +170,73 @@ def test_generated_example_view_declares_access_and_passes_the_guard(root):
 
     text = (root / "app/features/widget/api/routers/v1/widget.py").read_text(encoding="utf-8")
     assert "선언하지 않으면 서버가 기동하지 않는다" in text
+
+
+def test_valid_name_creates_app(root):
+    """정상 이름은 그대로 생성된다."""
+    scaffold("orders", root=root)
+    assert (root / "app" / "features" / "orders" / "__init__.py").exists()
+    assert (root / "app" / "features" / "orders" / "api" / "routers" / "router.py").exists()
+
+
+def test_snake_case_with_underscore_is_allowed(root):
+    """언더스코어가 든 snake_case 는 유효한 파이썬 식별자라 허용한다."""
+    scaffold("order_items", root=root)
+    assert (root / "app" / "features" / "order_items" / "__init__.py").exists()
+
+
+@pytest.mark.parametrize(
+    "bad_name",
+    [
+        "../escape",  # 상위 디렉터리 이탈
+        "../../etc",  # 더 멀리 이탈
+        "a/b",  # 경로 구분자
+        "a\\b",  # 윈도우 경로 구분자
+        "/absolute",  # 절대 경로
+        "with-hyphen",  # import 불가
+        "with space",  # import 불가
+        "9leading",  # 숫자로 시작 — 식별자 아님
+        "",  # 빈 이름
+        ".",  # 현재 디렉터리
+        "class",  # 파이썬 예약어
+    ],
+)
+def test_invalid_names_are_rejected(root, bad_name):
+    """식별자가 아니거나 경로를 벗어나는 이름은 만들기 전에 거부한다."""
+    with pytest.raises(ValueError):
+        scaffold(bad_name, root=root)
+
+
+def test_rejected_name_creates_nothing_outside(root):
+    """거부된 이름이 features 바깥에 흔적을 남기지 않는다."""
+    before = sorted(p.name for p in root.iterdir())
+    with pytest.raises(ValueError):
+        scaffold("../escape", root=root)
+    assert sorted(p.name for p in root.iterdir()) == before
+    assert not (root.parent / "escape").exists()
+
+
+def test_existing_app_is_not_overwritten(root):
+    """이미 있는 앱 이름으로 재실행하면 실패하고 기존 코드를 보존한다."""
+    scaffold("orders", root=root)
+
+    written = root / "app" / "features" / "orders" / "api" / "routers" / "router.py"
+    written.write_text("# 사람이 작성한 코드\nMY_MARKER = 1\n", encoding="utf-8")
+
+    with pytest.raises(FileExistsError):
+        scaffold("orders", root=root)
+
+    assert "MY_MARKER" in written.read_text(
+        encoding="utf-8"
+    ), "재실행이 기존 코드를 덮어썼다 — 되돌릴 수 없는 손실이다"
+
+
+def test_force_allows_overwrite(root):
+    """덮어쓰기가 정말 필요하면 명시적 force 로만 허용한다."""
+    scaffold("orders", root=root)
+    written = root / "app" / "features" / "orders" / "api" / "routers" / "router.py"
+    written.write_text("# 덮어써질 것\n", encoding="utf-8")
+
+    scaffold("orders", root=root, force=True)
+
+    assert "orders_router" in written.read_text(encoding="utf-8")

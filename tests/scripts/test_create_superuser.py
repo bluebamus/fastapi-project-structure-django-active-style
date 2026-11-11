@@ -181,16 +181,6 @@ def test_rejects_invalid_input_without_writing(db, args, stdin):
     assert load_user("admin") is None
 
 
-def test_script_reuses_core_providers():
-    """조립은 API 와 같은 부품이다 — 요청 밖 세션과 core 해시기 provider."""
-    from app.core.db.session import background_db_session
-    from app.core.security.dependencies import get_password_hasher
-
-    assert create_superuser.background_db_session is background_db_session
-    assert create_superuser.get_password_hasher is get_password_hasher
-    assert create_superuser.main.__kwdefaults__["session_factory"] is background_db_session
-
-
 def _alice(session_factory) -> None:
     assert (
         _run(

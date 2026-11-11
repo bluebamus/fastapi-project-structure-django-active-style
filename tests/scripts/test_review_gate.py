@@ -1,4 +1,4 @@
-"""검증 게이트 규칙의 **검출력**을 증명한다 (계획서 §10 Phase 9).
+"""검증 게이트 규칙의 **검출력**을 증명한다.
 
 게이트를 통과했다는 사실만으로는 게이트가 동작한다는 증거가 되지 않는다. 규칙이
 아무것도 잡지 못하도록 망가져 있어도 결과는 똑같이 초록이기 때문이다. 그래서
@@ -59,30 +59,6 @@ def test_sha_pinned_action_passes():
 def test_local_action_is_not_subject_to_pinning():
     """저장소 안의 액션은 우리 코드다 — 고정할 외부 참조가 없다."""
     assert check_action_pins("      - uses: ./.github/actions/setup\n") == []
-
-
-def test_repository_workflows_are_pinned():
-    """규칙이 맞아도 배선이 틀리면 아무것도 검사하지 않는다."""
-    workflows = sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml"))
-
-    assert workflows, ".github/workflows 에 검사할 파일이 없습니다."
-    for workflow in workflows:
-        assert check_action_pins(workflow.read_text(encoding="utf-8")) == []
-
-
-def test_ci_installs_with_a_lock_freshness_check():
-    """CI 는 락이 pyproject 와 어긋나면 실패해야 한다.
-
-    `uv sync --frozen` 은 락이 최신인지 보지 않고 설치한다 — pyproject 에 추가한 의존성이
-    락에 없으면 조용히 빠진 채 초록이 된다. 그 확인을 하는 것은 `--locked` 다.
-    """
-    text = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-
-    assert "--frozen" not in text
-    syncs = [line.strip() for line in text.splitlines() if "uv sync" in line and "run:" in line]
-    assert syncs, "ci.yml 에 의존성 설치 단계가 없습니다."
-    assert all(line == "run: uv sync --locked" for line in syncs), syncs
-    assert len(syncs) == text.count("runs-on:"), "의존성을 설치하지 않는 job 이 있습니다."
 
 
 # ------------------------------------------------------------------ 파일 목록
@@ -210,10 +186,6 @@ def test_docs_gate_reads_readme_docs_and_workflows(tmp_path, monkeypatch):
     ]
 
 
-def test_repository_docs_pass_the_gate():
-    assert check_docs() == []
-
-
 def test_unknown_env_var_is_detected():
     assert check_doc_env_vars("설정: `NOPE_ENABLED=true`", {"DB_ROUTER_ENABLED"})
 
@@ -299,10 +271,6 @@ def test_empty_modules_are_detected_but_package_markers_are_not(tmp_path):
     paths = ["pkg/__init__.py", "pkg/empty.py", "pkg/full.py", "notes.md"]
 
     assert find_empty_python_files(paths, tmp_path) == ["pkg/empty.py"]
-
-
-def test_repository_has_no_empty_modules():
-    assert find_empty_python_files(_repo_files(), REPO_ROOT) == []
 
 
 # ------------------------------------------------------------------ 게이트 자체

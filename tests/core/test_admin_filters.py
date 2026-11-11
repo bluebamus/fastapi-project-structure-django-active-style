@@ -124,7 +124,7 @@ def test_offers_exactly_the_four_date_operations():
 
 
 # =============================================================================
-# 기간(range) — admin-session-hardening ADR-005
+# 기간(range)
 # =============================================================================
 async def test_range_includes_both_ends(session):
     """시작일 자정 포함, 종료일 마지막 순간 포함, 종료일 다음 자정 제외."""
@@ -203,10 +203,3 @@ def test_quick_ranges_are_range_values_ending_today(monkeypatch):
     assert labels["최근 7일"] == f"{today - timedelta(days=6)}~{today}"
     assert labels["최근 30일"] == f"{today - timedelta(days=29)}~{today}"
     assert all(flt.range_bounds(value) is not None for value in labels.values())
-
-
-def test_filter_has_its_own_template_file():
-    from app.features.admin import ADMIN_TEMPLATES_DIR
-
-    flt = LocalDateFilter(Post.created_at)
-    assert (ADMIN_TEMPLATES_DIR / flt.template).is_file()

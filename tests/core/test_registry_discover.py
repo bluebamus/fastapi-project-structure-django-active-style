@@ -5,6 +5,9 @@
 """
 
 import pkgutil
+import subprocess
+import sys
+import textwrap
 
 from app.core.registry import FEATURES_PACKAGE, AppRegistry
 
@@ -54,7 +57,7 @@ def test_discover_does_not_run_package_import_hooks():
     이전 계약은 그 반대였다: discover 가 각 앱 패키지를 import 해
     `__init__.py` 의 import-time 부수효과를 실행했다. 그러면 "앱 목록만 알고
     싶은" 경로에서도 초기화가 일어나고, 테스트가 모듈을 건드리는 순서에 따라
-    상태가 달라진다. Phase 1-R2 에서 초기화를 `install_hooks()` 로 분리했다.
+    상태가 달라진다. 그래서 초기화는 `install_hooks()` 로 분리돼 있다.
     """
     from tests.core._fakeapps import INIT_CALLS
 
@@ -82,8 +85,8 @@ def _fake_path() -> str:
     return pkg.__path__[0]
 
 
-# ---------------------------------------------------------------- Phase 1-R2
-# INV-9 / ADR-006 — 발견은 순수하고, 초기화는 명시적이다.
+# ---------------------------------------------------------------- 초기화 훅
+# 발견은 순수하고, 초기화는 명시적이다.
 
 
 def test_discover_has_no_side_effects():
@@ -138,3 +141,77 @@ def test_apps_without_hook_module_are_skipped():
     without_hook = [module for module in apps if module.name != "home"]
     assert without_hook, "훅 없는 앱이 하나도 없으면 이 테스트는 의미가 없다."
     assert all(module.install_hook() is False for module in without_hook)
+
+
+CHILD = textwrap.dedent(
+    """
+    import sys
+
+    from app.core.registry import AppRegistry
+
+    registry = AppRegistry()
+    apps = registry.discover()
+
+    assert apps, "앱을 하나도 발견하지 못했습니다."
+
+    leaked = sorted(
+        name
+        for name in sys.modules
+        if name.startswith("app.features.")
+        and (".api.routers" in name or name.endswith(".models.models"))
+    )
+    print("LEAKED:" + ",".join(leaked))
+    """
+)
+
+
+AFTER_IMPORT_MODELS = textwrap.dedent(
+    """
+    import sys
+
+    from app.core.registry import AppRegistry
+
+    registry = AppRegistry()
+    registry.discover()
+    registry.import_models()
+
+    loaded = sorted(n for n in sys.modules if n.endswith(".models.models"))
+    print("MODELS:" + ",".join(loaded))
+    """
+)
+
+
+def _run(source: str) -> str:
+    result = subprocess.run(
+        [sys.executable, "-c", source],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    assert result.returncode == 0, f"자식 프로세스 실패:\n{result.stdout}\n{result.stderr}"
+    return result.stdout
+
+
+def test_discover_does_not_import_routers_or_models():
+    """발견만으로 라우터·모델 모듈이 끌려오면 안 된다."""
+    output = _run(CHILD)
+    leaked_line = next(line for line in output.splitlines() if line.startswith("LEAKED:"))
+    leaked = [name for name in leaked_line[len("LEAKED:") :].split(",") if name]
+
+    assert leaked == [], (
+        "discover() 만으로 다음 모듈이 import 됐습니다 — 기능 __init__.py 의 "
+        f"eager import 를 제거하세요: {leaked}"
+    )
+
+
+def test_import_models_still_loads_every_model_module():
+    """경량화가 모델 등록을 깨뜨리지 않는다 — import_models() 는 여전히 전부 올린다."""
+    output = _run(AFTER_IMPORT_MODELS)
+    models_line = next(line for line in output.splitlines() if line.startswith("MODELS:"))
+    loaded = [name for name in models_line[len("MODELS:") :].split(",") if name]
+
+    for expected in ("blog", "home", "reply", "sns", "user"):
+        assert (
+            f"app.features.{expected}.models.models" in loaded
+        ), f"{expected} 모델이 등록되지 않았습니다."

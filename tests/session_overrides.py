@@ -6,8 +6,7 @@
 조회 핸들러가 몰래 쓰는 회귀가 테스트를 그대로 통과한다.
 
 여기서 만든 override 는 운영 Dependency 와 같은 표시를 건다. 테스트 파일은 세션을
-직접 yield 하지 않고 이 모듈만 쓴다 — `tests/core/test_session_overrides.py` 가
-다른 곳의 정의를 막는다.
+직접 yield 하지 않고 이 모듈만 쓴다.
 
     app.dependency_overrides.update(session_overrides(maker))
 """

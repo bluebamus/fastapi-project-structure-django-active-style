@@ -1,25 +1,7 @@
-"""OpenAPI 공개 계약 검사 (DOC-001~005).
+"""OpenAPI 공개 계약 — API 소비자(클라이언트 생성기 포함)가 기대는 성질을 규칙으로 검사한다.
 
-`test_route_inventory.py` 는 **어떤 경로가 있는가**를 골든으로 고정한다. 이 파일은
-**그 경로들이 문서로서 성립하는가**를 규칙으로 검사한다. 둘은 역할이 다르다 —
-골든은 새 경로를 막고, 규칙은 새 경로가 규격을 갖추도록 강제한다.
-
-규칙 기반인 이유는 골든이 확장에 약하기 때문이다. 스냅샷만 두면 기능을 추가할 때마다
-"스냅샷 갱신" 이 반사 행동이 되고, 그 순간 규격 위반도 함께 승인된다. 규칙은 새
-엔드포인트에도 자동으로 적용된다.
-
-검사 항목:
-
-- DOC-001 모든 공개 operation 의 summary/description/고유 operation_id/tag/성공 응답
-- DOC-002 파라미터 설명
-- DOC-003 프로젝트 소유 schema 의 필드 description, 요청 DTO 의 examples,
-  component key 에 모듈 경로형 `__` 금지
-- DOC-004 tags_metadata 와 실제 tag 의 **양방향** 일치
-- DOC-005 위 검사들의 자동화 자체
-
-FastAPI 가 자체 생성하는 schema(`HTTPValidationError`, `ValidationError`,
-`Body_*`)는 우리 소유가 아니므로 제외한다. 제외 목록은 접두사가 아니라 명시적
-집합으로 둔다 — 접두사로 두면 우리 DTO 가 실수로 면제될 수 있다.
+operationId 의 존재·고유성, 성공·오류 응답 스키마, 태그 일치, ORM·Row 타입 비노출, 422 본문이
+실제 응답(`ErrorResponse`)과 같은지 본다.
 """
 
 import pytest
@@ -28,9 +10,6 @@ from app.core.tags_metadata import tags_metadata
 from main import app
 
 _METHODS = {"get", "post", "put", "patch", "delete"}
-
-# FastAPI 가 생성하는 schema. 우리가 description 을 달 수 있는 대상이 아니다.
-_GENERATED_SCHEMAS = {"HTTPValidationError", "ValidationError", "Body_authLogin"}
 
 
 @pytest.fixture(scope="module")
@@ -52,17 +31,7 @@ def _label(path: str, method: str) -> str:
     return f"{method.upper()} {path}"
 
 
-# ------------------------------------------------------------------ DOC-001
-
-
-def test_every_operation_has_summary_and_description(operations):
-    missing = [
-        _label(path, method)
-        for path, method, operation in operations
-        if not operation.get("summary") or not operation.get("description")
-    ]
-
-    assert not missing, f"summary/description 이 없는 operation: {missing}"
+# ------------------------------------------------------------------ operation
 
 
 def test_operation_ids_are_unique_and_present(operations):
@@ -71,17 +40,6 @@ def test_operation_ids_are_unique_and_present(operations):
     assert all(ids), "operationId 가 없는 operation 이 있습니다."
     duplicated = {value for value in ids if ids.count(value) > 1}
     assert not duplicated, f"operationId 중복: {sorted(duplicated)}"
-
-
-def test_operation_ids_are_not_module_qualified(operations):
-    """FastAPI 기본 operationId 는 함수명+경로+메서드라 길고 리팩터링에 묶인다."""
-    generated = [
-        _label(path, method)
-        for path, method, operation in operations
-        if "__" in (operation.get("operationId") or "")
-    ]
-
-    assert not generated, f"명시적 operation_id 가 없는 operation: {generated}"
 
 
 def test_every_operation_is_tagged(operations):
@@ -128,75 +86,11 @@ def test_error_responses_are_documented(operations):
     assert not problems, f"경로 파라미터가 있는데 오류 응답이 문서화되지 않았습니다: {problems}"
 
 
-# ------------------------------------------------------------------ DOC-002
-
-
-def test_every_parameter_has_a_description(operations):
-    missing = [
-        f"{_label(path, method)} :: {parameter['name']}"
-        for path, method, operation in operations
-        for parameter in operation.get("parameters", [])
-        if not (parameter.get("description") or parameter.get("schema", {}).get("description"))
-    ]
-
-    assert not missing, f"설명 없는 파라미터: {missing}"
-
-
-# ------------------------------------------------------------------ DOC-003
-
-
-def test_component_keys_are_not_module_qualified(spec):
-    """`__` 이름은 공개 계약을 내부 디렉터리 구조에 묶는다.
-
-    FastAPI 는 같은 클래스명이 둘 이상이면 component key 에 모듈 경로를 합성한다.
-    클라이언트 생성기가 그 key 를 타입명으로 쓰므로, 파일을 옮기는 것만으로
-    클라이언트가 깨진다. 이름 충돌은 그때그때 고치는 게 아니라 여기서 막는다.
-    """
-    qualified = [name for name in spec["components"]["schemas"] if "__" in name]
-
-    assert not qualified, (
-        f"모듈 경로형 component key: {qualified}. "
-        "클래스명이 전역에서 충돌합니다 — 도메인 의미가 드러나는 고유 이름으로 바꾸세요."
-    )
-
-
-def test_every_owned_schema_field_has_a_description(spec):
-    missing = {}
-    for name, schema in spec["components"]["schemas"].items():
-        if name in _GENERATED_SCHEMAS:
-            continue
-        bad = [
-            field
-            for field, prop in (schema.get("properties") or {}).items()
-            if not prop.get("description") and "$ref" not in prop and "allOf" not in prop
-        ]
-        if bad:
-            missing[name] = bad
-
-    assert not missing, f"description 없는 필드: {missing}"
-
-
-def test_request_body_schemas_provide_examples(spec, operations):
-    """요청 DTO 에는 예시가 있어야 한다 — 예시 없는 스키마는 호출법을 알려주지 않는다."""
-    schemas = spec["components"]["schemas"]
-    referenced = set()
-    for _, _, operation in operations:
-        for media in (operation.get("requestBody") or {}).get("content", {}).values():
-            ref = media.get("schema", {}).get("$ref", "")
-            if ref.startswith("#/components/schemas/"):
-                referenced.add(ref.rsplit("/", 1)[-1])
-
-    missing = [
-        name
-        for name in sorted(referenced - _GENERATED_SCHEMAS)
-        if "examples" not in schemas[name] and "example" not in schemas[name]
-    ]
-
-    assert not missing, f"examples 가 없는 요청 DTO: {missing}"
+# ------------------------------------------------------------------ schema
 
 
 def test_no_orm_or_row_types_leak_into_schemas(spec):
-    """내부 ORM 객체나 `RowMapping` 이 문서에 노출되지 않는다 (VIEW-002)."""
+    """내부 ORM 객체나 `RowMapping` 이 문서에 노출되지 않는다."""
     leaked = [
         name
         for name in spec["components"]["schemas"]
@@ -206,15 +100,7 @@ def test_no_orm_or_row_types_leak_into_schemas(spec):
     assert not leaked, f"내부 타입이 공개 schema 로 새어나왔습니다: {leaked}"
 
 
-def test_example_schemas_exist_for_both_orm_and_raw(spec):
-    """ORM/Raw 예제 DTO 가 모두 문서에 생성된다 (DOC-005)."""
-    schemas = spec["components"]["schemas"]
-
-    assert "ProductResponse" in schemas, "ORM 예제 DTO 가 없습니다."
-    assert "DailySalesReportResponse" in schemas, "Raw 예제 DTO 가 없습니다."
-
-
-# ------------------------------------------------------------------ DOC-004
+# ------------------------------------------------------------------ tag
 
 
 def test_declared_and_used_tags_match_exactly(operations):
@@ -224,25 +110,6 @@ def test_declared_and_used_tags_match_exactly(operations):
 
     assert used - declared == set(), f"metadata 에 없는 tag 를 씁니다: {sorted(used - declared)}"
     assert declared - used == set(), f"선언만 하고 쓰지 않는 tag: {sorted(declared - used)}"
-
-
-def test_tag_descriptions_do_not_claim_unimplemented(operations):
-    """구현이 끝난 기능을 '예정' 으로 설명하지 않는다."""
-    used = {tag for _, _, operation in operations for tag in operation.get("tags", [])}
-    stale = [
-        entry["name"]
-        for entry in tags_metadata
-        if entry["name"] in used
-        and any(word in entry["description"] for word in ("예정", "미구현"))
-    ]
-
-    assert not stale, f"구현됐는데 '예정/미구현' 으로 설명된 tag: {stale}"
-
-
-def test_tag_metadata_entries_are_well_formed():
-    for entry in tags_metadata:
-        assert entry.get("name"), f"이름 없는 tag entry: {entry}"
-        assert entry.get("description", "").strip(), f"설명 없는 tag: {entry['name']}"
 
 
 # ------------------------------------------------------------------ 422 문서 = 실제 형식

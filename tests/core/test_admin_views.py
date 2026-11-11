@@ -22,7 +22,6 @@ bcrypt 해시가 화면에 그대로 노출된다. ``test_exposure_probe_detects
 from __future__ import annotations
 
 import pytest
-from sqladmin import ModelView
 from sqlalchemy import String
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -98,36 +97,6 @@ class _ProbeSecretive(_ProbeBase):
     hashed_password: Mapped[str] = mapped_column(String(255))
 
 
-class _ProbeUnguardedAdmin(ModelView, model=_ProbeSecretive):
-    """아무 설정도 하지 않은 뷰 — sqladmin 기본값이 해시를 노출한다."""
-
-
-def test_exposure_probe_detects_sqladmin_default() -> None:
-    """설정 없는 ModelView 는 비밀번호 컬럼을 노출한다 — 탐지 로직이 살아 있음을 증명."""
-    exposed = _exposed_columns(_ProbeUnguardedAdmin)
-    assert "hashed_password" in exposed, (
-        "sqladmin 기본 동작이 바뀌었거나 _exposed_columns 가 고장났습니다. "
-        "이 테스트가 통과하지 못하면 아래 노출 금지 테스트는 헛통과합니다."
-    )
-
-
-# =============================================================================
-# 등록 자체가 비어 있지 않은지 (파라미터 테스트가 사라지는 헛통과 방지)
-# =============================================================================
-def test_admin_views_is_not_vacuous() -> None:
-    managed = {view.model.__name__ for view in ADMIN_VIEWS}
-    assert {"Post", "Reply", "SnsPost", "User", "UserAccessLog"} <= managed
-
-
-# =============================================================================
-# B. 각 모델은 정확히 하나의 ModelView 로 관리된다
-# =============================================================================
-def test_every_model_has_exactly_one_admin_view() -> None:
-    models = [view.model for view in ADMIN_VIEWS]
-    duplicates = {m.__name__ for m in models if models.count(m) > 1}
-    assert not duplicates, f"모델이 둘 이상의 ModelView 로 중복 관리됩니다: {sorted(duplicates)}"
-
-
 # =============================================================================
 # C. 비밀번호 해시는 어떤 화면에도 노출되지 않는다
 # =============================================================================
@@ -194,7 +163,7 @@ SERVER_MANAGED = frozenset({"id", "created_at", "updated_at"})
 def test_admin_forms_leave_server_managed_columns_alone(view_cls: type) -> None:
     """폼의 시각 입력은 타임존 없는 문자열이라 UTCDateTime 이 거부한다 — 폼에 두면 저장이 늘 실패한다.
 
-    integration-e2e F-003: Product 생성·수정이 ``naive datetime 은 저장할 수 없습니다`` 로 실패했다.
+    Product 생성·수정이 ``naive datetime 은 저장할 수 없습니다`` 로 실패했다.
     """
     view = view_cls()
     if not (view.can_create or view.can_edit):

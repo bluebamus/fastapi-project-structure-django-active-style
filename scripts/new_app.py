@@ -42,7 +42,7 @@ _ROUTER_TMPL = '''\
 버전별 서브라우터를 여기에 include 한다(예시 뷰는 api/routers/v1/{name}.py). 예:
     from app.features.{name}.api.routers.v1 import {name} as {name}_v1
     {name}_router.include_router({name}_v1.router, prefix="/v1/{name}", tags=["{Class}"])
-include 할 때 tags_metadata 와 라우트 인벤토리 골든(tests/test_route_inventory.py)도 함께 갱신한다.
+include 할 때 tags_metadata 와 권한 표(tests/test_authorization.py 의 EXPECTED)도 함께 갱신한다.
 """
 
 from fastapi import APIRouter
@@ -184,7 +184,6 @@ def _validate_name(name: str) -> None:
 def scaffold(
     name: str,
     root: pathlib.Path,
-    category: str = "domain",
     with_admin: bool = False,
     force: bool = False,
 ) -> None:
@@ -193,7 +192,6 @@ def scaffold(
     Args:
         name: Snake-case app name (e.g. ``"orders"``).
         root: Project root directory (the one containing ``app/``).
-        category: 예약(미사용) — 호환을 위해 시그니처만 유지.
         with_admin: If True, create ``admin.py`` (with empty ``admin_views``).
         force: 대상이 이미 있어도 덮어쓴다. 기본은 거부(작성한 코드 보호).
 
@@ -285,7 +283,6 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Scaffold a new FastAPI domain app (convention-based).",
     )
     p.add_argument("name", help="Snake-case app name (e.g. orders)")
-    p.add_argument("--category", default="domain", help="Reserved (unused; kept for compatibility)")
     p.add_argument("--with-admin", action="store_true", help="Create admin.py")
     p.add_argument(
         "--force",
@@ -310,7 +307,6 @@ def main() -> None:
     scaffold(
         args.name,
         root=pathlib.Path.cwd(),
-        category=args.category,
         with_admin=args.with_admin,
         force=args.force,
     )

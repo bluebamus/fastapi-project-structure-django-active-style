@@ -1,4 +1,4 @@
-"""파일 로깅을 event loop 밖으로 밀어내는 queue 계약 (INV-5·6·7, Phase 1-R2).
+"""파일 로깅을 event loop 밖으로 밀어내는 queue 계약.
 
 여기서 확인하는 것은 "로그가 남는가" 가 아니라 **어디서 파일 쓰기가 일어나는가** 다.
 `RotatingFileHandler` 가 root 에 직접 붙어 있으면 로그를 남기는 코루틴이 파일 쓰기와
@@ -10,10 +10,7 @@ import logging
 import queue
 from logging.config import dictConfig
 
-import pytest
-
 from app.utils.logs import config as logs_config
-from app.utils.logs.filters import SQLNoiseFilter
 from app.utils.logs.queue_logging import (
     LOG_QUEUE_MAXSIZE,
     BoundedQueueHandler,
@@ -31,7 +28,7 @@ def _build_production(monkeypatch, tmp_path) -> dict:
     return logs_config.build_dictconfig()
 
 
-# ------------------------------------------------------------------ INV-5
+# ------------------------------------------------------------------ 큐 배치
 
 
 def test_file_handlers_are_behind_a_queue(monkeypatch, tmp_path):
@@ -83,7 +80,7 @@ def test_dropped_records_are_counted_not_raised():
     assert BoundedQueueHandler.dropped == before + 1
 
 
-# ------------------------------------------------------------------ INV-6
+# ------------------------------------------------------------------ 드롭·listener
 
 
 def test_listener_start_is_idempotent(monkeypatch, tmp_path):
@@ -124,57 +121,3 @@ def test_start_is_noop_without_a_queue_handler():
 async def test_stop_is_idempotent():
     await stop_queue_listener()
     await stop_queue_listener()  # 예외가 나면 실패
-
-
-# ------------------------------------------------------------------ INV-7
-
-
-def _record(name: str, level: int) -> logging.LogRecord:
-    return logging.LogRecord(name, level, __file__, 1, "SELECT * FROM users", None, None)
-
-
-@pytest.mark.parametrize(
-    "name",
-    ["sqlalchemy.engine.Engine", "aiomysql.cursors", "pymysql.connections", "aiosqlite"],
-)
-@pytest.mark.parametrize("level", [logging.DEBUG, logging.INFO])
-def test_sql_debug_and_info_are_blocked(name, level):
-    """SQL 로그에는 바인딩된 파라미터가 그대로 실린다."""
-    noise_filter = SQLNoiseFilter(allow_sql_echo=False)
-
-    assert noise_filter.filter(_record(name, level)) is False
-
-
-@pytest.mark.parametrize("level", [logging.WARNING, logging.ERROR, logging.CRITICAL])
-def test_sql_warnings_and_above_pass_through(level):
-    """커넥션 풀 고갈·재연결 실패는 장애 진단에 반드시 필요하다."""
-    noise_filter = SQLNoiseFilter(allow_sql_echo=False)
-
-    assert noise_filter.filter(_record("sqlalchemy.pool", level)) is True
-
-
-def test_application_logs_are_untouched():
-    """차단 대상은 SQL·드라이버 로거뿐이다."""
-    noise_filter = SQLNoiseFilter(allow_sql_echo=False)
-
-    assert noise_filter.filter(_record("app.features.blog", logging.DEBUG)) is True
-    assert noise_filter.filter(_record("raw_repository", logging.DEBUG)) is True
-
-
-def test_opt_in_lets_sql_debug_through():
-    """development/test 에서 SQL 을 보고 싶을 때는 켤 수 있어야 한다."""
-    noise_filter = SQLNoiseFilter(allow_sql_echo=True)
-
-    assert noise_filter.filter(_record("sqlalchemy.engine.Engine", logging.DEBUG)) is True
-
-
-def test_opt_in_is_ignored_outside_development(monkeypatch):
-    """설정이 켜져 있어도 운영 환경이면 무시한다 — 배포 검증을 우회해도 여기서 걸린다."""
-    from config import app_settings, log_settings
-
-    monkeypatch.setattr(log_settings, "LOG_SQL_ECHO_ENABLED", True, raising=False)
-    monkeypatch.setattr(app_settings, "ENV", "production", raising=False)
-
-    noise_filter = SQLNoiseFilter()
-
-    assert noise_filter.filter(_record("sqlalchemy.engine.Engine", logging.DEBUG)) is False

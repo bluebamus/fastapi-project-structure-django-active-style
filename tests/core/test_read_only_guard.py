@@ -12,6 +12,8 @@
 않기 위해서다(workflow-guide §14).
 """
 
+import inspect
+
 import pytest
 import pytest_asyncio
 from sqlalchemy import Integer, String, delete, insert, select, text, update
@@ -19,6 +21,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import StaticPool
 
+from app.core.db import session as session_module
 from app.core.db.router import (
     DatabaseRouter,
     ReadOnlyRoutingError,
@@ -293,3 +296,10 @@ async def test_orm_cte_select_stays_allowed(read_only):
     rows = await read_only.execute(select(cte.c.name))
 
     assert [row[0] for row in rows] == ["seed"]
+
+
+def test_read_only_dependency_marks_the_session():
+    """정식 read-only Dependency 는 세션을 read-only 로 표시한다."""
+    source = inspect.getsource(session_module.get_read_only_db_session)
+
+    assert "mark_read_only" in source

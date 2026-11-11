@@ -51,11 +51,11 @@ uv run uvicorn main:app --reload --port 8000
 uv run python -m scripts.create_superuser --username admin --email admin@example.com
 ```
 
-Celery 워커(접속 로그 집계·보존 기간 삭제 태스크):
+Celery 워커와 스케줄러(접속 로그 집계, 매일 03:30 보존 기간 지난 접속 로그 삭제):
 
 ```bash
-uv run celery -A app.celery.app:celery_app worker --loglevel=INFO
-# Windows: ... worker --pool=solo --loglevel=INFO
+uv run celery -A app.celery.app:celery_app worker --loglevel=INFO   # Windows: --pool=solo 추가
+uv run celery -A app.celery.app:celery_app beat --loglevel=INFO     # 배포마다 하나만
 ```
 
 ## 설정

@@ -1,7 +1,4 @@
-"""Home 접속 로그 서비스의 실제 DB 동작 검증 (UnitOfWork 제거 후 세션 기반).
-
-in-memory sqlite 로 service → repository → ORM CRUD 흐름을 검증한다.
-"""
+"""접속 로그 서비스 — 저장·목록·통계, 컬럼 길이 절단, home 앱의 sink 등록."""
 
 import pytest
 import pytest_asyncio
@@ -81,3 +78,19 @@ async def test_long_values_are_truncated_to_column_lengths(session):
         assert len(getattr(log, name)) == columns[name].type.length, name
     assert len(log.user_agent) == 5000
     assert len(data["request_path"]) == 5001, "호출자 dict 를 바꾸지 않는다"
+
+
+def test_register_sink_installs_home_sink():
+    from app.core.middlewares.access_log_sink import (
+        get_access_log_sink,
+        set_access_log_sink,
+    )
+    from app.features.home.access_log_sink import HomeAccessLogSink, register_sink
+
+    original = get_access_log_sink()
+    try:
+        set_access_log_sink(None)
+        register_sink()
+        assert isinstance(get_access_log_sink(), HomeAccessLogSink)
+    finally:
+        set_access_log_sink(original)

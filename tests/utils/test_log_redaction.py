@@ -10,11 +10,13 @@ import logging
 import re
 import sys
 from contextlib import contextmanager
+from datetime import datetime
 from logging.config import dictConfig
 from pathlib import Path
 
 import pytest
 
+from app.utils.logs import filters as logs_filters
 from app.utils.logs.filters import RedactingFilter, redact
 
 SENTINEL = "sup3rs3cret-sentinel"
@@ -366,7 +368,6 @@ def _access_line(monkeypatch, capsys, path: str, *, cli: bool, env: str = "produ
 @pytest.mark.parametrize(("env", "tz"), [("production", "UTC"), ("development", None)])
 def test_python_main_access_line_is_formatted(monkeypatch, capsys, env, tz):
     """`python main.py` 경로 — 프로젝트 형식으로, {message} 는 요청 줄, 시간대·LOG_DATE_FORMAT 을 따른다."""
-    from datetime import datetime
 
     from config import timezone_settings
 
@@ -387,3 +388,120 @@ def test_access_line_with_secret_query_is_masked(monkeypatch, capsys, cli):
 
     assert SENTINEL not in line
     assert line.endswith('"GET /api/v1/x?token=*** HTTP/1.1" 200'), line
+
+
+# =============================================================================
+# L7. 주요 정보 차단 — DSN 의 id·비밀번호, 설정된 비밀값 원문
+# =============================================================================
+@pytest.mark.parametrize(
+    ("dsn", "expected"),
+    [
+        ("mysql+aiomysql://appuser:pw-123@db:3306/shop", "mysql+aiomysql://***:***@db:3306/shop"),
+        ("redis://:redispw@cache:6379/0", "redis://***:***@cache:6379/0"),
+    ],
+)
+def test_dsn_masks_both_user_and_password(dsn, expected):
+    assert redact(f"connect {dsn}") == f"connect {expected}"
+
+
+@pytest.fixture
+def secrets():
+    """설정 비밀값을 주입했다가 되돌린다."""
+    yield logs_filters.set_secret_values
+    logs_filters.set_secret_values([])
+
+
+def test_configured_secret_values_are_masked_anywhere(secrets):
+    secrets(["Sup3r-Secret-Value", "dbadmin"])
+    out = redact("token Sup3r-Secret-Value in path /x/Sup3r-Secret-Value and owner dbadmin")
+    assert "Sup3r-Secret-Value" not in out and "dbadmin" not in out
+    assert out.count("***") == 3
+
+
+def test_short_secret_masked_only_in_user_forms(secrets):
+    """4글자 미만 값은 원문 일치로 가리지 않는다 — `user=`·`username=`·DSN 에서만."""
+    secrets(["sa"])
+    assert redact("usage salt sa") == "usage salt sa"
+    assert redact("login user=sa ok") == "login user=*** ok"
+    assert redact("username: 'sa'") == "username: '***'"
+    assert redact("mysql://sa:pw@h/db") == "mysql://***:***@h/db"
+
+
+def test_empty_secret_values_are_ignored(secrets):
+    secrets(["", None, "   "])
+    assert redact("plain text") == "plain text"
+
+
+def test_secret_inside_exception_chain_is_masked(secrets):
+    secrets(["chain-secret-777"])
+    try:
+        try:
+            raise ConnectionError("inner chain-secret-777")
+        except ConnectionError as inner:
+            raise RuntimeError("outer") from inner
+    except RuntimeError:
+        record = logging.LogRecord("p", logging.ERROR, __file__, 1, "x", (), sys.exc_info())
+    RedactingFilter().filter(record)
+    out = logging.Formatter().format(record)
+    assert "chain-secret-777" not in out and "direct cause" in out
+
+
+def test_secret_in_access_line_arg_keeps_args_shape(secrets):
+    secrets(["argsecret-42"])
+    record = logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        __file__,
+        1,
+        '%s - "%s %s HTTP/%s" %d',
+        ("1.2.3.4:5", "GET", "/x?k=argsecret-42", "1.1", 200),
+        None,
+    )
+    RedactingFilter().filter(record)
+    assert len(record.args) == 5
+    assert "argsecret-42" not in record.getMessage()
+
+
+SECRET_NAME = re.compile(r"_(USER|PASSWORD)$|SECRET|_KEY$")
+
+
+def test_every_secret_like_setting_is_in_the_log_secret_list():
+    """새 비밀 설정(`*_USER`·`*_PASSWORD`·`*SECRET*`·`*_KEY`)은 LOG_SECRET_SETTINGS 에 넣어야 한다."""
+    import inspect
+
+    from pydantic_settings import BaseSettings
+
+    import config
+
+    fields = {
+        name
+        for obj in vars(config).values()
+        if inspect.isclass(obj) and issubclass(obj, BaseSettings) and obj is not BaseSettings
+        for name in obj.model_fields
+        if SECRET_NAME.search(name)
+    }
+    listed = {name for _, name in config.LOG_SECRET_SETTINGS}
+    assert fields, "전제 붕괴 — 비밀 설정을 하나도 못 찾았다"
+    assert fields <= listed, f"LOG_SECRET_SETTINGS 에 없는 비밀 설정: {sorted(fields - listed)}"
+
+
+def test_log_secret_values_reads_current_settings(monkeypatch):
+    import config
+
+    monkeypatch.setattr(config.db_settings, "MYSQL_PASSWORD", "pw-from-settings")
+    monkeypatch.setattr(config.redis_settings, "REDIS_PASSWORD", None)
+    values = config.log_secret_values()
+    assert "pw-from-settings" in values
+    assert None not in values and "" not in values
+
+
+def test_configure_logging_installs_secret_values(monkeypatch, secrets):
+    import config
+    from app.utils.logs import setup as logs_setup
+
+    monkeypatch.setattr(config.jwt_settings, "ACCESS_TOKEN_SECRET_KEY", "installed-secret-xyz")
+    monkeypatch.setattr(logs_setup, "dictConfig", lambda cfg: None)
+    monkeypatch.setattr(logs_setup, "_configured", False)
+    monkeypatch.setattr(logs_setup, "start_queue_listener", lambda handler: False)
+    logs_setup.configure_logging()
+    assert "installed-secret-xyz" not in redact("k=installed-secret-xyz!")
