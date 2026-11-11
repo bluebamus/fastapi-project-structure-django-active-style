@@ -360,6 +360,10 @@ DOC_ALLOWED_MISSING_PATHS = {
     "tests/integration/test_sales_report_mysql.py",
     "tests/redis_target.py",
     "tests/test_redis_target.py",
+    # 마이그레이션 리비전을 baseline 하나로 합쳤다(2026-11-11) — 옛 문서의 후방 참조.
+    "migrations/versions/a7c3e9f1b2d4_add_superuser_and_author_ids.py",
+    "migrations/versions/e5a7c9d1f3b5_store_datetimes_as_utc.py",
+    "tests/core/test_migration_chain.py",
 }
 # 위 경로 면제와 같은 규칙이다 — 설정이 생기면 여기서 지운다. 예전에는
 # `LOG_SQL_ECHO_ENABLED` 가 있었는데, 이 설정은 F-018 이 예고한 뒤 실제로 만들어졌는데(`config.py:584`)
