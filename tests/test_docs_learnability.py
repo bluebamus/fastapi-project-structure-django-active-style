@@ -175,8 +175,6 @@ def test_guide_covers_the_core_rules(rule):
         "app/features/catalog/repositories/product_repository.py",
         "app/features/reports/repositories/sales_report_repository.py",
         "tests/core/test_raw_sql_static_guard.py",
-        "tests/integration/test_sales_report_mysql.py",
-        "compose.test.yaml",
     ],
 )
 def test_referenced_examples_exist(path):

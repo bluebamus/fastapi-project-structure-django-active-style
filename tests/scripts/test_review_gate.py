@@ -26,7 +26,6 @@ from scripts.review_gate import (
     check_doc_env_vars,
     check_doc_paths,
     check_docs,
-    check_image_digests,
     doc_text_for_check,
     find_empty_python_files,
     judge_pytest_summary,
@@ -145,30 +144,6 @@ def test_repo_files_falls_back_to_walking_without_git(tmp_path, monkeypatch):
     monkeypatch.setattr(gate.subprocess, "run", no_git)
 
     assert _repo_files() == ["a.py"]
-
-
-# ------------------------------------------------------------------ 이미지 digest
-
-
-@pytest.mark.parametrize(
-    "image", ["mysql:8.4", "mysql:latest", "mysql"], ids=["minor-tag", "latest", "bare"]
-)
-def test_tag_pinned_images_are_rejected(image):
-    assert check_image_digests(f"    image: {image}\n")
-
-
-def test_digest_pinned_image_passes():
-    digest = "sha256:" + "b" * 64
-
-    assert check_image_digests(f"    image: mysql@{digest}  # 8.4\n") == []
-
-
-def test_repository_compose_files_are_digest_pinned():
-    composes = sorted(REPO_ROOT.glob("compose*.y*ml"))
-
-    assert composes, "compose 파일이 없습니다."
-    for compose in composes:
-        assert check_image_digests(compose.read_text(encoding="utf-8")) == []
 
 
 # ------------------------------------------------------------------ secret scan

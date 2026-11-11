@@ -2,7 +2,7 @@
 
 `DateTime(timezone=True)` 는 MySQL 에서 오프셋과 소수 초를 잃었다. 여기서는 그 대체인
 `UTCDateTime` 의 bind/result 규칙, SQLite 왕복, 모델 기본값, Alembic 렌더, API 응답의 오프셋을
-고정한다. MySQL `DATETIME(6)` 왕복은 `tests/integration/test_mysql_utc_datetime.py` 가 본다.
+고정한다.
 """
 
 from datetime import UTC, date, datetime

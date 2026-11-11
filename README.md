@@ -236,61 +236,18 @@ uv run uvicorn main:app --reload     # DEBUG=true 여도 자동 생성은 할 �
 `ENV=test` 를 주입하고 `tests/` 와 `app/features/*/tests/` 를 함께 수집합니다.
 
 ```bash
-uv run python -m pytest                       # 전체 (mysql 마커는 MySQL 이 없으면 skip)
+uv run python -m pytest                       # 전체
 uv run ruff check . && uv run mypy .
 uv run python -m scripts.review_gate --list   # 게이트 그룹: static tests structure supply docs files deps
 uv run python -m scripts.review_gate --group static structure docs
 ```
-
-`mysql` 마커 테스트(`tests/integration/`)는 MySQL 8.4 가 `127.0.0.1:3310` 에 있어야 돕니다
-(`MYSQL_TEST_PORT` 로 변경). 같은 파일의 `redis-test` 는 lifespan·`/ready` 를 실물로 볼 때 쓰는
-Redis 7.4 입니다(최소 요구 7.0 이상인 고정 이미지. `127.0.0.1:6381`, `REDIS_TEST_PORT` 로 변경 — 앱이 쓰게
-하려면 `REDIS_PORT` 도 같은 값으로). 단위 테스트는 가짜 클라이언트를 주입하므로 Redis 없이 돕니다.
-
-```bash
-docker compose -f compose.test.yaml up -d --wait
-uv run python -m pytest -m mysql
-docker compose -f compose.test.yaml down -v
-```
-
-#### 전수 통합(E2E) — `tests/e2e/`, 마커 `e2e`
-
-실제 프로세스·실제 복제 위에서 앱 전체를 확인합니다: MySQL 8.4 primary + GTID replica, Redis 7.4
-(`compose.e2e.yaml`, 데이터는 tmpfs), 실제 uvicorn(`main:app`)·Celery worker·Chromium(Playwright).
-`-m e2e` 를 줄 때만 수집되므로 위의 다른 실행에는 skip·deselect 를 남기지 않습니다.
-
-```bash
-uv run python -m playwright install chromium            # 한 번
-export E2E_MYSQL_PASSWORD="$(python -c 'import secrets; print(secrets.token_hex(16))')"   # 실행마다 새 값(32자 이하)
-docker compose -p itest-active -f compose.e2e.yaml up -d --wait
-REDIS_HOST=127.0.0.1 REDIS_PORT=16392 uv run python -m pytest -m e2e
-docker compose -p itest-active -f compose.e2e.yaml down    # -v 불필요(tmpfs)
-```
-
-- 포트는 `127.0.0.1` 의 MySQL `13331`(primary)·`13332`(replica), Redis `16392`, 앱 `18092` 입니다. 하네스는 접속
-  대상이 이 값이 아니면 시작하지 않습니다(`E2E_*_PORT` 로 바꿔도 거부 — 남의 DB·Redis 에 붙는 사고 방지).
-  Redis 대상은 `REDIS_HOST`·`REDIS_PORT` 를 **둘 다 명시**해야 합니다 — 빠지면 실패합니다(기본 6379 로 떨어지지 않게).
-- 앱·worker 는 산출물 폴더(`.e2e-artifacts/`, `E2E_ARTIFACT_DIR`)를 작업 디렉터리로 쓰므로 저장소 `.env` 를 읽지
-  않습니다. JWT·세션 키·사용자 비밀번호는 실행마다 새로 만들고, 끝에 모든 로그에서 그 값과 DSN 원문을 grep 합니다.
-- WSL 에서 Docker 를 띄우고 Windows 에서 pytest 를 돌리면, 붙잡는 `wsl.exe` 가 없을 때 WSL 이 내려가며 컨테이너도
-  멈춥니다. 도는 동안 `wsl.exe -e bash -lc "sleep 7200"` 를 띄워 두고 끝나면 끕니다.
-- 보장하는 것: 모든 API operation 의 정상·검증 오류·미인증·권한 부족·없음·잘못된 메서드·접근 정책 대조(L2),
-  인증·rate limit·소유권·폐기·접속 로그·보존 삭제·매출·Celery·읽기/쓰기 분리(L3), 관리 화면 7 뷰의 브라우저 동작과
-  인증·CSRF·세션 만료(L4), Redis·primary·replica·worker 장애(L5), Alembic 왕복·기동 거부·로깅(L6).
-  `test_inventory.py` 가 실제 앱에서 뽑은 대상마다 실행한 테스트(또는 N/A 사유)가 있는지 대조하고, 빈 칸이 있으면 실패합니다.
-- **새 API 를 추가하면** `tests/e2e/test_api_matrix.py` 의 `OPS` 에 한 줄(정상·422·소유권·404 요청)을 더합니다 —
-  빠뜨리면 인벤토리 대조가 실패해 알려 줍니다. 새 관리 뷰·Celery 태스크·Redis 키 접두어도 같은 대조에 걸립니다.
-- 테스트마다 시간 제한(`E2E_TEST_TIMEOUT`, 기본 300초)이 있습니다. CI 는 별도 job `e2e`(매 push)가 같은 compose 로 돌리고,
-  skip·xfail 이 있거나 0건이면 실패, 실패하면 산출물·compose 로그를 artifact 로 올립니다.
 
 `uv run pytest` 대신 `python -m pytest` 를 씁니다(콘솔 스크립트가 다른 인터프리터를 집은 전례).
 **커버리지**는 CI 의 단위 테스트 단계와 `tests` 게이트가 `--cov=app --cov-config=pyproject.toml --cov-report=term-missing` 으로 측정·출력합니다.
 하한은 `pyproject.toml` 의 `[tool.coverage.report] fail_under` 하나가 정하고 **기본값은 0**(하한 없음)입니다 —
 처음에는 기능이 제대로 동작하는지 확인하는 것이 우선이라서입니다. 하한이 필요해지면 그 값 하나만 올립니다
 (명령줄 `--cov-fail-under` 는 쓰지 않는다. 올리는 법은 [개발 가이드 §11](docs/guides/DEVELOPMENT.md)).
-`tests` 게이트는 skip 0 을 요구하므로 MySQL 이 필요하고, `deps` 게이트는 네트워크가 필요합니다. CI 는
-gate job(`-m "not mysql"`), MySQL job(`compose.test.yaml` + `-m mysql` + 전체 suite), e2e job(`compose.e2e.yaml` +
-`-m e2e`, 위 "전수 통합(E2E)") 세 개로 나뉩니다.
+`tests` 게이트는 skip 0 을 요구하고, `deps` 게이트는 네트워크가 필요합니다.
 
 ---
 
