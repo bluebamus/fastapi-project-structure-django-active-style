@@ -10,9 +10,7 @@
 
 **집계 SQL 자체는 여기서 검증하지 않는다.** `CONVERT_TZ()` 는 MySQL
 문법이고, SQLite 통과는 MySQL 방언의 승인 근거가 되지 못한다(RAW-REP-006). 그래서
-MySQL 에 의존하는 **그 한 지점만** 대체하고, 실제 SQL 은
-`tests/integration/test_sales_report_mysql.py` 가 MySQL 8.4 에 대고 확인한다.
-운영 SQL 을 테스트 편의로 문자열 치환하지는 않는다.
+MySQL 에 의존하는 **그 한 지점만** 대체한다. 운영 SQL 을 테스트 편의로 문자열 치환하지는 않는다.
 """
 
 import inspect

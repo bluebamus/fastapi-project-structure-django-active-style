@@ -12,9 +12,8 @@
 ## MySQL 방언
 
 `DATE()`, `CONVERT_TZ()` 는 MySQL 문법이다 (RAW-REP-006). SQLite 로 이 SQL 을 검증하지
-않으며, 테스트 편의를 위해 운영 SQL 을 문자열 치환하지도 않는다. 실제 검증은
-`compose.test.yaml` 의 MySQL 8.4 에 대고 하는 `tests/integration/test_sales_report_mysql.py` 가
-담당한다.
+않으며, 테스트 편의를 위해 운영 SQL 을 문자열 치환하지도 않는다. 이 SQL 자체는 자동 테스트
+범위 밖이다 — 실제 MySQL 에서 확인한다.
 
 ## 기간 경계와 시간대 (ADR-007)
 

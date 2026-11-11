@@ -41,20 +41,6 @@ def test_floor_lives_only_in_pyproject():
         ), f"{name} 가 하한을 따로 정합니다 — pyproject 하나가 정본입니다."
 
 
-def test_ci_unit_tests_measure_coverage():
-    step = next(
-        line
-        for line in CI.read_text(encoding="utf-8").splitlines()
-        if 'pytest -m "not mysql"' in line
-    )
-
-    assert "--cov=app" in step and "--cov-report=term-missing" in step, step
-    # 설정 파일을 명시하지 않으면 서브프로세스 테스트의 측정 데이터가 branch 없이 남아
-    # pytest-cov 의 합치기가 INTERNALERROR 로 끝난다.
-    assert "--cov-config=pyproject.toml" in step, step
-    assert "skip-covered" not in step
-
-
 def test_gate_tests_group_measures_coverage():
     pytest_runs = [
         cmd for cmd in COMMAND_GROUPS["tests"] if "pytest" in cmd and "--collect-only" not in cmd

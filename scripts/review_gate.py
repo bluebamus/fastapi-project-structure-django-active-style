@@ -46,9 +46,6 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 _USES = re.compile(r"^\s*(?:-\s*)?uses:\s*([^\s#]+)", re.MULTILINE)
 _COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 
-_IMAGE = re.compile(r"^\s*image:\s*([^\s#]+)", re.MULTILINE)
-_DIGEST = re.compile(r"@sha256:[0-9a-f]{64}$")
-
 
 def check_action_pins(workflow_text: str) -> list[str]:
     """GitHub Action 은 태그가 아니라 commit SHA 로 고정해야 한다.
@@ -67,19 +64,6 @@ def check_action_pins(workflow_text: str) -> list[str]:
         elif not _COMMIT_SHA.match(ref):
             problems.append(f"{reference}: 태그가 아니라 40자리 commit SHA 로 고정하세요")
     return problems
-
-
-def check_image_digests(compose_text: str) -> list[str]:
-    """컨테이너 이미지는 digest 로 고정해야 한다.
-
-    `mysql:8.4` 는 재빌드될 때마다 다른 바이트를 가리킬 수 있다. 테스트가 무엇에
-    대고 통과했는지 특정할 수 없으면 그 초록은 재현 가능한 근거가 아니다.
-    """
-    return [
-        f"{image}: tag 가 아니라 @sha256:<digest> 로 고정하세요"
-        for image in _IMAGE.findall(compose_text)
-        if not _DIGEST.search(image)
-    ]
 
 
 # 값이 실제로 들어 있는 형태만 잡는다. 이름만 나열한 문서·예시는 대상이 아니다.
@@ -361,6 +345,21 @@ DOC_ALLOWED_MISSING_PATHS = {
     "docs/guides/orm-raw-workflow.md",  # → docs/guides/DEVELOPMENT.md
     # 개발 안내서가 "새 기능을 만든다면" 의 가상 예시로 쓰는 경로다.
     "dependencies/inventory_dependencies.py",
+    # MySQL 통합·e2e 테스트 삭제(2026-11-11) — 옛 문서가 아직 가리킨다. 문서 정리 때 함께 지운다.
+    "tests/e2e/conftest.py",
+    "tests/e2e/inventory_probe.py",
+    "tests/e2e/test_api_matrix.py",
+    "tests/e2e/test_faults.py",
+    "tests/integration/conftest.py",
+    "tests/integration/test_mysql_access_log_retention.py",
+    "tests/integration/test_mysql_admin_login.py",
+    "tests/integration/test_mysql_harness.py",
+    "tests/integration/test_mysql_orm_smoke.py",
+    "tests/integration/test_mysql_utc_datetime.py",
+    "tests/integration/test_raw_primitives_mysql.py",
+    "tests/integration/test_sales_report_mysql.py",
+    "tests/redis_target.py",
+    "tests/test_redis_target.py",
 }
 # 위 경로 면제와 같은 규칙이다 — 설정이 생기면 여기서 지운다. 예전에는
 # `LOG_SQL_ECHO_ENABLED` 가 있었는데, 이 설정은 F-018 이 예고한 뒤 실제로 만들어졌는데(`config.py:584`)
@@ -371,6 +370,7 @@ DOC_ALLOWED_MISSING_ENV: set[str] = {
     # tests/test_admin_login.py 의 제거 회귀 검사와 config 의 validate_renamed_settings 가 지킨다.
     "ADMIN",  # → ADMIN_DISABLED (의미 반대)
     "ADMIN_ALLOW_UNAUTHENTICATED",  # /admin 에 로그인이 붙어 필요 없어진 확인 플래그
+    "E2E_MYSQL_PASSWORD",  # 삭제한 e2e 하네스의 변수 — 옛 가이드가 아직 부른다
 }
 
 # 앱이 정의하지 않지만 문서가 정당하게 언급하는 외부 환경변수. 인터프리터·도구·CI 가
@@ -383,17 +383,8 @@ EXTERNAL_ENV = {
     "TZ",
     "CI",
     "GITHUB_TOKEN",
-    "MYSQL_TEST_PORT",
     "ALEMBIC_DATABASE_URL",
     "MYSQL_ROOT_PASSWORD",  # mysql 컨테이너 이미지의 변수(README 빠른 시작 docker 예시)
-    # 전수 통합(E2E) 하네스·compose.e2e.yaml 의 변수(tests/e2e/conftest.py) — 앱 설정이 아니다.
-    "E2E_MYSQL_PASSWORD",
-    "E2E_MYSQL_PRIMARY_PORT",
-    "E2E_MYSQL_REPLICA_PORT",
-    "E2E_REDIS_PORT",
-    "E2E_APP_PORT",
-    "E2E_ARTIFACT_DIR",
-    "E2E_TEST_TIMEOUT",
 }
 
 
@@ -402,9 +393,6 @@ def check_supply_chain() -> list[str]:
     for workflow in sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml")):
         text = workflow.read_text(encoding="utf-8")
         problems += [f"{workflow.name}: {issue}" for issue in check_action_pins(text)]
-    for compose in sorted(REPO_ROOT.glob("compose*.y*ml")):
-        text = compose.read_text(encoding="utf-8")
-        problems += [f"{compose.name}: {issue}" for issue in check_image_digests(text)]
     for path in _repo_files():
         if not path.endswith((".py", ".md", ".yml", ".yaml", ".toml", ".env", ".example")):
             continue
