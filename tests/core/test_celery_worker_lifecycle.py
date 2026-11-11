@@ -1,4 +1,4 @@
-"""Celery prefork 워커 자원 생명주기 (Phase 1-R2).
+"""Celery prefork 워커 자원 생명주기.
 
 fork 로 상속된 커넥션 풀을 버리지 않으면 부모와 자식이 **같은 소켓**에 쿼리를 보내
 MySQL 패킷 순서가 엉킨다. 이 결함은 동시 실행이 겹쳐야 재현되므로 개발에서는 멀쩡하고
@@ -51,7 +51,7 @@ def fake_engines(monkeypatch):
     return writer, background, reader
 
 
-# ------------------------------------------------------------------ INV-10
+# ------------------------------------------------------------------ 신호
 
 
 def test_init_discards_every_inherited_pool(fake_engines):

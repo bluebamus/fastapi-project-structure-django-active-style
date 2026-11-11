@@ -1,4 +1,4 @@
-"""자원 관리자 계약 (Phase 1-R2).
+"""자원 관리자 계약.
 
 정리 코드는 **최선의 경우에만 동작하기 쉽다**. 정상 종료만 테스트하면 그 사실이
 드러나지 않는다 — 정상 경로는 어떤 구현이든 통과하기 때문이다. 그래서 여기서 보는
@@ -34,7 +34,7 @@ def _recorder():
     return calls, cleanup
 
 
-# ------------------------------------------------------------------ INV-1
+# ------------------------------------------------------------------ 정리 순서·부분 실패
 
 
 async def test_cleanup_runs_in_reverse_registration_order():
@@ -94,7 +94,7 @@ async def test_registering_after_close_is_rejected():
         manager.register("late", lambda: asyncio.sleep(0), budget=1.0)
 
 
-# ------------------------------------------------------------------ INV-2
+# ------------------------------------------------------------------ 등록 시점
 
 
 async def test_acquire_registers_cleanup_before_start():
@@ -133,7 +133,7 @@ async def test_startup_failure_cleans_up_earlier_resources():
     assert calls == ["engines", "logging"]
 
 
-# ------------------------------------------------------------------ INV-11
+# ------------------------------------------------------------------ deadline
 
 
 async def test_total_shutdown_stays_within_the_single_deadline():

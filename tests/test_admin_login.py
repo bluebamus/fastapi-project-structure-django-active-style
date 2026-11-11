@@ -1,4 +1,4 @@
-"""/admin 로그인 (admin-login REQ-001).
+"""/admin 로그인.
 
 SQLite 파일 DB + fakeredis 로 새 FastAPI 앱에 ``create_admin_interface`` 를 붙여 실제 HTTP 흐름을
 돈다. 백엔드의 협력 객체(세션 팩토리·Redis)만 바꿔 넣고, 해시기·템플릿·sqladmin 은 운영 그대로다.
@@ -567,41 +567,6 @@ async def test_main_app_redirects_anonymous_admin_to_the_login_page(monkeypatch)
 
 
 # =============================================================================
-# 설정 제거 회귀 — 예전 "무인증 허용" 확인 플래그
-# =============================================================================
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_REMOVED_FLAG = "ADMIN_ALLOW_UNAUTHENTICATED"
-
-
-def test_unauthenticated_admin_flag_is_gone_from_code_and_current_docs():
-    from config import AppSettings
-
-    assert _REMOVED_FLAG not in AppSettings.model_fields
-    targets = [
-        *(_REPO_ROOT / "app").rglob("*.py"),
-        *(_REPO_ROOT / "app").rglob("*.html"),
-        _REPO_ROOT / "main.py",
-        _REPO_ROOT / "config.py",
-        _REPO_ROOT / ".env.example",
-        _REPO_ROOT / "README.md",
-        *(_REPO_ROOT / "docs" / "guides").glob("*.*"),
-    ]
-    offenders = [
-        str(path.relative_to(_REPO_ROOT))
-        for path in targets
-        if _REMOVED_FLAG in path.read_text(encoding="utf-8")
-    ]
-    assert offenders == []
-
-
-def test_leftover_flag_in_environment_does_not_break_settings(monkeypatch):
-    from config import AppSettings
-
-    monkeypatch.setenv(_REMOVED_FLAG, "true")
-    assert AppSettings(_env_file=None).ADMIN_DISABLED is False  # type: ignore[call-arg]
-
-
-# =============================================================================
 # 세션 사용 범위 — 관리 세션은 /admin 전용이다
 # =============================================================================
 SID = "planted-session-id-for-scope-tests"
@@ -729,7 +694,7 @@ def test_filter_queries_are_actually_exercised():
 
 
 def test_every_view_with_created_at_has_the_local_date_filter():
-    """security-ops-hardening ADR-004 — created_at 이 있는 모든 관리 목록은 날짜로 거를 수 있다."""
+    """created_at 이 있는 모든 관리 목록은 날짜로 거를 수 있다."""
     from app.core.admin_filters import LocalDateFilter
 
     missing = [

@@ -16,7 +16,7 @@ class HomeAccessLogSink(AccessLogSink):
     # 세션·서비스는 호출 시점에 import 한다. 이 모듈은 registry 의 **발견** 단계에서
     # home/__init__.py 를 통해 끌려오는데, 모듈 레벨에서 가져오면 "앱이 있는지" 만
     # 알면 되는 경로까지 DB 엔진과 모델을 통째로 올린다
-    # (경계: tests/core/test_import_boundary.py, 같은 패턴: registry.load_admin_views).
+    # (경계: tests/core/test_registry_discover.py, 같은 패턴: registry.load_admin_views).
     async def save(self, data: dict) -> None:
         from app.core.db.session import background_db_session
         from app.features.home.services.user_access_log_service import UserAccessLogService

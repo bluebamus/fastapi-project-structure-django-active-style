@@ -47,10 +47,10 @@ app/features/orders/
 | 위치 | 대상 |
 |------|------|
 | `app/features/<name>/tests/` | 그 기능의 API 동작(상태 코드·검증·응답·권한·소유권·페이지네이션)과 트랜잭션 경계 |
-| `tests/core/` | `app/core` — 레지스트리, DB 세션·라우터, repository Base, 보안, 미들웨어, 자원 수명주기, 마이그레이션 |
-| `tests/utils/` | 로깅·페이지네이션 |
+| `tests/core/` | `app/core`·`app/celery` — 레지스트리, DB 세션·라우터·읽기 전용 가드, repository Base, 보안, 미들웨어, 자원 수명주기, Celery, 마이그레이션 |
+| `tests/utils/` | 로깅(문맥·설정·마스킹·파일·큐)·페이지네이션·검증기 |
 | `tests/scripts/` | `scripts/` 의 동작 |
-| `tests/` 바로 아래 | 앱 전체 조립 — 자동 배선, 예외 처리기, 관리 화면, 권한 표, lifespan, Celery 브리지 |
+| `tests/` 바로 아래 | 앱 전체 조립과 설정 — 자동 배선, 설정 검사(`test_config.py`), 예외 처리기, 관리 화면(로그인·세션·배선·끄기), 권한 표, OpenAPI 계약, lifespan, `/ready`, 트랜잭션 배선 |
 
 공용 헬퍼: `tests/session_overrides.py`(운영 Dependency 와 같은 읽기 전용·writer 표시를 거는 세션 override),
 `tests/auth_headers.py`(실제 `TokenService` 로 서명한 Bearer 헤더), `tests/core/conftest.py`(가짜 앱 패키지를 디스크에
@@ -96,7 +96,7 @@ uv run alembic heads                                     # head 가 하나인지
 - 리비전은 `migrations/versions/0001_baseline_schema.py`(현재 전체 스키마) 다음으로 쌓입니다.
 - autogenerate 결과는 반드시 읽고 고칩니다. 특히 SQLite 에 대고 만든 경우 server default 가 방언 문자열로 렌더될
   수 있으니 모델과 같은 표현(`sa.false()` 등)으로 바꿉니다.
-- `tests/core/test_migrations.py` 가 빈 SQLite 에 `upgrade head` 후 모델과 차이가 없는지, `downgrade base` 뒤 테이블이
+- `tests/core/test_migrations.py` 가 autogenerate 의 `DATETIME(6)` 렌더, 빈 SQLite 에 `upgrade head` 후 모델과 차이가 없는지, `downgrade base` 뒤 테이블이
   남지 않는지 확인합니다. 모델만 바꾸고 리비전을 빠뜨리면 이 테스트가 실패합니다.
 - 운영은 `DEBUG=false` 로 띄워 기동 시 `create_all` 을 끄고 Alembic 만 씁니다. 여러 worker 로 띄울 때도 마찬가지입니다
   (`DEBUG=true` 의 테이블 생성이 프로세스마다 동시에 돕니다).

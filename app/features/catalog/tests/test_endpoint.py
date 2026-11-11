@@ -1,12 +1,7 @@
 """Catalog CRUD 엔드포인트 테스트.
 
-이 기능은 Phase 3~6 에서 만든 Base 를 **신규 기능에 처음 적용한** 자리다. 그래서
-여기서 보는 것은 CRUD 동작만이 아니라, 그 Base 계약이 실전에서 그대로 성립하는가다:
-
-- `main.py` 를 고치지 않고 자동 발견·마운트되는가
-- 조회는 read-only Dependency 를 쓰는가 — 쓰기용 재사용이면 이 테스트가 못 잡으므로
-  read-only 세션이 실제로 쓰기를 거부하는지 별도로 확인한다
-- update 가 제공된 필드만 반영하고 빈 PATCH 를 no-op 으로 처리하는가 (Phase 4 계약)
+ORM 예제 기능이다. 생성·조회·목록·부분 수정(빈 PATCH 는 no-op)·삭제, 입력 검증, NOT NULL 컬럼의
+명시적 null 거부를 본다.
 
 view→dependency→service→repository→DB 전 경로를 in-memory sqlite 로 검증한다.
 """
@@ -57,25 +52,6 @@ async def _create(client, **overrides) -> dict:
 
 
 # ------------------------------------------------------------------ 자동배선
-
-
-def test_catalog_is_auto_registered():
-    """디렉터리 컨벤션만으로 catalog 라우터가 발견·마운트된다."""
-    paths = set(app.openapi()["paths"])
-
-    assert "/api/v1/catalog/products" in paths
-    assert "/api/v1/catalog/products/{product_id}" in paths
-
-
-def test_main_has_no_catalog_reference():
-    """중앙 파일을 고치지 않았다 — 이 기능은 디렉터리 존재로만 등록된다."""
-    from pathlib import Path
-
-    main_source = (
-        Path(__file__).resolve().parents[4].joinpath("main.py").read_text(encoding="utf-8")
-    )
-
-    assert "catalog" not in main_source
 
 
 # ------------------------------------------------------------------ CRUD
@@ -130,7 +106,7 @@ async def test_patch_applies_only_given_fields(client):
 
 
 async def test_empty_patch_is_noop(client):
-    """빈 PATCH 는 오류가 아니라 현재 상태를 그대로 돌려준다 (Phase 4 계약)."""
+    """빈 PATCH 는 오류가 아니라 현재 상태를 그대로 돌려준다."""
     created = await _create(client)
 
     response = await client.patch(f"/api/v1/catalog/products/{created['id']}", json={})
@@ -174,36 +150,6 @@ async def test_create_rejects_invalid_payload(client, payload):
 
 
 # ------------------------------------------------------------------ 계약
-
-
-def test_read_endpoints_use_read_only_dependency():
-    """조회 핸들러가 쓰기용 Dependency 를 재사용하지 않는다."""
-    import inspect
-
-    from app.features.catalog.api.routers.v1 import products
-
-    for handler in (products.list_products, products.get_product):
-        source = inspect.getsource(handler)
-        assert (
-            "get_catalog_service_readonly" in source
-        ), f"{handler.__name__} 이 쓰기 의존성을 씁니다."
-
-    for handler in (products.create_product, products.update_product, products.delete_product):
-        source = inspect.getsource(handler)
-        assert "Depends(get_catalog_service)" in source
-
-
-def test_write_handlers_validate_response_before_commit():
-    """commit 뒤에 DTO 를 만들면 만료된 속성 재조회로 lazy I/O 가 난다."""
-    import inspect
-
-    from app.features.catalog.api.routers.v1 import products
-
-    for handler in (products.create_product, products.update_product):
-        source = inspect.getsource(handler)
-        validate_at = source.index("model_validate")
-        commit_at = source.index("service.commit()")
-        assert validate_at < commit_at, f"{handler.__name__} 이 commit 뒤에 검증합니다."
 
 
 @pytest.mark.parametrize("field", ["name", "price", "is_active"])

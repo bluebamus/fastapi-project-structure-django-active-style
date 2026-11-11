@@ -2,7 +2,7 @@
 
 ## 지원 범위 — prefork 만
 
-이 저장소는 Celery 를 **prefork 풀에서만** 지원한다(사용자 확정, REQ-009).
+이 저장소는 Celery 를 **prefork 풀에서만** 지원한다(사용자 확정).
 gevent/eventlet 은 그린스레드 모델이라 `run_async()` 의 asyncio 루프와 동시성
 모델이 충돌하고, 제대로 쓰려면 태스크를 동기 드라이버로 다시 써야 한다.
 

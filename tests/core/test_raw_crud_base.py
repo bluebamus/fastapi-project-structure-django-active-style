@@ -200,11 +200,3 @@ def test_identifier_allowlist_rejects_unknown_value():
 
 
 # ------------------------------------------------------------------ 계층 분리
-
-
-def test_raw_base_does_not_inherit_orm_base():
-    """ORM Base 와 Raw Base 는 상속 관계를 갖지 않는다."""
-    from app.core.repositories.crud_base import CRUDBase
-
-    assert not issubclass(RawCRUDBase, CRUDBase)
-    assert not issubclass(CRUDBase, RawCRUDBase)

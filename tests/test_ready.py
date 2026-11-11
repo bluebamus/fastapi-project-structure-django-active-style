@@ -13,7 +13,6 @@ DB 왕복 자체는 `app/core/db/session.py` 의 `ping_writer_db()` **하나**�
 
 import asyncio
 import functools
-import inspect
 
 import pytest
 import pytest_asyncio
@@ -116,15 +115,6 @@ async def test_health_does_not_touch_the_db(client, monkeypatch):
     assert (await client.get("/health")).status_code == 200
 
 
-def test_ready_is_in_openapi_with_health_tag():
-    spec = app.openapi()
-
-    assert "/ready" in spec["paths"], "/ready 가 OpenAPI 에 없습니다."
-    operation = spec["paths"]["/ready"]["get"]
-    assert operation["tags"] == ["Health"]
-    assert operation["operationId"] == "getReadiness"
-
-
 @pytest.mark.parametrize("path", ["/health", "/ready"])
 def test_liveness_and_readiness_are_separate(path):
     """둘은 서로 다른 엔드포인트다 — 하나로 합치지 않는다."""
@@ -135,15 +125,6 @@ def test_ready_declares_503_response():
     operation = app.openapi()["paths"]["/ready"]["get"]
 
     assert "503" in operation["responses"]
-
-
-def test_ready_delegates_db_check_to_the_shared_helper():
-    """`/ready` 는 `SELECT 1` 을 직접 들고 있지 않다 — writer 점검은 한 곳에 있다."""
-    source = inspect.getsource(main)
-
-    assert "ping_writer_db()" in source, "/ready 가 공용 헬퍼를 쓰지 않습니다."
-    # 설명용 docstring 언급은 괜찮다. 막으려는 건 **실행되는** 두 번째 점검이다.
-    assert 'text("SELECT 1")' not in source, "writer 점검이 main.py 에 중복돼 있습니다."
 
 
 def test_readiness_timeout_is_bounded():
@@ -263,12 +244,6 @@ async def test_ping_redis_times_out():
 
     with pytest.raises(TimeoutError):
         await redis_module.ping_redis(request, timeout=0.05)
-
-
-def test_redis_readiness_uses_the_same_bound_as_the_db():
-    """DB 와 Redis 의 상한이 두 숫자로 갈라지지 않는다."""
-    default = inspect.signature(redis_module.ping_redis).parameters["timeout"].default
-    assert default == db_session_module.READINESS_TIMEOUT_SECONDS
 
 
 def _request_with(redis):

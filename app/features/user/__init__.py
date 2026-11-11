@@ -8,5 +8,5 @@
 여기서 미리 끌어오면 "앱이 있는지" 만 알고 싶은 경로(Alembic·ADMIN_DISABLED=true 등)까지
 라우팅 트리와 DB 모듈을 통째로 메모리에 올린다.
 
-경계는 ``tests/core/test_import_boundary.py`` 가 깨끗한 서브프로세스에서 지킨다.
+경계는 ``tests/core/test_registry_discover.py`` 가 깨끗한 서브프로세스에서 지킨다.
 """

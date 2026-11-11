@@ -191,8 +191,8 @@ ModelView 모듈을 import 하지도 않습니다.
 
 `app/celery/app.py` 의 `celery_app` 은 broker·backend 로 Redis(`REDIS_URL`)를 쓰고, include 목록을
 `AppRegistry().task_modules()` 로 만듭니다. 현재 태스크는 `app/features/home/tasks.py` 의
-`home.aggregate_access_stats` 와 접속 로그 보존 기간(`ACCESS_LOG_RETENTION_DAYS`) 삭제 태스크입니다.
-`beat_schedule` 은 비어 있습니다.
+`home.aggregate_access_stats` 와 접속 로그 보존 기간(`ACCESS_LOG_RETENTION_DAYS`) 삭제 태스크이며, 삭제 태스크는
+`tasks.py` 가 `beat_schedule` 에 매일 03:30(`TIME_ZONE` 지역 시각)으로 등록합니다. 내부 시각은 UTC 로 다룹니다.
 
 - 태스크는 요청 밖이라 `background_db_session()` 으로 세션을 열고, 서비스는 API 와 같은 조립 함수로 만듭니다.
 - `app/celery/task.py` 의 `run_async` 는 워커 프로세스당 이벤트 루프 하나를 재사용해 코루틴을 실행합니다(async

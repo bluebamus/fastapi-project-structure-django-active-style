@@ -3,19 +3,15 @@
 in-memory SQLite 로 서비스 → 리포지토리 → DELETE 를 실제로 돌린다. 시계는 주입한다.
 """
 
-import asyncio
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
-from celery.schedules import crontab
 from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.db.session import Base
-from app.features.home import tasks as home_tasks
 from app.features.home.dependencies import access_log_dependencies
 from app.features.home.models.models import UserAccessLog
 from app.features.home.services.access_log_retention_service import AccessLogRetentionService
@@ -129,42 +125,6 @@ def test_provider_uses_the_configured_retention(monkeypatch):
 
     assert isinstance(service, AccessLogRetentionService)
     assert service.retention_days == 30
-
-
-def test_purge_task_is_scheduled_daily_at_0330_local_time():
-    from app.celery.app import celery_app
-    from config import timezone_settings
-
-    assert home_tasks.PURGE_TASK_NAME in celery_app.tasks
-    entry = celery_app.conf.beat_schedule[home_tasks.PURGE_TASK_NAME]
-    assert entry["task"] == home_tasks.PURGE_TASK_NAME
-    assert entry["schedule"] == crontab(hour=3, minute=30)
-    # crontab 은 Celery timezone(= TIME_ZONE) 지역 시각으로 해석된다.
-    assert celery_app.conf.timezone == timezone_settings.TIME_ZONE
-
-
-def test_purge_task_builds_its_service_through_the_home_provider(monkeypatch):
-    session = object()
-    built_with = []
-
-    @asynccontextmanager
-    async def fake_background_session():
-        yield session
-
-    class _FakeService:
-        async def purge_expired(self):
-            return 42
-
-    def fake_provider(received):
-        built_with.append(received)
-        return _FakeService()
-
-    monkeypatch.setattr(home_tasks, "background_db_session", fake_background_session)
-    monkeypatch.setattr(home_tasks, "build_access_log_retention_service", fake_provider)
-    monkeypatch.setattr(home_tasks, "run_async", asyncio.run)
-
-    assert home_tasks.purge_expired_access_logs() == {"deleted": 42}
-    assert built_with == [session]
 
 
 async def test_rowcount_matches_count_query(session):

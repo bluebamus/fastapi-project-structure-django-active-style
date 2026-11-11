@@ -562,7 +562,6 @@ async def test_range_filter_template_renders_two_dates_and_quick_links(env):
 
 # =============================================================================
 # 관리 화면 직접 수정·삭제의 즉시 폐기 — 커밋 전, 세션 + refresh
-# (ADR-007 대체, R-705 해소)
 # =============================================================================
 async def _target_with_two_browsers(env):
     """운영자 root 로그인 + 대상 target 이 두 브라우저로 로그인하고 API refresh family 하나를 가진 상태."""

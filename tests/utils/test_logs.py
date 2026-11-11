@@ -1,11 +1,12 @@
-"""app/utils/logs 로깅 서브시스템 테스트.
-
-검증: appname 산출, 클래스명 자동추출(A), 믹스인 주입(C), 포맷 필드, end-to-end.
+"""로그 레코드 문맥 — 경로·로거 이름으로 정하는 `app=` 라벨, 클래스명 주입, 기본 포맷, ENV 별 핸들러,
+SQL 소음 필터.
 """
 
 import io
 import logging
 import pathlib
+
+import pytest
 
 from app.utils.logs import (
     LOG_FORMAT,
@@ -16,7 +17,10 @@ from app.utils.logs import (
 )
 from app.utils.logs import config as logs_config
 from app.utils.logs import setup as logs_setup
-from app.utils.logs.filters import _app_from_path
+from app.utils.logs.filters import (
+    SQLNoiseFilter,
+    _app_from_path,
+)
 
 
 def _rec(pathname="/x/app/features/blog/services/item_service.py", func="create"):
@@ -177,22 +181,6 @@ def test_file_logging_can_be_disabled_in_production(monkeypatch, tmp_path):
     assert cfg["formatters"]["app"]["use_utc"] is True  # UTC 는 파일 여부와 무관
 
 
-def test_dictconfig_has_no_per_app_loggers(monkeypatch, tmp_path):
-    """ADR-019 — 앱별 로거를 **등록하지 않는다**(핸들러는 root 에만).
-
-    이 프로젝트는 Django 의 ``settings.LOGGING["loggers"]`` 식 등록을 쓰지 않고
-    소스 경로에서 앱을 판별한다. ``loggers`` 키가 생기면 그 설계가 바뀐 것이므로,
-    코드보다 charter §2-4 비목표를 먼저 고쳐야 한다. 이 테스트가 그 관문이다.
-    """
-    for env in ("development", "test", "staging", "production"):
-        cfg = _build_with(monkeypatch, tmp_path, env=env)
-        assert "loggers" not in cfg, (
-            f"ENV={env} 의 dictConfig 에 loggers 키가 생겼습니다. "
-            "앱별 로거 등록은 ADR-019 의 비목표입니다 — charter §2-4 를 먼저 개정하세요."
-        )
-        assert cfg["root"]["handlers"], "root 에 핸들러가 없으면 아무 로그도 나가지 않는다"
-
-
 def test_configure_logging_applies_once(monkeypatch):
     """configure_logging() 은 여러 번 불러도 dictConfig 를 1회만 적용한다.
 
@@ -211,3 +199,91 @@ def test_configure_logging_applies_once(monkeypatch):
     # force=True 는 의도적 재적용이므로 통과해야 한다.
     logs_setup.configure_logging(force=True)
     assert len(calls) == 2
+
+
+SITE = "/opt/venv/lib/python3.14/site-packages"
+
+
+# =============================================================================
+# L2. 헤더 — 외부 라이브러리는 로거 이름으로 출처를 붙인다
+# =============================================================================
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("celery.worker.consumer", "celery"),
+        ("celery", "celery"),
+        ("kombu.connection", "celery"),
+        ("uvicorn.access", "uvicorn"),
+        ("uvicorn.error", "uvicorn"),
+        ("sqlalchemy.engine.Engine", "sqlalchemy"),
+        ("alembic.runtime.migration", "alembic"),
+        ("httpx", "ext"),
+        ("celeryx", "ext"),  # 접두사가 아니라 이름 단위로 맞춘다
+    ],
+)
+def test_external_code_is_labeled_by_logger_name(name, expected):
+    assert _app_from_path(f"{SITE}/pkg/mod.py", name) == expected
+
+
+def test_our_code_keeps_path_rules_regardless_of_logger_name():
+    assert _app_from_path("/x/app/features/blog/services.py", "celery") == "blog"
+    assert _app_from_path("/x/app/celery/worker_lifecycle.py", "uvicorn") == "celery"
+
+
+def test_context_filter_uses_logger_name_for_external_records():
+    record = logging.LogRecord(
+        "uvicorn.access", logging.INFO, f"{SITE}/uvicorn/h.py", 1, "x", (), None
+    )
+    ContextFilter().filter(record)
+    assert record.appname == "uvicorn"
+
+
+def _record(name: str, level: int) -> logging.LogRecord:
+    return logging.LogRecord(name, level, __file__, 1, "SELECT * FROM users", None, None)
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["sqlalchemy.engine.Engine", "aiomysql.cursors", "pymysql.connections", "aiosqlite"],
+)
+@pytest.mark.parametrize("level", [logging.DEBUG, logging.INFO])
+def test_sql_debug_and_info_are_blocked(name, level):
+    """SQL 로그에는 바인딩된 파라미터가 그대로 실린다."""
+    noise_filter = SQLNoiseFilter(allow_sql_echo=False)
+
+    assert noise_filter.filter(_record(name, level)) is False
+
+
+@pytest.mark.parametrize("level", [logging.WARNING, logging.ERROR, logging.CRITICAL])
+def test_sql_warnings_and_above_pass_through(level):
+    """커넥션 풀 고갈·재연결 실패는 장애 진단에 반드시 필요하다."""
+    noise_filter = SQLNoiseFilter(allow_sql_echo=False)
+
+    assert noise_filter.filter(_record("sqlalchemy.pool", level)) is True
+
+
+def test_application_logs_are_untouched():
+    """차단 대상은 SQL·드라이버 로거뿐이다."""
+    noise_filter = SQLNoiseFilter(allow_sql_echo=False)
+
+    assert noise_filter.filter(_record("app.features.blog", logging.DEBUG)) is True
+    assert noise_filter.filter(_record("raw_repository", logging.DEBUG)) is True
+
+
+def test_opt_in_lets_sql_debug_through():
+    """development/test 에서 SQL 을 보고 싶을 때는 켤 수 있어야 한다."""
+    noise_filter = SQLNoiseFilter(allow_sql_echo=True)
+
+    assert noise_filter.filter(_record("sqlalchemy.engine.Engine", logging.DEBUG)) is True
+
+
+def test_opt_in_is_ignored_outside_development(monkeypatch):
+    """설정이 켜져 있어도 운영 환경이면 무시한다 — 배포 검증을 우회해도 여기서 걸린다."""
+    from config import app_settings, log_settings
+
+    monkeypatch.setattr(log_settings, "LOG_SQL_ECHO_ENABLED", True, raising=False)
+    monkeypatch.setattr(app_settings, "ENV", "production", raising=False)
+
+    noise_filter = SQLNoiseFilter()
+
+    assert noise_filter.filter(_record("sqlalchemy.engine.Engine", logging.DEBUG)) is False

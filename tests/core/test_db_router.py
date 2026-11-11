@@ -5,9 +5,13 @@
 (모킹이 아니라 실제 바인딩 동작을 검증한다.)
 """
 
+import logging
+
+import pymysql
 import pytest
-from sqlalchemy import String, insert, select
+from sqlalchemy import String, insert, select, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import StaticPool
@@ -420,3 +424,46 @@ def test_describe_routing_masks_passwords():
     assert "***" in summary["writer"]
     assert all("replica-secret" not in url for url in summary["readers"])
     assert all("***" in url for url in summary["readers"])
+
+
+def _replica_raising(error: Exception):
+    async def connect():
+        raise error
+
+    return create_async_engine("mysql+aiomysql://replica/db", async_creator=connect)
+
+
+@pytest.fixture
+def writer():
+    engine = create_async_engine("sqlite+aiosqlite://")
+    yield engine
+
+
+async def _read(writer, replica, *, read_only: bool = True):
+    maker = create_routing_sessionmaker(DatabaseRouter(writer, [replica]))
+    async with maker() as session:
+        if read_only:
+            mark_read_only(session)
+        return (await session.execute(text("SELECT 42"))).scalar_one()
+
+
+async def test_read_only_session_retries_on_primary_after_a_replica_connection_error(
+    writer, caplog
+):
+    replica = _replica_raising(pymysql.err.OperationalError(2003, "Can't connect to MySQL server"))
+    with caplog.at_level(logging.WARNING):
+        assert await _read(writer, replica) == 42
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1 and "replica" in warnings[0].getMessage()
+
+
+async def test_other_errors_are_not_retried(writer):
+    replica = _replica_raising(pymysql.err.ProgrammingError(1064, "syntax"))
+    with pytest.raises(ProgrammingError):
+        await _read(writer, replica)
+
+
+async def test_writer_sessions_are_not_retried(writer):
+    replica = _replica_raising(pymysql.err.OperationalError(2003, "Can't connect"))
+    with pytest.raises(OperationalError):
+        await _read(writer, replica, read_only=False)

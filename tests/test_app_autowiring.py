@@ -1,19 +1,4 @@
-"""새 앱이 **중앙 파일 수정 없이** 결선되는지 통합 검증한다 (AC-01, AC-02, AC-03, AC-05).
-
-이 프로젝트의 존재 이유가 이 한 가지다. 앱을 하나 만들면 라우터·테이블·관리 화면이
-저절로 붙어야 하고, 그 대가로 `main.py` · `migrations/env.py` · `app/features/admin.py`
-를 열 일이 없어야 한다.
-
-검증 방법 — 실제 저장소에 앱을 만들지 않는다:
-    `app.features` 패키지의 ``__path__`` 에 임시 디렉터리를 덧붙인다. 파이썬 패키지의
-    ``__path__`` 는 그냥 리스트라, 여기에 경로를 더하면 `pkgutil.iter_modules` 와
-    `import_module` 이 그 디렉터리도 똑같이 취급한다. 즉 registry 입장에서는 진짜
-    앱과 구분되지 않으면서, 저장소에는 파일이 남지 않는다.
-
-    부팅 대신 새 `FastAPI` 인스턴스에 결선한다 — `main.py` 가 하는 일과 같은
-    호출(`discover` → `import_models` → `install_routers` → `install_admin`)이다.
-    "중앙 파일을 안 고쳤다" 는 별도로 파일 해시를 대조해 확인한다.
-"""
+"""앱 자동 배선 — 실제 기능 앱과 생성기로 만든 앱이 라우터·모델·관리 화면에 결선되고, 지우면 사라진다."""
 
 from __future__ import annotations
 
@@ -26,6 +11,7 @@ import pytest
 from fastapi import FastAPI
 
 import app.features
+from app.core.db.models_registry import import_all_models, iter_model_modules
 from app.core.db.session import Base
 from app.core.registry import AppRegistry
 from scripts.new_app import scaffold
@@ -202,7 +188,7 @@ def test_repeated_wiring_is_stable(generated_app):
 
 
 def test_removing_the_app_removes_its_wiring(tmp_path, monkeypatch):
-    """앱을 지우면 결선도 함께 사라진다 (FR-08 의 반대 방향).
+    """앱을 지우면 결선도 함께 사라진다.
 
     추가만 자동이고 제거는 수동이면, 지운 앱의 라우트가 남아 500 을 낸다.
     """
@@ -219,3 +205,58 @@ def test_removing_the_app_removes_its_wiring(tmp_path, monkeypatch):
     importlib.invalidate_caches()
 
     assert APP_NAME not in [m.name for m in AppRegistry().discover()]
+
+
+FEATURES_DIR = pathlib.Path(app.features.__path__[0])
+
+
+def _discovered():
+    return AppRegistry().discover()
+
+
+def _mounted_paths() -> set[str]:
+    from main import app
+
+    return set(app.openapi()["paths"].keys())
+
+
+# 라우터를 내보내는 앱만 파라미터로 쓴다. `pytest.skip` 을 쓰지 않는 이유는
+# CI 게이트가 조용한 SKIP 을 실패로 취급하기 때문이다 — 라우터 없는 앱은 정상이므로
+# 애초에 케이스를 만들지 않는다.
+_APPS_WITH_ROUTER = [module for module in _discovered() if module.load_router() is not None]
+
+
+def test_discovery_is_not_vacuous():
+    """발견 목록이 비면 아래 검사가 전부 헛통과한다."""
+    names = [m.name for m in _discovered()]
+    assert len(names) >= 6, f"기능 앱이 발견되지 않았다: {names}"
+    assert _APPS_WITH_ROUTER, "라우터를 내보내는 앱이 하나도 없다 — 마운트 검사가 무의미하다"
+
+
+@pytest.mark.parametrize("module", _APPS_WITH_ROUTER, ids=lambda m: m.name)
+def test_every_app_router_is_mounted(module):
+    """라우터를 내보내는 앱은 예외 없이 `/api/v1/<name>/...` 에 마운트돼 있다.
+
+    앱마다 개별 케이스로 돌린다 — 한 앱이 빠졌을 때 어느 앱인지 바로 보인다.
+    """
+    mounted = _mounted_paths()
+    assert any(
+        f"/{module.name}/" in path for path in mounted
+    ), f"앱 '{module.name}' 의 라우터가 마운트되지 않았다. 마운트된 경로: {sorted(mounted)}"
+
+
+def test_every_model_is_in_metadata():
+    """models/models.py 를 가진 앱은 빠짐없이 Base.metadata 에 등록돼야 한다."""
+    import_all_models()
+
+    with_models = {
+        module.name
+        for module in _discovered()
+        if (FEATURES_DIR / module.name / "models" / "models.py").is_file()
+    }
+    registered = {dotted.split(".")[2] for dotted in iter_model_modules()}
+
+    # 모델 없는 앱(auth 등)은 정상 제외 — "파일은 있는데 새는" 경우만 잡는다 (BC-06).
+    missing = with_models - registered
+    assert not missing, f"models.py 가 있는데 등록되지 않은 앱: {sorted(missing)}"
+    assert Base.metadata.tables, "Base.metadata 가 비어 있다 — 마이그레이션이 빈 채로 생성된다"

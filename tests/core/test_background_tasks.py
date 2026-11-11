@@ -1,4 +1,4 @@
-"""BackgroundTaskRunner 회귀 테스트 (검수 W1/REQ-009).
+"""BackgroundTaskRunner 회귀 테스트.
 
 미들웨어 접속로그 저장을 fire-and-forget 로 던지되,
 - 동시 실행 태스크 수에 상한을 두어(백프레셔) 고부하 시 무제한 증가를 막고,
@@ -54,8 +54,8 @@ async def test_completed_tasks_are_not_retained() -> None:
     assert runner.active == 0, "완료된 태스크는 추적 집합에서 제거되어야 함(누수 방지)"
 
 
-# ---------------------------------------------------------------- Phase 1-R2
-# ADR-002 / INV-3·INV-4 — drain 은 버리지 않고 정리한다.
+# ---------------------------------------------------------------- drain
+# drain 은 버리지 않고 정리한다.
 
 
 async def test_drain_closes_admission_before_waiting() -> None:

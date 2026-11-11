@@ -167,7 +167,7 @@ class AppModule:
         서브클래스가 아니면 `AppContractError`.
 
         `sqladmin` 은 이 함수 안에서만 import 한다 — 모듈 레벨에서 끌어오면
-        `ADMIN_DISABLED=true` 에서도 sqladmin 이 메모리에 올라간다(SEC-01). 이 함수는
+        `ADMIN_DISABLED=true` 에서도 sqladmin 이 메모리에 올라간다. 이 함수는
         `install_admin()` 에서만 호출되고, 그 시점엔 이미 ADMIN_DISABLED=false 다.
 
         Raises:
@@ -341,7 +341,7 @@ class AppRegistry:
         """발견된 각 앱의 `admin.py` 의 `admin_views` 를 SQLAdmin 에 등록한다.
 
         `admin` 은 `sqladmin.Admin` 인스턴스지만, 이 모듈이 sqladmin 을 모듈
-        레벨에서 import 하지 않기 위해(SEC-01) 타입을 좁히지 않는다.
+        레벨에서 import 하지 않기 위해 타입을 좁히지 않는다.
 
         Returns:
             등록한 view 개수.

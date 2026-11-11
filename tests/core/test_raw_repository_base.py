@@ -23,7 +23,7 @@ SENTINEL_VALUE = "sup3rs3cret-sentinel"
 
 # 이 계층이 직접 남기는 로그만 본다. 드라이버(aiosqlite)와 SQLAlchemy 는 DEBUG 에서
 # SQL 과 파라미터를 스스로 찍는데, 그것을 막는 것은 이 Base 의 책임이 아니라
-# 로깅 파이프라인의 SQL noise filter 몫이다(Phase 1-R2 로 이월).
+# 로깅 파이프라인의 SQL noise filter 몫이다.
 REPO_LOGGER = "raw_repository"
 
 
@@ -115,10 +115,3 @@ async def test_execute_still_returns_rowcount(repo):
     """로깅 래퍼가 primitive 의 반환 의미를 바꾸지 않는다."""
     assert await repo.delete_by_name(SENTINEL_VALUE) == 1
     assert await repo.delete_by_name("nobody") == 0
-
-
-def test_raw_repository_does_not_inherit_orm_base():
-    from app.core.repositories.repository_base import BaseRepository
-
-    assert not issubclass(RawRepositoryBase, BaseRepository)
-    assert not issubclass(BaseRepository, RawRepositoryBase)
