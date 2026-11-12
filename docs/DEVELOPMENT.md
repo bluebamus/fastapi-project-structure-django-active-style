@@ -50,9 +50,11 @@ app/features/orders/
 | `tests/core/` | `app/core`·`app/celery` — 레지스트리, DB 세션·라우터·읽기 전용 가드, repository Base, 보안, 미들웨어, 자원 수명주기, Celery, 마이그레이션 |
 | `tests/utils/` | 로깅(문맥·설정·마스킹·파일·큐)·페이지네이션·검증기 |
 | `tests/scripts/` | `scripts/` 의 동작 |
+| `tests/mysql/` | 실제 MySQL 8.4 에서만 드러나는 동작(마이그레이션·`DATETIME(6)`·오류 코드·라우팅·`CONVERT_TZ`·기본 인증). **CI 전용** — 아래 참고 |
 | `tests/` 바로 아래 | 앱 전체 조립과 설정 — 자동 배선, 설정 검사(`test_config.py`), 예외 처리기, 관리 화면(로그인·세션·배선·끄기), 권한 표, OpenAPI 계약, lifespan, `/ready`, 트랜잭션 배선 |
 
-공용 헬퍼: `tests/session_overrides.py`(운영 Dependency 와 같은 읽기 전용·writer 표시를 거는 세션 override),
+공용 헬퍼: `app/features/conftest.py`(기능 테스트의 `make_feature_client` — in-memory SQLite·세션 override·
+선택적 fakeredis 를 묶은 클라이언트 팩토리), `tests/session_overrides.py`(운영 Dependency 와 같은 읽기 전용·writer 표시를 거는 세션 override),
 `tests/auth_headers.py`(실제 `TokenService` 로 서명한 Bearer 헤더), `tests/core/conftest.py`(가짜 앱 패키지를 디스크에
 만드는 `fake_app` 픽스처).
 
@@ -61,8 +63,9 @@ app/features/orders/
 - DB 는 `sqlite+aiosqlite:///:memory:`(StaticPool)에 `Base.metadata.create_all` 로 만들고, 세션 Dependency 는
   `app.dependency_overrides.update(session_overrides(maker))` 로 바꿉니다. 세션을 직접 yield 하는 override 를 새로
   쓰지 않습니다 — 읽기 전용 표시가 빠지면 조회 핸들러의 몰래 쓰기를 잡지 못합니다.
-- Redis 는 fakeredis 를 `app.dependency_overrides[get_redis]` 나 `app.state.redis` 로 넣습니다. 실제 Redis·MySQL
-  에 붙는 테스트는 두지 않습니다.
+  기능 테스트는 이 조합을 `make_feature_client(headers=..., writer=..., redis=...)` 로 받습니다.
+- Redis 는 fakeredis 를 `app.dependency_overrides[get_redis]` 나 `app.state.redis` 로 넣습니다. 실제 Redis 에 붙는
+  테스트는 두지 않고, 실제 MySQL 테스트는 `tests/mysql/` 에만 둡니다.
 - 인증은 `get_current_principal` 을 override 하지 않고 `tests/auth_headers.py` 의 헤더를 보냅니다.
 - 사용자가 관찰하는 동작이나 깨지면 사고가 나는 불변식을 검사합니다. 문서 문구·파일 위치·이름을 검사하는 테스트는
   쓰지 않습니다. 같은 동작을 여러 파일에서 중복 검사하지 않습니다.
@@ -72,6 +75,17 @@ app/features/orders/
 ```bash
 uv run python -m pytest app/features/catalog          # 한 기능
 uv run python -m pytest tests/core -k registry        # 이름으로 고르기
+```
+
+### MySQL 테스트 (CI 전용)
+
+`tests/mysql/` 은 평소 `pytest`·`tests` 게이트가 수집하지 않습니다(`pyproject.toml` 의 `norecursedirs`). CI 의 `mysql`
+잡이 MySQL 8.4 서비스 컨테이너를 띄워 `review_gate --group mysql` 로 돌립니다. 로컬에서 돌리려면 **자기 소유의 빈
+MySQL** 관리자 URL 을 줍니다 — 테스트가 DB·계정을 만들고 지우므로 남의 서버나 공용 서버에 붙이지 않습니다.
+변수가 없으면 skip 이 아니라 실패합니다.
+
+```bash
+MYSQL_TEST_URL=mysql+aiomysql://root:<비밀번호>@127.0.0.1:<포트> uv run python -m pytest tests/mysql
 ```
 
 ### 커버리지
@@ -114,11 +128,12 @@ uv run alembic heads                                     # head 가 하나인지
 | `docs` | `README.md`·`docs/*.md`·워크플로가 백틱으로 적은 경로와 대입 형태(이름 뒤에 등호)로 적은 환경 변수가 실제로 있는지 |
 | `files` | 내용 없는 `.py`(`__init__.py` 제외)가 없는지 |
 | `deps` | `pip-audit --strict`(uv.lock 기준 취약점, 네트워크 필요) |
+| `mysql` | `pytest tests/mysql` + skip·xfail 0 판정. `MYSQL_TEST_URL` 이 필요해 인자 없는 실행에서는 빠진다 |
 
 ```bash
-uv run python -m scripts.review_gate                  # 전체
+uv run python -m scripts.review_gate                  # 전체(mysql 제외)
 uv run python -m scripts.review_gate --group static docs
 ```
 
 CI(`.github/workflows/ci.yml`)는 push·PR·주 1회 일정에 `uv sync --locked` 뒤 `--group static structure supply docs
-files deps` 와 `--group tests` 를 실행합니다. 의존성을 바꾸면 `uv lock` 으로 `uv.lock` 을 함께 갱신합니다.
+files deps` 와 `--group tests` 를, 별도 `mysql` 잡에서 `--group mysql` 을 실행합니다. 의존성을 바꾸면 `uv lock` 으로 `uv.lock` 을 함께 갱신합니다.

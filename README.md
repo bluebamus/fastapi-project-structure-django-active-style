@@ -85,7 +85,9 @@ uv run python -m scripts.review_gate --group static structure supply docs files 
 uv run python -m scripts.review_gate --group tests       # 커버리지 측정 + skip·xfail 0 확인
 ```
 
-CI(`.github/workflows/ci.yml`)는 위 두 게이트 명령을 그대로 실행합니다. 게이트 구성은
+CI(`.github/workflows/ci.yml`)는 위 두 게이트 명령을 그대로 실행합니다. 실제 MySQL 에서만 드러나는 동작은
+`tests/mysql/` 에 있고 **CI 전용**입니다(MySQL 8.4 서비스 컨테이너, `--group mysql`). 로컬에서 돌리려면 자기 소유의
+빈 MySQL 관리자 URL 을 `MYSQL_TEST_URL` 로 줍니다(테스트가 DB·계정을 만들고 지웁니다). 게이트 구성은
 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) 에 있습니다.
 
 ## 문서 안내

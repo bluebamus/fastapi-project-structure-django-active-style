@@ -60,3 +60,41 @@ jobs:
           REDIS_HOST: 127.0.0.1
           REDIS_PORT: "16392"
         run: uv run python -m scripts.review_gate --group tests
+
+  # 실제 MySQL 8.4 에서만 드러나는 동작(tests/mysql — 마이그레이션·DATETIME(6)·오류 코드·라우팅·
+  # CONVERT_TZ·caching_sha2_password). 서비스 컨테이너는 이 잡이 끝나면 사라지는 일회용이라
+  # root 비밀번호를 여기 그대로 둔다. 테스트는 DB·계정을 테스트마다 만들고 지운다.
+  mysql:
+    name: MySQL 8.4 tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.4  # digest 고정은 아직 — 태그가 움직이면 이 잡이 먼저 알려 준다
+        env:
+          MYSQL_ROOT_PASSWORD: ci-throwaway-root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pci-throwaway-root --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: uv 설치
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: 의존성 설치
+        run: uv sync --locked
+
+      # skip·xfail 이 하나라도 있으면 실패한다(tests 그룹과 같은 판정).
+      - name: review gate (mysql)
+        env:
+          MYSQL_TEST_URL: mysql+aiomysql://root:ci-throwaway-root@127.0.0.1:3306
+        run: uv run python -m scripts.review_gate --group mysql
