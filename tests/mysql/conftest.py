@@ -71,14 +71,15 @@ def mysql_user(mysql_server_url: URL, mysql_url: URL) -> Iterator[Callable[[str]
     admin = sa.create_engine(_sync(mysql_server_url), **ENGINE_SAFETY_OPTIONS)
     created: list[str] = []
 
+    # exec_driver_sql 은 pymysql 의 `query % args` 치환을 거친다 — 호스트 와일드카드는 '%%' 로 쓴다.
     def make(grants: str) -> URL:
         user = f"u_{uuid.uuid4().hex[:12]}"
         password = uuid.uuid4().hex
         with admin.begin() as conn:
             conn.exec_driver_sql(
-                f"CREATE USER '{user}'@'%' IDENTIFIED WITH caching_sha2_password BY '{password}'"
+                f"CREATE USER '{user}'@'%%' IDENTIFIED WITH caching_sha2_password BY '{password}'"
             )
-            conn.exec_driver_sql(f"GRANT {grants} ON `{mysql_url.database}`.* TO '{user}'@'%'")
+            conn.exec_driver_sql(f"GRANT {grants} ON `{mysql_url.database}`.* TO '{user}'@'%%'")
         created.append(user)
         return mysql_url.set(username=user, password=password)
 
@@ -87,5 +88,5 @@ def mysql_user(mysql_server_url: URL, mysql_url: URL) -> Iterator[Callable[[str]
     finally:
         with admin.begin() as conn:
             for user in created:
-                conn.exec_driver_sql(f"DROP USER IF EXISTS '{user}'@'%'")
+                conn.exec_driver_sql(f"DROP USER IF EXISTS '{user}'@'%%'")
         admin.dispose()
