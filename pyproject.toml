@@ -73,6 +73,10 @@ package = false
 # 테스트 파일 경로
 testpaths = ["tests", "app"]
 
+# tests/mysql 은 실제 MySQL 이 필요한 CI 전용 묶음이라 평소 수집에서 뺀다(skip·deselect 가 아니다).
+# 경로를 직접 주면(`pytest tests/mysql`) 수집된다. 기본값(.git·venv 등)을 대체하므로 함께 적는다.
+norecursedirs = ["*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}", "mysql"]
+
 # 테스트 파일 패턴
 python_files = ["test_*.py", "*_test.py"]
 

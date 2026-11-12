@@ -281,6 +281,22 @@ def test_gate_lists_its_groups(capsys):
     assert "supply" in capsys.readouterr().out
 
 
+def test_default_run_leaves_out_the_mysql_group(monkeypatch):
+    """`mysql` 은 실제 MySQL 이 필요한 CI 전용 그룹 — 인자 없는 로컬 실행에 끼면 늘 실패한다."""
+    import scripts.review_gate as gate
+
+    ran: list[str] = []
+    monkeypatch.setattr(gate, "run_group", lambda name: ran.append(name) or [])
+
+    assert main([]) == 0
+    assert "mysql" in gate.ALL_GROUPS
+    assert "mysql" not in ran and "tests" in ran
+
+    ran.clear()
+    assert main(["--group", "mysql"]) == 0
+    assert ran == ["mysql"]
+
+
 def test_gate_reports_failure_with_nonzero_exit(monkeypatch, capsys):
     """실패 출력과 종료 코드 자체를 검사한다 — 조용히 0 을 돌려주면 게이트가 아니다."""
     import scripts.review_gate as gate

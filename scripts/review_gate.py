@@ -21,7 +21,8 @@ CI 는 이 파일을 부르기만 한다.
 콘솔 설정을 반영하게 된다.
 
 사용:
-    python -m scripts.review_gate              # 전체
+    python -m scripts.review_gate              # 전체(mysql 제외)
+    python -m scripts.review_gate --group mysql  # tests/mysql — MYSQL_TEST_URL 필요(CI 전용)
     python -m scripts.review_gate --group supply docs
     python -m scripts.review_gate --list
 """
@@ -214,6 +215,9 @@ COMMAND_GROUPS: dict[str, list[list[str]]] = {
     "structure": [
         [*_PY, "alembic", "heads"],
     ],
+    # 실제 MySQL 검증(tests/mysql). MYSQL_TEST_URL 이 필요해 CI 의 mysql 잡에서만 부른다 —
+    # 인자 없는 실행(DEFAULT_GROUPS)에는 넣지 않는다. skip 0 판정은 tests 그룹과 같다.
+    "mysql": [[*_PY, "pytest", "tests/mysql", "-q", "-rsxX"]],
 }
 
 
@@ -291,6 +295,7 @@ EXTERNAL_ENV = {
     "GITHUB_TOKEN",
     "ALEMBIC_DATABASE_URL",
     "MYSQL_ROOT_PASSWORD",  # mysql 컨테이너 이미지의 변수(README 빠른 시작 docker 예시)
+    "MYSQL_TEST_URL",  # tests/mysql 전용 접속 URL — 앱 설정이 아니라 테스트 픽스처가 읽는다
 }
 
 
@@ -359,6 +364,7 @@ ANALYSIS_GROUPS = {
 }
 
 ALL_GROUPS = [*COMMAND_GROUPS, *ANALYSIS_GROUPS]
+DEFAULT_GROUPS = [name for name in ALL_GROUPS if name != "mysql"]
 
 
 def run_group(name: str) -> list[str]:
@@ -387,7 +393,9 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
     parser = argparse.ArgumentParser(description="로컬/CI 공용 검증 게이트")
-    parser.add_argument("--group", nargs="*", choices=ALL_GROUPS, help="실행할 그룹(기본: 전체)")
+    parser.add_argument(
+        "--group", nargs="*", choices=ALL_GROUPS, help="실행할 그룹(기본: mysql 을 뺀 전체)"
+    )
     parser.add_argument("--list", action="store_true", help="그룹 목록만 출력한다")
     args = parser.parse_args(argv)
 
@@ -396,7 +404,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     failures: dict[str, list[str]] = {}
-    for name in args.group or ALL_GROUPS:
+    for name in args.group or DEFAULT_GROUPS:
         print(f"[{name}] 실행")
         problems = run_group(name)
         if problems:
