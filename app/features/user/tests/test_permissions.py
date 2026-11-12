@@ -9,38 +9,15 @@
 
 import jwt
 import pytest_asyncio
-from fakeredis import FakeAsyncRedis
-from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
 
-from app.core.db.session import Base
-from app.core.redis import get_redis
 from app.features.user.models.models import User
-from main import app
 from tests.auth_headers import superuser_headers
-from tests.session_overrides import session_overrides
 
 
 @pytest_asyncio.fixture
-async def env():
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    maker = async_sessionmaker(engine, expire_on_commit=False)
-    app.dependency_overrides.update(session_overrides(maker))
-    fake_redis = FakeAsyncRedis()
-    app.dependency_overrides[get_redis] = lambda: fake_redis
-    transport = ASGITransport(app=app, raise_app_exceptions=False)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        yield client, maker, fake_redis
-    app.dependency_overrides.clear()
-    await engine.dispose()
+async def env(make_feature_client):
+    return await make_feature_client(redis=True, raise_app_exceptions=False)
 
 
 @pytest_asyncio.fixture

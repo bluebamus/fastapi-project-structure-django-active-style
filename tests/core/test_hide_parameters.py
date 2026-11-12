@@ -84,7 +84,8 @@ def _engine_construction_sites() -> tuple[list[str], list[str]]:
     sources = [*(REPO_ROOT / "app").rglob("*.py"), *(REPO_ROOT / "migrations").rglob("*.py")]
     sources += [*(REPO_ROOT / "scripts").rglob("*.py")]
     for path in sources:
-        if "tests" in path.relative_to(REPO_ROOT).parts:
+        # 테스트 코드(tests/ 와 app/features/conftest.py 같은 conftest)의 SQLite 엔진은 대상이 아니다.
+        if "tests" in path.relative_to(REPO_ROOT).parts or path.name == "conftest.py":
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):

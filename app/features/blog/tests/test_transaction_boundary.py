@@ -15,36 +15,21 @@ yield dependency 의 종료 코드가 응답 전송 뒤에 돌기 때문에, 커
 """
 
 import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
 
-from app.core.db.session import Base
 from app.features.blog.models.models import Post  # noqa: F401  (register table)
-from main import app
 from tests.auth_headers import user_headers
-from tests.session_overrides import session_overrides
 
 _NEW_POST = {"title": "경계 검증", "content": "본문", "author": "kim"}
 _MISSING_ID = "00000000-0000-0000-0000-000000000000"
 
 
 @pytest_asyncio.fixture
-async def tx_client():
+async def tx_client(make_feature_client):
     """commit/rollback 호출을 집계하는 클라이언트.
 
     `calls["fail_commit"] = True` 로 두면 commit 이 실패하도록 주입할 수 있다.
     실제 커밋 동작은 그대로 위임하므로 데이터 검증도 같이 가능하다.
     """
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    maker = async_sessionmaker(engine, expire_on_commit=False)
-
     calls = {"commit": 0, "rollback": 0, "fail_commit": False}
 
     def _count_calls(session):
@@ -66,16 +51,12 @@ async def tx_client():
 
     # 조회 엔드포인트는 get_read_only_db_session 을 쓴다. 같은 훅으로 오버라이드해야
     # 읽기/쓰기 커밋 횟수를 한 카운터로 셀 수 있다.
-    app.dependency_overrides.update(session_overrides(maker, on_open=_count_calls))
     # raise_app_exceptions=False: 서버 예외를 그대로 던지지 않고 실제 응답으로 받아야
     # "클라이언트가 무엇을 보는가"를 검증할 수 있다.
-    transport = ASGITransport(app=app, raise_app_exceptions=False)
-    async with AsyncClient(
-        transport=transport, base_url="http://test", headers=user_headers()
-    ) as c:
-        yield c, calls
-    app.dependency_overrides.clear()
-    await engine.dispose()
+    client, _, _ = await make_feature_client(
+        headers=user_headers(), on_open=_count_calls, raise_app_exceptions=False
+    )
+    return client, calls
 
 
 async def test_read_path_does_not_commit(tx_client):

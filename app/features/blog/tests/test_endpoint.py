@@ -5,38 +5,15 @@ in-memory sqlite(get_writer_db_session 오버라이드)로 검증한다.
 """
 
 import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
 
-from app.core.db.session import Base
 from app.features.blog.models.models import Post  # noqa: F401  (register table)
-from main import app
 from tests.auth_headers import USER_ID, user_headers
-from tests.session_overrides import session_overrides
 
 
 @pytest_asyncio.fixture
-async def client():
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    maker = async_sessionmaker(engine, expire_on_commit=False)
-
-    # 조회 엔드포인트는 get_read_only_db_session 을 쓴다 — 함께 오버라이드하지 않으면
-    # 읽기 경로가 실제 MySQL 로 새어나간다.
-    app.dependency_overrides.update(session_overrides(maker))
-    transport = ASGITransport(app=app)
-    async with AsyncClient(
-        transport=transport, base_url="http://test", headers=user_headers()
-    ) as c:
-        yield c
-    app.dependency_overrides.clear()
-    await engine.dispose()
+async def client(make_feature_client):
+    client, _, _ = await make_feature_client(headers=user_headers())
+    return client
 
 
 async def test_create_and_get_post(client):
