@@ -18,12 +18,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
 
-from app.core.db.session import Base, get_read_only_db_session
+from app.core.db.session import get_read_only_db_session
 from app.features.reports.dependencies.report_dependencies import get_report_service_readonly
 from app.features.reports.exceptions import InvalidDateRangeException
 from app.features.reports.models.models import SalesOrder  # noqa: F401  (register table)
@@ -31,9 +28,7 @@ from app.features.reports.repositories.sales_report_repository import SalesRepor
 from app.features.reports.schemas.report_schema import DailySalesItem
 from app.features.reports.services.report_service import ReportService
 from config import TimezoneSettings, timezone_settings
-from main import app
 from tests.auth_headers import superuser_headers
-from tests.session_overrides import session_overrides
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -57,29 +52,14 @@ def stub_daily_sales(monkeypatch):
 
 
 @pytest_asyncio.fixture
-async def client(stub_daily_sales):
+async def client(stub_daily_sales, make_feature_client):
     """조회 Dependency **만** 오버라이드한다.
 
     쓰기 Dependency 를 오버라이드하지 않는 것이 의도다 — 이 기능이 몰래 writer 를
     잡으면 실제 DB 로 새어나가 테스트가 실패한다.
     """
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    maker = async_sessionmaker(engine, expire_on_commit=False)
-
-    app.dependency_overrides.update(session_overrides(maker, writer=False))
-    transport = ASGITransport(app=app)
-    async with AsyncClient(
-        transport=transport, base_url="http://test", headers=superuser_headers()
-    ) as c:
-        yield c
-    app.dependency_overrides.clear()
-    await engine.dispose()
+    client, _, _ = await make_feature_client(headers=superuser_headers(), writer=False)
+    return client
 
 
 # ------------------------------------------------------------------ 자동배선

@@ -3,14 +3,12 @@
 import bcrypt
 import pytest
 import pytest_asyncio
-from fakeredis import FakeAsyncRedis
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.core.db.session import Base
 from app.core.exception import InvalidTokenException
-from app.core.redis import get_redis
 from app.features.auth.dependencies.auth_dependencies import get_token_service
 from app.features.user.models.models import User
 from config import jwt_settings
@@ -19,28 +17,12 @@ from tests.session_overrides import session_overrides
 
 
 @pytest_asyncio.fixture
-async def env():
-    """``(client, maker, redis)`` — DB 를 직접 보거나 Redis 상태를 볼 테스트용."""
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    maker = async_sessionmaker(engine, expire_on_commit=False)
+async def env(make_feature_client):
+    """``(client, maker, redis)`` — DB 를 직접 보거나 Redis 상태를 볼 테스트용.
 
-    # get_current_user 는 get_read_only_db_session 을 쓴다 — 함께 오버라이드하지 않으면
-    # 인증 경로가 실제 MySQL 로 새어나간다.
-    app.dependency_overrides.update(session_overrides(maker))
-    # 로그인·가입 rate limit 과 refresh 저장소가 Redis 를 쓴다(lifespan 없이 띄우므로 가짜).
-    fake_redis = FakeAsyncRedis()
-    app.dependency_overrides[get_redis] = lambda: fake_redis
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c, maker, fake_redis
-    app.dependency_overrides.clear()
-    await engine.dispose()
+    로그인·가입 rate limit 과 refresh 저장소가 Redis 를 쓴다.
+    """
+    return await make_feature_client(redis=True)
 
 
 @pytest_asyncio.fixture
