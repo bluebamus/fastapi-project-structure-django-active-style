@@ -21,3 +21,4 @@
 | Round | CRIT | HIGH | MED | LOW | 신규 Fix | 판정 |
 |---|---|---|---|---|---|---|
 | 1 | 0 | 0 | 1 | 2 | 3 | NOT CONVERGED |
+| 2 | 0 | 0 | 0 | 0 | 1 | CONVERGED — CI `6f9386f` MySQL 2 failed/5 passed → `7bef2e2` 수정 후 MySQL·review gate 모두 success |
